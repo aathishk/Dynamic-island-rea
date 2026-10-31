@@ -405,7 +405,7 @@ inline void ShowSettingsWindow(HWND hParent) {
     WNDCLASSEXW wc = {sizeof(wc)};
     wc.lpfnWndProc = SettingsWndProc;
     wc.hInstance = hInst;
-    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     wc.lpszClassName = L"DynamicIsland.SettingsDialog";
     RegisterClassExW(&wc);

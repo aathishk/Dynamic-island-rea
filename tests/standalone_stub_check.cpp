@@ -2,18 +2,27 @@
 // The island's real globals live in dynamic-island-ultra.cpp (which needs the
 // full C++/WinRT toolchain); this file stubs them so the Win32-only pieces
 // (standalone_app.h, launchers.h, standalone_shim.h) can be verified quickly.
+#ifndef DYNAMIC_ISLAND_STANDALONE
+#define DYNAMIC_ISLAND_STANDALONE 1
+#endif
+
+#define _WIN32_WINNT 0x0A00
+#include <windows.h>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include "standalone_shim.h"
 #include "launchers.h"
 
 HWND g_hwnd = nullptr;
 HANDLE g_renderThread = nullptr;
 std::atomic<bool> g_layoutDirty = true;
 constexpr int ID_HIDE_SHOW_HOTKEY = 1;
+constexpr UINT WM_APP_NEW_EVENT = WM_APP + 1;
 bool StartThreads() { return true; }
 void StopThreads() {}
 void LoadSettings() {}
+void TriggerNudge() {}
 
 #include "standalone_app.h"
 

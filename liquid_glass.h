@@ -93,7 +93,6 @@ struct GlassEngine {
     void ApplyBlur(int w, int h, int radius) {
         if (radius <= 0 || !rawBits_) return;
 
-        const int total = w * h;
         uint32_t* src = rawBits_;
         uint32_t* tmp = blurTemp_.data();
         const int div = 2 * radius + 1;
@@ -159,33 +158,56 @@ struct GlassEngine {
         }
     }
 
-    // Optical lens refraction: light gently bends around the curvature of the pill glass capsule
+    // Optical lens refraction: light gently bends around the pill glass capsule geometry
     void ApplyRefraction(int w, int h, float cornerRadius) {
-        if (!rawBits_ || w <= 4 || h <= 4) return;
+        if (!rawBits_ || w <= 8 || h <= 8) return;
 
-        const float cx = w * 0.5f;
+        const float r = std::min(cornerRadius, h * 0.5f);
         const float cy = h * 0.5f;
-        const float maxDisplacement = 6.0f;  // subtle, physical optical distortion in pixels
+        const float maxDisplacement = 4.0f; // clean, subtle physical optical distortion in pixels
         uint32_t* src = rawBits_;
         uint32_t* dst = refractedBits_.data();
 
         for (int y = 0; y < h; ++y) {
-            const float dy = (y - cy) / cy;  // -1 .. +1
-            const float dySq = dy * dy;
+            const float dy = y - cy;
+            const int row = y * w;
 
             for (int x = 0; x < w; ++x) {
-                const float dx = (x - cx) / cx;  // -1 .. +1
-                const float distSq = dx * dx + dySq;
+                float distFromCenter = 0.0f;
+                float normalX = 0.0f;
+                float normalY = (h > 0) ? (dy / (h * 0.5f)) : 0.0f;
 
-                if (distSq > 0.35f) {
-                    // Refraction kicks in as you approach the curved outer rim
-                    const float factor = std::min(1.0f, (distSq - 0.35f) / 0.65f);
-                    const float shift = factor * maxDisplacement;
-                    const int sx = std::clamp(static_cast<int>(x + dx * shift), 0, w - 1);
-                    const int sy = std::clamp(static_cast<int>(y + dy * shift), 0, h - 1);
-                    dst[y * w + x] = src[sy * w + sx];
+                if (x < r) {
+                    // Left rounded endcap
+                    const float dx = x - r;
+                    distFromCenter = std::sqrt(dx * dx + dy * dy);
+                    if (distFromCenter > 0.001f && r > 0.0f) {
+                        normalX = dx / r;
+                        normalY = dy / r;
+                    }
+                } else if (x > w - r) {
+                    // Right rounded endcap
+                    const float dx = x - (w - r);
+                    distFromCenter = std::sqrt(dx * dx + dy * dy);
+                    if (distFromCenter > 0.001f && r > 0.0f) {
+                        normalX = dx / r;
+                        normalY = dy / r;
+                    }
                 } else {
-                    dst[y * w + x] = src[y * w + x];
+                    // Straight center section: displacement strictly vertical towards top/bottom
+                    distFromCenter = std::abs(dy);
+                    normalX = 0.0f;
+                }
+
+                const float normDist = (h > 0) ? (distFromCenter / (h * 0.5f)) : 0.0f;
+                if (normDist > 0.50f) {
+                    const float factor = std::min(1.0f, (normDist - 0.50f) / 0.50f);
+                    const float shift = factor * maxDisplacement;
+                    const int sx = std::clamp(static_cast<int>(x + normalX * shift), 0, w - 1);
+                    const int sy = std::clamp(static_cast<int>(y + normalY * shift), 0, h - 1);
+                    dst[row + x] = src[sy * w + sx];
+                } else {
+                    dst[row + x] = src[row + x];
                 }
             }
         }
@@ -204,8 +226,8 @@ struct GlassEngine {
 
         const bool sizeChanged = (w != lastCaptureW_ || h != lastCaptureH_);
         const bool posChanged = (screenX != lastCaptureOrigin_.x || screenY != lastCaptureOrigin_.y);
-        // Throttle full background recapture to ~25Hz to keep CPU impact near 0%
-        const bool timeToRecapture = (now - lastCaptureTime_) > 0.04;
+        // Throttle background recapture to ~15Hz to keep CPU impact negligible
+        const bool timeToRecapture = (now - lastCaptureTime_) > 0.066;
 
         if (d2dBitmap_ && !sizeChanged && !posChanged && !timeToRecapture) {
             return d2dBitmap_.Get();

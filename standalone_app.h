@@ -128,7 +128,7 @@ inline void AddTrayIcon() {
     g_trayData.uID = kTrayId;
     g_trayData.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_trayData.uCallbackMessage = kTrayMessage;
-    g_trayData.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    g_trayData.hIcon = LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
     wcscpy_s(g_trayData.szTip, L"Dynamic Island");
     Shell_NotifyIconW(NIM_ADD, &g_trayData);
 }

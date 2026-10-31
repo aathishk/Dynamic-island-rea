@@ -1283,7 +1283,7 @@ struct Settings {
     bool notificationRespectDnD = true;
 
     // ── Premium material / redesign ──────────────────────────────────────────
-    bool realLiquidGlass = true;    // real backdrop optical blur + lens refraction
+    bool realLiquidGlass = false;   // real backdrop optical blur + lens refraction (opt-in in Settings)
     bool materialDepth = true;      // downward depth shading + accent bloom
     bool dropShadow = true;         // soft shadow under the island
     float accentBloom = 1.0f;       // 0..2 multiplier on the accent wash
@@ -3165,7 +3165,7 @@ void LoadSettings() {
     next.backdropTint = Clamp(Wh_GetIntSetting(L"Themes.BackdropTint") / 100.0f, 0.0f, 1.0f);
     next.backdropFillAlpha = Clamp(Wh_GetIntSetting(L"Themes.BackdropFillOpacity") / 100.0f, 0.0f, 1.0f);
 
-    next.realLiquidGlass = Wh_GetIntSetting(L"Themes.RealLiquidGlass") != 0;
+    next.realLiquidGlass = Wh_GetIntSetting(L"Themes.RealLiquidGlass") == 1;
     next.materialDepth = Wh_GetIntSetting(L"Themes.MaterialDepth") != 0;
     next.dropShadow = Wh_GetIntSetting(L"Themes.DropShadow") != 0;
     next.accentBloom = Clamp(Wh_GetIntSetting(L"Themes.AccentBloom") / 100.0f, 0.0f, 2.0f);
@@ -6374,6 +6374,8 @@ int GetLastKnownBluetoothBatteryPercent(const std::wstring& deviceId) {
 struct BluetoothTrackedDevice {
     std::wstring name;
     BluetoothDeviceCategory category;
+    bool wasConnectedLive = false;
+    double lastAlertTime = 0.0;
 };
 
 void HandleBluetoothConnected(
@@ -6392,9 +6394,19 @@ void HandleBluetoothConnected(
     }
 
     BluetoothDeviceCategory category = ClassifyBluetoothDevice(info);
+    const double now = NowSeconds();
+    const std::wstring deviceId = info.Id().c_str();
+
     {
         std::lock_guard lock(cacheMutex);
-        cache[std::wstring(info.Id().c_str())] = BluetoothTrackedDevice{name, category};
+        auto& entry = cache[deviceId];
+        if (now - entry.lastAlertTime < 15.0) {
+            return;  // Debounce flapping
+        }
+        entry.name = name;
+        entry.category = category;
+        entry.wasConnectedLive = true;
+        entry.lastAlertTime = now;
     }
 
     if (!g_settings.bluetoothIndicator) {
@@ -6404,7 +6416,6 @@ void HandleBluetoothConnected(
     Wh_Log(L"Bluetooth: connected - %s", name.c_str());
 
     const uint64_t myGeneration = ++g_bluetoothConnectGeneration;
-    const std::wstring deviceId = info.Id().c_str();
 
     BluetoothDeviceSnapshot snapshot;
     snapshot.active = true;
@@ -6469,16 +6480,33 @@ void HandleBluetoothDisconnected(
         return;
     }
 
+    const double now = NowSeconds();
     std::wstring name;
     BluetoothDeviceCategory category = BluetoothDeviceCategory::Generic;
+    bool wasConnectedLive = false;
+
     {
         std::lock_guard lock(cacheMutex);
         auto it = cache.find(std::wstring(id.c_str()));
         if (it != cache.end()) {
             name = it->second.name;
             category = it->second.category;
+            wasConnectedLive = it->second.wasConnectedLive;
+            if (now - it->second.lastAlertTime < 15.0) {
+                return;  // Debounce flapping
+            }
+            it->second.wasConnectedLive = false;
+            it->second.lastAlertTime = now;
         }
     }
+
+    // Only alert on disconnect IF the device was actively connected live
+    // during this session. This completely stops phantom disconnect alerts
+    // for paired BLE devices (like GP325) that idle, sleep, or flap in the background!
+    if (!wasConnectedLive) {
+        return;
+    }
+
     if (name.empty()) {
         name = L"Bluetooth Device";
     }
@@ -6491,7 +6519,7 @@ void HandleBluetoothDisconnected(
     snapshot.deviceName = name;
     snapshot.category = category;
     snapshot.batteryPercent = GetLastKnownBluetoothBatteryPercent(std::wstring(id.c_str()));
-    snapshot.expiresAt = NowSeconds() + 4.0;
+    snapshot.expiresAt = now + 4.0;
 
     {
         std::lock_guard lock(g_stateMutex);
@@ -6546,8 +6574,11 @@ DWORD WINAPI BluetoothThreadProc(void*) {
                 HandleBluetoothConnected(info, deviceCache, cacheMutex);
             });
 
-            watcher.Removed([&deviceCache, &cacheMutex](
+            watcher.Removed([&deviceCache, &cacheMutex, enumDone](
                                 DeviceWatcher const&, DeviceInformationUpdate const& update) {
+                if (!*enumDone) {
+                    return;  // Ignore initial snapshot removals
+                }
                 HandleBluetoothDisconnected(update.Id(), deviceCache, cacheMutex);
             });
 

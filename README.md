@@ -10,11 +10,12 @@ A hardware-accelerated (Direct2D) Dynamic Island / edge dock for Windows: media 
 | :-- | :-- |
 | Standalone app | Runs as a normal EXE without Windhawk: **tray icon with menu** (show/hide, position, settings, run at startup, exit), single-instance guard, Explorer-restart recovery |
 | Settings GUI | **Native Windows 11 Fluent Dark Settings window** with tabs for Appearance, Glass & Effects, Animation Physics, and Modules. Instantly hot-reloads the live island |
-| Look & Glass | **Real Optical Liquid Glass Engine**: Direct2D live backdrop capture, separable dual-pass blur, and lens refraction edge displacement (no square grey boxes or GDI stair-stepping) |
+| Look & Glass | **Crystal-Clear Obsidian Glass** (0% CPU default) + optional **Optical Liquid Glass** (`liquid_glass.h`: live backdrop capture, separable 2-pass blur, and capsule lens refraction, drawn with Direct2D) |
 | Placement | **Adaptive Edge Blade** (auto) position plus a position submenu in both the right-click and tray menus |
 | Animation | `applespring` animation style |
 | Media | Master-volume flyout with mouse-wheel scrubbing over the speaker icon, middle-click to cycle media sessions, hardware media-key fallback |
 | Feed filtering | "Quiet feed" mode that suppresses repeated banners while short-form video is playing |
+| Bluetooth Stability | **BLE anti-flapping guard**: suppresses phantom disconnect banners from background BLE peripherals (e.g. sleep/idle devices) and debounces repeated events |
 | Launcher | **User-editable quick launchers** (`[Launchers]` in `settings.ini`) in the Quick Lookup box |
 | Logging | Opt-in, rotated, written to `%APPDATA%\DynamicIsland` (no more `debug.log` in the working directory) |
 
@@ -60,7 +61,7 @@ With a Windhawk install you can instead pass `--toolchain <Windhawk>\Compiler` (
 ## Known limitations
 
 - **The Windhawk-mod variant is not currently verified.** `legacy/compile_mod.py` is kept for reference; a fallback `GetIniFilePath()` was added so the file no longer depends on the standalone shim, but it has not been rebuilt against Windhawk.
-- **Upstream Backdrop Material selector:** The upstream Acrylic/Blur window approach is superseded by the Direct2D Real Optical Liquid Glass engine (`Themes.RealLiquidGlass=1`), which captures the backdrop with subpixel anti-aliasing and lens displacement without rectangular grey artifacts.
+- **Backdrop Material & Optical Glass:** The default theme uses a crystal-clear obsidian glass base (16% alpha with dynamic album-art accent bloom and specular rim highlight), requiring zero background capture and 0% CPU. An optional optical liquid glass engine (`Themes.RealLiquidGlass=1`, toggleable in Settings) provides live backdrop capture, separable 2-pass blur, and capsule lens refraction rendered with Direct2D.
 
 ## Repository layout
 

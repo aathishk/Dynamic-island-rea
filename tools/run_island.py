@@ -1,6 +1,6 @@
 import ctypes
 from ctypes import wintypes
-import time, os
+import time, os, sys
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -35,10 +35,12 @@ class PROCESS_INFORMATION(ctypes.Structure):
         ('dwThreadId', wintypes.DWORD),
     ]
 
-# Remove old debug.log if exists
-if os.path.exists('debug.log'):
+# Logging is opt-in; the standalone app writes %APPDATA%\\DynamicIsland\\debug.log
+os.environ['DYNAMIC_ISLAND_DEBUG'] = '1'
+log_path = os.path.join(os.environ.get('APPDATA', '.'), 'DynamicIsland', 'debug.log')
+if os.path.exists(log_path):
     try:
-        os.remove('debug.log')
+        os.remove(log_path)
     except Exception:
         pass
 
@@ -48,8 +50,8 @@ si.lpDesktop = 'WinSta0\\Default'
 
 pi = PROCESS_INFORMATION()
 
-exe_path = os.path.abspath('DynamicIsland.exe')
-work_dir = os.path.abspath('.')
+exe_path = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else 'DynamicIsland.exe')
+work_dir = os.path.dirname(exe_path)
 
 success = kernel32.CreateProcessW(
     None, exe_path, None, None, False, 0, None, work_dir,
@@ -93,7 +95,7 @@ print(f'Windows for PID {pi.dwProcessId}:')
 for win in found:
     print(win)
 
-if os.path.exists('debug.log'):
+if os.path.exists(log_path):
     print('\n--- debug.log ---')
-    with open('debug.log', 'r', encoding='utf-8', errors='ignore') as f:
+    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
         print(f.read())

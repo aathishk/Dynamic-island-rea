@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#include <cstdarg>
 
 // When compiling as a standalone Windows app (outside Windhawk injection)
 #ifdef DYNAMIC_ISLAND_STANDALONE
@@ -97,7 +98,30 @@ inline BOOL Wh_SetIntValue(PCWSTR name, int value) {
     return TRUE;
 }
 
+// Logging is opt-in: set "Debug.Log=1" under [Settings] in settings.ini, or the
+// environment variable DYNAMIC_ISLAND_DEBUG=1. The log lives next to the
+// settings file (%APPDATA%/DynamicIsland/debug.log) and is rotated at 512 KB,
+// so it never grows without bound or depends on the working directory.
+inline bool DiLogEnabled() {
+    static const bool enabled = [] {
+        wchar_t env[8] = {};
+        if (GetEnvironmentVariableW(L"DYNAMIC_ISLAND_DEBUG", env, ARRAYSIZE(env)) > 0 && env[0] == L'1') {
+            return true;
+        }
+        return GetPrivateProfileIntW(L"Settings", L"Debug.Log", 0, GetIniFilePath().c_str()) != 0;
+    }();
+    return enabled;
+}
+
+inline std::wstring DiLogPath() {
+    wchar_t dir[MAX_PATH] = {};
+    Wh_GetModStoragePath(dir, MAX_PATH);
+    return std::wstring(dir) + L"\\debug.log";
+}
+
 inline void Wh_Log(PCWSTR format, ...) {
+    if (!DiLogEnabled()) return;
+
     va_list args;
     va_start(args, format);
     wchar_t buf[1024];
@@ -105,7 +129,12 @@ inline void Wh_Log(PCWSTR format, ...) {
     va_end(args);
     OutputDebugStringW(buf);
 
-    FILE* fp = _wfopen(L"debug.log", L"a, ccs=UTF-8");
+    static std::wstring path = DiLogPath();
+    WIN32_FILE_ATTRIBUTE_DATA info{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info) && info.nFileSizeLow > 512 * 1024) {
+        MoveFileExW(path.c_str(), (path + L".old").c_str(), MOVEFILE_REPLACE_EXISTING);
+    }
+    FILE* fp = _wfopen(path.c_str(), L"a, ccs=UTF-8");
     if (fp) {
         fwprintf(fp, L"%s\n", buf);
         fclose(fp);

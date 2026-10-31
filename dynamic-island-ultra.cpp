@@ -662,6 +662,8 @@ We love community contributions! To ensure high-quality updates, please follow t
 #define DYNAMIC_ISLAND_HAS_BLUETOOTH_WATCHER 0
 #endif
 
+#include "launchers.h"
+
 using Microsoft::WRL::ComPtr;
 using namespace std::chrono_literals;
 
@@ -9762,9 +9764,14 @@ std::vector<LookupRow> BuildLookupRows(const std::vector<LookupRecent>& recents,
     const std::wstring typed = LookupTypedQuery(ui);
 
     if (typed.empty()) {
-        rows.push_back({LookupRowKind::Recent, L"wt.exe", L"⚡ Windows Terminal", L"1-Click App Launcher"});
-        rows.push_back({LookupRowKind::Recent, L"explorer.exe", L"📁 File Explorer", L"1-Click App Launcher"});
-        rows.push_back({LookupRowKind::Recent, L"msedge.exe", L"🌐 Web Browser", L"1-Click App Launcher"});
+        {
+            // User-editable launchers ([Launchers] in settings.ini); first three are shown.
+            const std::vector<DiLauncher> launchers = DiCachedLaunchers();
+            for (size_t i = 0; i < launchers.size() && i < 3; ++i) {
+                rows.push_back({LookupRowKind::Recent, launchers[i].command, L"⚡ " + launchers[i].label,
+                                L"1-Click App Launcher"});
+            }
+        }
         const std::wstring clipKey = ToLowerCopy(ui.clipboardQuery);
         if (!ui.clipboardQuery.empty()) {
             rows.push_back({LookupRowKind::Clipboard, ui.clipboardQuery, ui.clipboardQuery,
@@ -10643,18 +10650,16 @@ void SubmitLookup(const std::wstring& rawText) {
         return;
     }
 
-    // Dynamic Edge Quick App Launch:
-    const std::wstring qLower = ToLowerCopy(query);
-    if (qLower == L"wt.exe" || qLower == L"wt" || qLower == L"terminal" ||
-        qLower == L"explorer.exe" || qLower == L"explorer" ||
-        qLower == L"msedge.exe" || qLower == L"edge" || qLower == L"browser" ||
-        qLower == L"chrome.exe" || qLower == L"chrome" ||
-        qLower == L"cmd.exe" || qLower == L"cmd" ||
-        qLower == L"notepad.exe" || qLower == L"notepad" ||
-        qLower == L"calc.exe" || qLower == L"calc") {
-        ShellExecuteW(nullptr, L"open", query.c_str(), nullptr, nullptr, SW_SHOW);
-        CloseLookupPanel(g_hwnd);
-        return;
+    // Dynamic Edge Quick App Launch: only commands/aliases from the launcher list
+    // ([Launchers] in settings.ini, or the built-in defaults) are ever executed;
+    // arbitrary typed text is still treated as a lookup.
+    {
+        const std::vector<DiLauncher> launchers = DiCachedLaunchers();
+        if (const DiLauncher* launcher = DiFindLauncher(launchers, query)) {
+            ShellExecuteW(nullptr, L"open", launcher->command.c_str(), nullptr, nullptr, SW_SHOW);
+            CloseLookupPanel(g_hwnd);
+            return;
+        }
     }
 
     const double now = NowSeconds();
@@ -24957,68 +24962,5 @@ void Wh_ModUninit() {
 }
 
 #ifdef DYNAMIC_ISLAND_STANDALONE
-
-NOTIFYICONDATAW g_nid = {};
-
-static void InitTrayIcon(HWND hwnd) {
-    ZeroMemory(&g_nid, sizeof(g_nid));
-    g_nid.cbSize = sizeof(g_nid);
-    g_nid.hWnd = hwnd;
-    g_nid.uID = 1001;
-    g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    g_nid.uCallbackMessage = WM_APP + 500;
-    g_nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    wcscpy_s(g_nid.szTip, L"Dynamic Island for Windows 11");
-    Shell_NotifyIconW(NIM_ADD, &g_nid);
-}
-
-static void RemoveTrayIcon() {
-    Shell_NotifyIconW(NIM_DELETE, &g_nid);
-}
-
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
-    HDESK hDesk = OpenDesktopW(L"Default", 0, FALSE, GENERIC_ALL);
-    if (hDesk) {
-        SetThreadDesktop(hDesk);
-    }
-
-    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-
-    Wh_Log(L"wWinMain: starting Dynamic Island standalone...");
-    LoadSettings();
-
-    if (!StartThreads()) {
-        Wh_Log(L"wWinMain: StartThreads failed.");
-        MessageBoxW(nullptr, L"Failed to start Dynamic Island.", L"Dynamic Island", MB_ICONERROR);
-        CoUninitialize();
-        return 1;
-    }
-
-    // Wait for the render thread to initialize and create g_hwnd
-    for (int i = 0; i < 50 && !g_hwnd; i++) {
-        Sleep(50);
-    }
-
-    if (g_hwnd) {
-        Wh_Log(L"wWinMain: g_hwnd successfully created: %p", g_hwnd);
-        InitTrayIcon(g_hwnd);
-    } else {
-        Wh_Log(L"wWinMain: Warning: g_hwnd not created within 2.5s.");
-    }
-
-    // Wait on render thread
-    if (g_renderThread) {
-        WaitForSingleObject(g_renderThread, INFINITE);
-    }
-
-    RemoveTrayIcon();
-    StopThreads();
-    CoUninitialize();
-    return 0;
-}
-
-int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR, int nCmdShow) {
-    return wWinMain(hInst, hPrev, GetCommandLineW(), nCmdShow);
-}
+#include "standalone_app.h"
 #endif

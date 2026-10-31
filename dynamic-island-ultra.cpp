@@ -3276,7 +3276,7 @@ void LoadSettings() {
     g_gameOverlayPinned.store(Wh_GetIntValue(L"GameOverlayPinned", 0) != 0);
     g_pinnedExpanded.store(Wh_GetIntValue(L"PinnedExpanded", 0) != 0);
     next.pillOpacity = Clamp((localOpacity >= 0 ? localOpacity : settingOpacity) / 100.0f,
-                             0.35f, 1.0f);
+                             0.10f, 1.0f);
     next.gameOverlay = Wh_GetIntSetting(L"Modules.GameOverlay") != 0;
     next.showMetricText = Wh_GetIntSetting(L"Modules.ShowMetricText") != 0;
     next.weather = Wh_GetIntSetting(L"Modules.Weather") != 0;
@@ -6374,9 +6374,10 @@ int GetLastKnownBluetoothBatteryPercent(const std::wstring& deviceId) {
 struct BluetoothTrackedDevice {
     std::wstring name;
     BluetoothDeviceCategory category;
+    bool isBle = false;
     bool isConnected = false;
-    double lastConnectTime = 0.0;
-    double lastDisconnectTime = 0.0;
+    double lastConnectTime = -100.0;
+    double lastDisconnectTime = -100.0;
 };
 
 void HandleBluetoothConnected(
@@ -6401,7 +6402,6 @@ void HandleBluetoothConnected(
     {
         std::lock_guard lock(cacheMutex);
         auto& entry = cache[deviceId];
-        // Suppress duplicate connect alert if already recorded connected within 5s
         if (entry.isConnected && (now - entry.lastConnectTime < 5.0)) {
             return;
         }
@@ -6478,35 +6478,37 @@ void HandleBluetoothDisconnected(
         PostMessageW(recheckHwnd, WM_NULL, 0, 0);
     }
 
-    if (!g_settings.bluetoothIndicator) {
-        return;
-    }
-
     const double now = NowSeconds();
     std::wstring name;
     BluetoothDeviceCategory category = BluetoothDeviceCategory::Generic;
     bool wasConnected = false;
+    bool isBle = false;
 
+    // CRITICAL: Always update tracking state regardless of whether notifications are enabled!
     {
         std::lock_guard lock(cacheMutex);
         auto it = cache.find(std::wstring(id.c_str()));
         if (it != cache.end()) {
             name = it->second.name;
             category = it->second.category;
+            isBle = it->second.isBle;
             wasConnected = it->second.isConnected;
-            // Always set isConnected = false so the state machine never stays stale
             it->second.isConnected = false;
             if (now - it->second.lastDisconnectTime < 5.0) {
-                return;  // Debounce duplicate disconnect alerts
+                return;  // Debounce duplicate disconnect events
             }
             it->second.lastDisconnectTime = now;
         }
     }
 
-    // Only alert on disconnect IF the device was actively connected in this session.
-    // This completely stops phantom disconnect alerts for paired BLE devices (like GP325)
-    // that idle, sleep, or flap in the background without user interaction!
-    if (!wasConnected) {
+    // If notifications are turned off in settings, stop here (state has already been updated).
+    if (!g_settings.bluetoothIndicator) {
+        return;
+    }
+
+    // Never alert on disconnect if the device was not actively connected.
+    // Also suppress disconnect alerts for generic BLE peripherals (like GP325 sleeping in background).
+    if (!wasConnected || (isBle && category == BluetoothDeviceCategory::Generic)) {
         return;
     }
 
@@ -6558,7 +6560,7 @@ DWORD WINAPI BluetoothThreadProc(void*) {
                     *enumDone = true;
                 });
 
-            watcher.Added([&deviceCache, &cacheMutex, enumDone](
+            watcher.Added([&deviceCache, &cacheMutex, enumDone, label](
                               DeviceWatcher const&, DeviceInformation const& info) {
                 // Devices reported before EnumerationCompleted are the
                 // watcher's initial snapshot (already connected when the mod
@@ -6569,11 +6571,13 @@ DWORD WINAPI BluetoothThreadProc(void*) {
                     std::wstring name = info.Name().c_str();
                     if (!name.empty()) {
                         std::lock_guard lock(cacheMutex);
-                        // Device is already connected before island started:
-                        // track as isConnected = true so future disconnect alerts work,
-                        // but suppress popup right now.
+                        BluetoothDeviceCategory cat = ClassifyBluetoothDevice(info);
+                        const bool isBleDevice = (wcscmp(label, L"BLE") == 0);
+                        // Audio and user-input devices connected at launch will alert if disconnected later.
+                        // Generic BLE peripherals that Windows polls are marked not actively connected.
+                        const bool trackAsConnected = !isBleDevice || (cat != BluetoothDeviceCategory::Generic);
                         deviceCache[std::wstring(info.Id().c_str())] =
-                            BluetoothTrackedDevice{name, ClassifyBluetoothDevice(info), true, 0.0, 0.0};
+                            BluetoothTrackedDevice{name, cat, isBleDevice, trackAsConnected, -100.0, -100.0};
                     }
                     return;
                 }
@@ -6924,7 +6928,7 @@ void PushAudioChunks(BYTE* data, UINT32 frames, WAVEFORMATEX* format) {
 // --- Weather Fetching Helpers ---
 std::string HttpGet(const wchar_t* host, const wchar_t* path, bool https = true) {
     std::string response;
-    HINTERNET hSession = WinHttpOpen(L"DynamicIsland/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET hSession = WinHttpOpen(L"DynamicIslandForWindows/" WH_MOD_VERSION L" (https://github.com/aathishk/Dynamic-island-rea)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!hSession) {
         Wh_Log(L"Weather HttpGet: WinHttpOpen failed with error %lu", GetLastError());
         return response;
@@ -24711,16 +24715,24 @@ bool StartThreads() {
         return false;
     }
 
-    g_mediaThread = CreateThread(nullptr, 0, MediaThreadProc, nullptr, 0, nullptr);
-    g_audioThread = CreateThread(nullptr, 0, AudioThreadProc, nullptr, 0, nullptr);
-    g_weatherThread = CreateThread(nullptr, 0, WeatherThreadProc, nullptr, 0, nullptr);
-    g_lyricsThread = CreateThread(nullptr, 0, LyricsThreadProc, nullptr, 0, nullptr);
-    g_keyboardThread = CreateThread(nullptr, 0, KeyboardThreadProc, nullptr, 0, &g_keyboardThreadId);
-    g_mouseThread = CreateThread(nullptr, 0, MouseThreadProc, nullptr, 0, &g_mouseThreadId);
+    auto spawnThread = [](LPTHREAD_START_ROUTINE fn, const wchar_t* name, LPDWORD pId = nullptr) -> HANDLE {
+        HANDLE h = CreateThread(nullptr, 0, fn, nullptr, 0, pId);
+        if (!h) {
+            Wh_Log(L"StartThreads: warning: failed to create %s thread (error: %lu)", name, GetLastError());
+        }
+        return h;
+    };
+
+    g_mediaThread = spawnThread(MediaThreadProc, L"Media");
+    g_audioThread = spawnThread(AudioThreadProc, L"Audio");
+    g_weatherThread = spawnThread(WeatherThreadProc, L"Weather");
+    g_lyricsThread = spawnThread(LyricsThreadProc, L"Lyrics");
+    g_keyboardThread = spawnThread(KeyboardThreadProc, L"Keyboard", &g_keyboardThreadId);
+    g_mouseThread = spawnThread(MouseThreadProc, L"Mouse", &g_mouseThreadId);
 #if DYNAMIC_ISLAND_HAS_USER_NOTIFICATION_LISTENER
-    g_notificationThread = CreateThread(nullptr, 0, NotificationThreadProc, nullptr, 0, nullptr);
+    g_notificationThread = spawnThread(NotificationThreadProc, L"Notification");
 #endif
-    g_bluetoothThread = CreateThread(nullptr, 0, BluetoothThreadProc, nullptr, 0, nullptr);
+    g_bluetoothThread = spawnThread(BluetoothThreadProc, L"Bluetooth");
     SubscribeDndNotification();
 
     return true;

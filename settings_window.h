@@ -380,6 +380,16 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             return 0;
         }
 
+        case WM_CTLCOLORDLG:
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORBTN: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(hdc, RGB(235, 235, 240));
+            SetBkColor(hdc, RGB(28, 28, 32));
+            static HBRUSH s_darkBrush = CreateSolidBrush(RGB(28, 28, 32));
+            return reinterpret_cast<INT_PTR>(s_darkBrush);
+        }
+
         case WM_CLOSE:
             DestroyWindow(hwnd);
             return 0;
@@ -402,19 +412,23 @@ inline void ShowSettingsWindow(HWND hParent) {
     }
 
     HINSTANCE hInst = GetModuleHandleW(nullptr);
+    static HBRUSH s_wndDarkBrush = CreateSolidBrush(RGB(28, 28, 32));
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = SettingsWndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.hbrBackground = s_wndDarkBrush;
     wc.lpszClassName = L"DynamicIsland.SettingsDialog";
     RegisterClassExW(&wc);
 
     const int width = 640;
     const int height = 525;
-    const int posX = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
-    const int posY = (GetSystemMetrics(SM_CYSCREEN) - height) / 2;
+    HMONITOR hMon = MonitorFromWindow(hParent ? hParent : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {sizeof(mi)};
+    GetMonitorInfoW(hMon, &mi);
+    const int posX = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - width) / 2;
+    const int posY = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - height) / 2;
 
     HWND hwnd = CreateWindowExW(
         WS_EX_DLGMODALFRAME,

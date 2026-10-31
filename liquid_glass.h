@@ -239,8 +239,11 @@ struct GlassEngine {
         if (!screenDc) return nullptr;
 
         // BitBlt captures windows and wallpaper behind this layered window (WS_EX_LAYERED is excluded by default)
-        BitBlt(memDc_, 0, 0, w, h, screenDc, screenX, screenY, SRCCOPY);
+        BOOL bltOk = BitBlt(memDc_, 0, 0, w, h, screenDc, screenX, screenY, SRCCOPY);
         ReleaseDC(nullptr, screenDc);
+        if (!bltOk) {
+            return d2dBitmap_.Get(); // Return previous bitmap if screen grab temporarily fails
+        }
 
         // Apply 2-pass high quality optical blur (radius 10px)
         ApplyBlur(w, h, 10);
@@ -259,7 +262,8 @@ struct GlassEngine {
             if (FAILED(hr)) return nullptr;
         } else {
             D2D1_RECT_U destRect = D2D1::RectU(0, 0, w, h);
-            d2dBitmap_->CopyFromMemory(&destRect, refractedBits_.data(), w * sizeof(uint32_t));
+            HRESULT hr = d2dBitmap_->CopyFromMemory(&destRect, refractedBits_.data(), w * sizeof(uint32_t));
+            if (FAILED(hr)) return nullptr;
         }
 
         lastCaptureOrigin_ = {screenX, screenY};

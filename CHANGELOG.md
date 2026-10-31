@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.5.2
+- **Fixed Opacity Clamp:** Lowered minimum opacity clamp from 35% to 10% in `dynamic-island-ultra.cpp`, so selecting **16% (Crystal Clear Transparent)** in the Settings GUI now accurately renders at 16% opacity.
+- **Perfected Bluetooth State Machine:**
+  - Resolved startup suppression bug where `NowSeconds() - 0.0 < 5.0` blocked valid disconnects during the first 5 seconds.
+  - Suppressed phantom disconnect alerts from generic background BLE peripherals (e.g. `GP325`) transitioning to sleep, while retaining disconnect alerts for active headsets, speakers, and input devices.
+  - Guaranteed tracking state updates even when notification popups are disabled.
+- **Branded Weather User-Agent:** Updated weather HTTP client from generic `DynamicIsland/1.0` to `DynamicIslandForWindows/1.5.2 (https://github.com/aathishk/Dynamic-island-rea)`.
+- **Settings GUI Dark Theme & Multi-Monitor Centering:**
+  - Window class now uses a solid dark background brush (`RGB(28, 28, 32)`), preventing white background flashes.
+  - Handled `WM_CTLCOLORDLG`, `WM_CTLCOLORSTATIC`, `WM_CTLCOLORBTN` for consistent Fluent dark styling.
+  - Settings window now centers on the active monitor containing the island instead of forcing primary screen coordinates.
+- **Liquid Glass Error Handling:** Added explicit checks for `BitBlt` capture failure and Direct2D texture memory copy HRESULTs.
+- **Thread Lifecycle & Logging:** Added error logging for every background worker thread handle created in `StartThreads()`.
+- **Standalone Stub Test Runner:** `tests/standalone_stub_check.cpp` now includes a runnable `main()` routine that executes the launcher parser self-test and asserts success.
+
 ## 1.5.1
 - **Critical Fix:** Statically link C++ runtime (`-static`), removing all dependencies on external `libc++.whl`/`libunwind.whl` DLLs so the standalone EXE runs out-of-the-box on clean Windows 10/11 PCs without any developer tools installed.
 - **Embedded Win32 Manifest:** Embedded `app.manifest` supporting Common Controls v6 (modern visual styles), PerMonitorV2 DPI awareness, and Windows 10/11 compatibility declarations.

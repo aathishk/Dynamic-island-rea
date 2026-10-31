@@ -43,7 +43,7 @@ Format: `label | command | aliases`. Press **Ctrl+Alt+Space**, type an alias and
 There is **no telemetry**. The app does make network requests for the features that need them, all over HTTPS:
 
 - Weather → `wttr.in`
-- Synced lyrics → `lrclib.net`
+- Synced lyrics → `lrclib.net` (sends the active song title and artist to fetch timed lyrics)
 - Quick Lookup (only after you press Enter) → Wikipedia / Wiktionary / dictionaryapi.dev
 
 Notifications, clipboard, microphone/camera-in-use state and media sessions are read locally to render the island and are not sent anywhere.

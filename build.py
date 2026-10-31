@@ -20,7 +20,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 
 
 def find_clang(toolchain):

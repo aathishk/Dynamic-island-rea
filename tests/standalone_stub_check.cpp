@@ -39,3 +39,13 @@ int RunLauncherSelfTest() {
     if (DiFindLauncher(defs, L"format c:")) return 6;
     return 0;
 }
+
+int main(int argc, char** argv) {
+    int res = RunLauncherSelfTest();
+    if (res != 0) {
+        printf("Launcher self-test failed with code: %d\n", res);
+        return res;
+    }
+    printf("All standalone stub checks and launcher tests passed successfully!\n");
+    return 0;
+}

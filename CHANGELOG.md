@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1
+- **Fix:** the exe no longer depends on `libc++`/`libunwind` DLLs (built with `-static`); v1.5.0 could fail to start on a clean PC.
+- Embedded manifest (Common Controls v6 visual styles, Per-Monitor-V2 DPI, Windows 10/11 compatibility).
+- Web requests identify as this project instead of upstream.
+- `tools/check_imports.py` guards against unshipped DLL dependencies in releases.
+
 ## 1.5.0
 - **Bluetooth Anti-Flapping & Phantom Disconnect Fix**: Suppressed unprompted disconnect banners for paired Bluetooth Low Energy (BLE) peripherals (e.g. idle/sleeping devices like `GP325`), debounced flapping events, and guarded initial watcher enumeration.
 - **Real Optical Liquid Glass Refraction Engine** (`liquid_glass.h`): Live desktop backdrop capture with separable sliding-window box blur and capsule lens refraction edge displacement, rendered via Direct2D (opt-in under Settings; default is lightweight crystal-clear obsidian glass).

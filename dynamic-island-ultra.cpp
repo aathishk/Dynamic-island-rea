@@ -7279,7 +7279,7 @@ DWORD WINAPI WeatherThreadProc(void*) {
 // ── Lyrics (LRCLIB, https://lrclib.net) ──────────────────────────────────────
 // User-Agent sent to LRCLIB.
 constexpr wchar_t kLyricsUserAgent[] =
-    L"DynamicIslandForWindows/" WH_MOD_VERSION L" (https://github.com/devcode90/Dynamic-Island-for-Windows)";
+    L"DynamicIslandForWindows/" WH_MOD_VERSION L" (https://github.com/aathishk/Dynamic-island-rea)";
 
 bool IsUrlSafeChar(unsigned char c) {
     return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
@@ -9900,7 +9900,7 @@ int LookupRowAtContentPoint(const MediaContentPoint& pt, int rowCount, bool head
 
 // Wikimedia asks API clients to send a descriptive User-Agent with contact info.
 constexpr wchar_t kLookupUserAgent[] =
-    L"DynamicIslandForWindows/" WH_MOD_VERSION L" (https://github.com/devcode90/Dynamic-Island-for-Windows) QuickLookup";
+    L"DynamicIslandForWindows/" WH_MOD_VERSION L" (https://github.com/aathishk/Dynamic-island-rea) QuickLookup";
 
 // Bumped for every new request AND when the card is dismissed. A worker only
 // publishes if its id is still current, so a slow reply can never resurrect a card

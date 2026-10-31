@@ -59,6 +59,11 @@ jobs:
       - name: Build
         run: python build.py --out DynamicIsland.exe
 
+      - name: Verify imports and manifest
+        run: |
+          pip install pefile
+          python tools/check_imports.py DynamicIsland.exe
+
       - name: Checksum
         shell: pwsh
         run: (Get-FileHash DynamicIsland.exe -Algorithm SHA256).Hash.ToLower() + "  DynamicIsland.exe" | Out-File DynamicIsland.exe.sha256 -Encoding ascii

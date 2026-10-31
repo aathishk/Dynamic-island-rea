@@ -20,7 +20,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 
 
 def find_clang(toolchain):
@@ -37,6 +37,25 @@ def find_clang(toolchain):
         if p:
             return p
     sys.exit("error: clang++ not found. Pass --toolchain or set DI_TOOLCHAIN.")
+
+
+def compile_resources(clang, out_dir):
+    """Compile app.rc (manifest) with llvm-windres. Returns the .o path or None."""
+    bindir = os.path.dirname(clang)
+    for n in ("x86_64-w64-mingw32-windres", "llvm-windres", "windres"):
+        for ext in ("", ".exe"):
+            w = os.path.join(bindir, n + ext)
+            if os.path.exists(w):
+                obj = os.path.join(out_dir, "app_res.o")
+                r = subprocess.run([w, "-O", "coff",
+                                    "-I", HERE, os.path.join(HERE, "app.rc"), obj],
+                                   capture_output=True, text=True)
+                if r.returncode == 0:
+                    return obj
+                print("warning: windres failed:", r.stderr[-500:])
+                return None
+    print("warning: windres not found; building without manifest")
+    return None
 
 
 def find_cppwinrt(explicit, toolchain):
@@ -62,6 +81,8 @@ def main():
     clang = find_clang(args.toolchain)
     cppwinrt = find_cppwinrt(args.cppwinrt, args.toolchain)
 
+    res_obj = compile_resources(clang, os.path.dirname(os.path.abspath(args.out)))
+
     cmd = [
         clang, "-std=c++23", "-" + args.opt,
         "-mwindows", "-municode",
@@ -77,6 +98,12 @@ def main():
         cmd += ["-I", cppwinrt]
     cmd += [
         os.path.join(HERE, "dynamic-island-ultra.cpp"),
+    ]
+    if res_obj:
+        cmd.append(res_obj)
+    cmd += [
+        # Link the C++ runtime statically: a clean PC has no libc++/libunwind DLLs.
+        "-static",
         "-target", "x86_64-w64-mingw32",
         "-lole32", "-loleaut32", "-lshcore", "-ld2d1", "-ldwrite", "-ldwmapi",
         "-lgdi32", "-luser32", "-lshell32", "-lruntimeobject", "-lwindowscodecs",

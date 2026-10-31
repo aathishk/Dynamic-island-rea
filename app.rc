@@ -1,0 +1,3 @@
+#include <winuser.h>
+// Common Controls v6 (visual styles), DPI awareness and OS compatibility.
+1 RT_MANIFEST "app.manifest"

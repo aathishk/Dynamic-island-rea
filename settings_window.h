@@ -402,7 +402,8 @@ inline void ShowSettingsWindow(HWND hParent) {
     }
 
     HINSTANCE hInst = GetModuleHandleW(nullptr);
-    WNDCLASSEXW wc = {sizeof(wc)};
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = SettingsWndProc;
     wc.hInstance = hInst;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));

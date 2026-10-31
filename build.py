@@ -54,6 +54,22 @@ def compile_resources(clang, out_dir):
                     return obj
                 print("warning: windres failed:", r.stderr[-500:])
                 return None
+    # Fallback: compile app.manifest directly into a standard Win32 .res file
+    manifest_path = os.path.join(HERE, "app.manifest")
+    if os.path.exists(manifest_path):
+        import struct
+        with open(manifest_path, "rb") as f:
+            data = f.read()
+        pad = (4 - (len(data) % 4)) % 4
+        padded_data = data + (b"\x00" * pad)
+        null_hdr = struct.pack("<IIHHHH I HH II", 0, 32, 0xFFFF, 0, 0xFFFF, 0, 0, 0, 0, 0, 0)
+        res_hdr = struct.pack("<IIHHHH I HH II", len(data), 32, 0xFFFF, 24, 0xFFFF, 1, 0, 0x0030, 0x0409, 0, 0)
+        res_file = os.path.join(out_dir, "app_manifest.res")
+        with open(res_file, "wb") as f:
+            f.write(null_hdr)
+            f.write(res_hdr)
+            f.write(padded_data)
+        return res_file
     print("warning: windres not found; building without manifest")
     return None
 

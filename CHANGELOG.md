@@ -1,10 +1,13 @@
 # Changelog
 
 ## 1.5.1
-- **Fix:** the exe no longer depends on `libc++`/`libunwind` DLLs (built with `-static`); v1.5.0 could fail to start on a clean PC.
-- Embedded manifest (Common Controls v6 visual styles, Per-Monitor-V2 DPI, Windows 10/11 compatibility).
-- Web requests identify as this project instead of upstream.
-- `tools/check_imports.py` guards against unshipped DLL dependencies in releases.
+- **Critical Fix:** Statically link C++ runtime (`-static`), removing all dependencies on external `libc++.whl`/`libunwind.whl` DLLs so the standalone EXE runs out-of-the-box on clean Windows 10/11 PCs without any developer tools installed.
+- **Embedded Win32 Manifest:** Embedded `app.manifest` supporting Common Controls v6 (modern visual styles), PerMonitorV2 DPI awareness, and Windows 10/11 compatibility declarations.
+- **Fixed Liquid Glass Fallback:** Added explicit default of 0 for `Themes.RealLiquidGlass` in `standalone_shim.h` and `settings_window.h`, ensuring clean installations always default to the fast, 0% CPU transparent obsidian glass.
+- **Perfected Bluetooth State Machine:** Separated connection state from alert timestamps, enabling disconnect alerts for headsets connected prior to launch while suppressing phantom BLE alerts and duplicate flapping.
+- **Dynamic Debug Logging:** Removed stale caching from `DiLogEnabled()`, allowing Debug Logging in settings to take effect immediately without restarting.
+- **Web Identity:** Updated User-Agent strings for weather, lyrics, and lookup to point to `github.com/aathishk/Dynamic-island-rea`.
+- **Validation Guard:** Added `tools/check_imports.py` to verify that only system DLLs are imported and that the manifest is present.
 
 ## 1.5.0
 - **Bluetooth Anti-Flapping & Phantom Disconnect Fix**: Suppressed unprompted disconnect banners for paired Bluetooth Low Energy (BLE) peripherals (e.g. idle/sleeping devices like `GP325`), debounced flapping events, and guarded initial watcher enumeration.

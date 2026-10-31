@@ -80,6 +80,8 @@ inline int Wh_GetIntSetting(PCWSTR name) {
     if (wcscmp(name, L"Modules.LyricsOffsetBluetoothMs") == 0) return 0;
     if (wcscmp(name, L"Modules.DoNotDisturbIndicator") == 0) return 0;
     if (wcscmp(name, L"Behavior.AutoHideIdleSeconds") == 0) return 0;
+    if (wcscmp(name, L"Themes.RealLiquidGlass") == 0) return 0;
+    if (wcscmp(name, L"Debug.Log") == 0) return 0;
 
     // All enable toggles default to 1 (enabled)
     return 1;
@@ -103,14 +105,11 @@ inline BOOL Wh_SetIntValue(PCWSTR name, int value) {
 // settings file (%APPDATA%/DynamicIsland/debug.log) and is rotated at 512 KB,
 // so it never grows without bound or depends on the working directory.
 inline bool DiLogEnabled() {
-    static const bool enabled = [] {
-        wchar_t env[8] = {};
-        if (GetEnvironmentVariableW(L"DYNAMIC_ISLAND_DEBUG", env, ARRAYSIZE(env)) > 0 && env[0] == L'1') {
-            return true;
-        }
-        return GetPrivateProfileIntW(L"Settings", L"Debug.Log", 0, GetIniFilePath().c_str()) != 0;
-    }();
-    return enabled;
+    wchar_t env[8] = {};
+    if (GetEnvironmentVariableW(L"DYNAMIC_ISLAND_DEBUG", env, ARRAYSIZE(env)) > 0 && env[0] == L'1') {
+        return true;
+    }
+    return GetPrivateProfileIntW(L"Settings", L"Debug.Log", 0, GetIniFilePath().c_str()) != 0;
 }
 
 inline std::wstring DiLogPath() {

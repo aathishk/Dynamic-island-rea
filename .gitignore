@@ -15,3 +15,5 @@ tederby-island/
 # Temporary scratch files
 __pycache__/
 *.pyc
+*.res
+*.o

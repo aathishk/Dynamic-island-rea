@@ -6374,8 +6374,9 @@ int GetLastKnownBluetoothBatteryPercent(const std::wstring& deviceId) {
 struct BluetoothTrackedDevice {
     std::wstring name;
     BluetoothDeviceCategory category;
-    bool wasConnectedLive = false;
-    double lastAlertTime = 0.0;
+    bool isConnected = false;
+    double lastConnectTime = 0.0;
+    double lastDisconnectTime = 0.0;
 };
 
 void HandleBluetoothConnected(
@@ -6400,13 +6401,14 @@ void HandleBluetoothConnected(
     {
         std::lock_guard lock(cacheMutex);
         auto& entry = cache[deviceId];
-        if (now - entry.lastAlertTime < 15.0) {
-            return;  // Debounce flapping
+        // Suppress duplicate connect alert if already recorded connected within 5s
+        if (entry.isConnected && (now - entry.lastConnectTime < 5.0)) {
+            return;
         }
         entry.name = name;
         entry.category = category;
-        entry.wasConnectedLive = true;
-        entry.lastAlertTime = now;
+        entry.isConnected = true;
+        entry.lastConnectTime = now;
     }
 
     if (!g_settings.bluetoothIndicator) {
@@ -6483,7 +6485,7 @@ void HandleBluetoothDisconnected(
     const double now = NowSeconds();
     std::wstring name;
     BluetoothDeviceCategory category = BluetoothDeviceCategory::Generic;
-    bool wasConnectedLive = false;
+    bool wasConnected = false;
 
     {
         std::lock_guard lock(cacheMutex);
@@ -6491,19 +6493,20 @@ void HandleBluetoothDisconnected(
         if (it != cache.end()) {
             name = it->second.name;
             category = it->second.category;
-            wasConnectedLive = it->second.wasConnectedLive;
-            if (now - it->second.lastAlertTime < 15.0) {
-                return;  // Debounce flapping
+            wasConnected = it->second.isConnected;
+            // Always set isConnected = false so the state machine never stays stale
+            it->second.isConnected = false;
+            if (now - it->second.lastDisconnectTime < 5.0) {
+                return;  // Debounce duplicate disconnect alerts
             }
-            it->second.wasConnectedLive = false;
-            it->second.lastAlertTime = now;
+            it->second.lastDisconnectTime = now;
         }
     }
 
-    // Only alert on disconnect IF the device was actively connected live
-    // during this session. This completely stops phantom disconnect alerts
-    // for paired BLE devices (like GP325) that idle, sleep, or flap in the background!
-    if (!wasConnectedLive) {
+    // Only alert on disconnect IF the device was actively connected in this session.
+    // This completely stops phantom disconnect alerts for paired BLE devices (like GP325)
+    // that idle, sleep, or flap in the background without user interaction!
+    if (!wasConnected) {
         return;
     }
 
@@ -6566,8 +6569,11 @@ DWORD WINAPI BluetoothThreadProc(void*) {
                     std::wstring name = info.Name().c_str();
                     if (!name.empty()) {
                         std::lock_guard lock(cacheMutex);
+                        // Device is already connected before island started:
+                        // track as isConnected = true so future disconnect alerts work,
+                        // but suppress popup right now.
                         deviceCache[std::wstring(info.Id().c_str())] =
-                            BluetoothTrackedDevice{name, ClassifyBluetoothDevice(info)};
+                            BluetoothTrackedDevice{name, ClassifyBluetoothDevice(info), true, 0.0, 0.0};
                     }
                     return;
                 }

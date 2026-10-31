@@ -1,3 +1,4 @@
+# Copy this file to .github/workflows/build.yml to enable CI.
 name: build
 
 on:

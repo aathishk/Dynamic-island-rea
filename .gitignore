@@ -1,0 +1,16 @@
+# Binaries and large installers
+windhawk_setup.exe
+*.whl
+*.dll
+
+# Logs and captures
+debug.log
+island_capture.bmp
+
+# Cloned upstream reference repos
+devcode90-island/
+tederby-island/
+
+# Temporary scratch files
+__pycache__/
+*.pyc

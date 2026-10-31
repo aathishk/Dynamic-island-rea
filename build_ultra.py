@@ -355,15 +355,15 @@ old_pos_menu = """    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(the
 new_pos_menu = """    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu), L"Theme");
 
     HMENU posMenu = CreatePopupMenu();
-    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopCenter ? MF_CHECKED : 0), 101, L"Top Center (Default)");
-    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopLeft ? MF_CHECKED : 0), 102, L"Top Left");
-    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopRight ? MF_CHECKED : 0), 103, L"Top Right");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopCenter ? MF_CHECKED : 0), 71, L"Top Center (Default)");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopLeft ? MF_CHECKED : 0), 72, L"Top Left");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopRight ? MF_CHECKED : 0), 73, L"Top Right");
     AppendMenuW(posMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomCenter ? MF_CHECKED : 0), 104, L"Bottom Center");
-    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomLeft ? MF_CHECKED : 0), 105, L"Bottom Left");
-    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomRight ? MF_CHECKED : 0), 106, L"Bottom Right");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomCenter ? MF_CHECKED : 0), 74, L"Bottom Center");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomLeft ? MF_CHECKED : 0), 75, L"Bottom Left");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomRight ? MF_CHECKED : 0), 76, L"Bottom Right");
     AppendMenuW(posMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::Auto ? MF_CHECKED : 0), 107, L"Adaptive Edge Blade (Auto)");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::Auto ? MF_CHECKED : 0), 77, L"Adaptive Edge Blade (Auto)");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(posMenu), L"Position");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
@@ -375,44 +375,116 @@ old_switch_cmd = """    switch (cmd) {
         case 1:"""
 
 new_switch_cmd = """    switch (cmd) {
-        case 101:
+        case 71: {
+            {
+                std::lock_guard lock(g_settingsMutex);
+                g_settings.position = Position::TopCenter;
+            }
             WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-center", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             LoadSettings();
             g_layoutDirty = true;
+            TriggerNudge();
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
             break;
-        case 102:
+        }
+        case 72: {
+            {
+                std::lock_guard lock(g_settingsMutex);
+                g_settings.position = Position::TopLeft;
+            }
             WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-left", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             LoadSettings();
             g_layoutDirty = true;
+            TriggerNudge();
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
             break;
-        case 103:
+        }
+        case 73: {
+            {
+                std::lock_guard lock(g_settingsMutex);
+                g_settings.position = Position::TopRight;
+            }
             WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-right", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             LoadSettings();
             g_layoutDirty = true;
+            TriggerNudge();
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
             break;
-        case 104:
+        }
+        case 74: {
+            {
+                std::lock_guard lock(g_settingsMutex);
+                g_settings.position = Position::BottomCenter;
+            }
             WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-center", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             LoadSettings();
             g_layoutDirty = true;
+            TriggerNudge();
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
             break;
-        case 105:
+        }
+        case 75: {
+            {
+                std::lock_guard lock(g_settingsMutex);
+                g_settings.position = Position::BottomLeft;
+            }
             WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-left", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             LoadSettings();
             g_layoutDirty = true;
+            TriggerNudge();
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
             break;
-        case 106:
+        }
+        case 76: {
+            {
+                std::lock_guard lock(g_settingsMutex);
+                g_settings.position = Position::BottomRight;
+            }
             WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-right", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             LoadSettings();
             g_layoutDirty = true;
+            TriggerNudge();
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
             break;
-        case 107:
+        }
+        case 77: {
+            {
+                std::lock_guard lock(g_settingsMutex);
+                g_settings.position = Position::Auto;
+            }
             WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"auto", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             LoadSettings();
             g_layoutDirty = true;
+            TriggerNudge();
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
             break;
+        }
         case 1:"""
 
 content = content.replace(old_switch_cmd, new_switch_cmd)
+
+old_presented = """        const bool presented = UpdateLayeredWindowIndirect(hwnd_, &info) != FALSE;
+        if (presented) {
+            stageValid_ = true;
+            lastOrigin_ = stage.origin;"""
+
+new_presented = """        const bool presented = UpdateLayeredWindowIndirect(hwnd_, &info) != FALSE;
+        if (presented) {
+            stageValid_ = true;
+            if (moved) {
+                SetWindowPos(hwnd_, nullptr, stage.origin.x, stage.origin.y, 0, 0,
+                             SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            lastOrigin_ = stage.origin;"""
+
+content = content.replace(old_presented, new_presented)
 
 # 13. Increase expanded island width & height for generous room across calendar, weather & dashboards
 old_media_layout = """namespace MediaLayout {

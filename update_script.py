@@ -9,7 +9,74 @@ pos18 = text.find("# 18. Ensure RenderThreadProc")
 
 replacement_block = '''
 
-# 12. Increase expanded island width & height for generous room across calendar, weather & dashboards
+# 12. Add Position Submenu to Right-Click Menu for Instant 1-Click Repositioning
+old_pos_menu = """    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu), L"Theme");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, 9, L"Open Windhawk settings");"""
+
+new_pos_menu = """    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu), L"Theme");
+
+    HMENU posMenu = CreatePopupMenu();
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopCenter ? MF_CHECKED : 0), 101, L"Top Center (Default)");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopLeft ? MF_CHECKED : 0), 102, L"Top Left");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopRight ? MF_CHECKED : 0), 103, L"Top Right");
+    AppendMenuW(posMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomCenter ? MF_CHECKED : 0), 104, L"Bottom Center");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomLeft ? MF_CHECKED : 0), 105, L"Bottom Left");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomRight ? MF_CHECKED : 0), 106, L"Bottom Right");
+    AppendMenuW(posMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::Auto ? MF_CHECKED : 0), 107, L"Adaptive Edge Blade (Auto)");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(posMenu), L"Position");
+
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, 9, L"Open Windhawk settings");"""
+
+content = content.replace(old_pos_menu, new_pos_menu)
+
+old_switch_cmd = """    switch (cmd) {
+        case 1:"""
+
+new_switch_cmd = """    switch (cmd) {
+        case 101:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-center", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 102:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-left", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 103:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-right", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 104:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-center", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 105:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-left", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 106:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-right", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 107:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"auto", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 1:"""
+
+content = content.replace(old_switch_cmd, new_switch_cmd)
+
+# 13. Increase expanded island width & height for generous room across calendar, weather & dashboards
 old_media_layout = """namespace MediaLayout {
     constexpr float kExpandedWidth = 380.0f;
     constexpr float kExpandedHeight = 184.0f;"""
@@ -20,13 +87,13 @@ new_media_layout = """namespace MediaLayout {
 
 content = content.replace(old_media_layout, new_media_layout)
 
-# 13. Expand calendar date grid column width for generous breathing room
+# 14. Expand calendar date grid column width for generous breathing room
 old_cal_colw = """const float colW = 28.0f * scale;"""
 new_cal_colw = """const float colW = 38.0f * scale;"""
 
 content = content.replace(old_cal_colw, new_cal_colw)
 
-# 14. Eliminate secondary backdrop windows to completely prevent rectangular grey box artifacts
+# 15. Eliminate secondary backdrop windows to completely prevent rectangular grey box artifacts
 old_sync_backdrop = """void Sync(HWND island, POINT origin, const D2D1_RECT_F* rects, const float* radii, int count,
           bool notch, BackdropMaterial material, const D2D1_COLOR_F& tint, float tintAlpha) {
     if (material == BackdropMaterial::None || count <= 0 || !island || !IsWindowVisible(island) ||
@@ -45,7 +112,7 @@ new_sync_backdrop = """void Sync(HWND island, POINT origin, const D2D1_RECT_F* r
 
 content = content.replace(old_sync_backdrop, new_sync_backdrop)
 
-# 15. Enable soft drop shadow with smart radius (pill when collapsed, comfortable squircle when expanded)
+# 16. Enable soft drop shadow with smart radius (pill when collapsed, comfortable squircle when expanded)
 old_soft_shadow = """    void DrawSoftShadow(D2D1_RECT_F rect, float radius) {
         // The island sits on top of the backdrop, so a shadow here would darken the blur.
         if (!g_settings.dropShadow || g_settings.backdropMaterial != BackdropMaterial::None) {
@@ -71,7 +138,7 @@ new_soft_shadow = """    void DrawSoftShadow(D2D1_RECT_F rect, float radius) {
 
 content = content.replace(old_soft_shadow, new_soft_shadow)
 
-# 16. Impressive Crystal-Clear Transparent Glass Theme with Smart Radius & Ambient Album Art
+# 17. Impressive Crystal-Clear Transparent Glass Theme with Smart Radius & Ambient Album Art
 old_draw_pill_surface = """    void DrawPillSurface(D2D1_RECT_F rect, float radius, IslandKind kind, const Settings& settings) {
         // The dark tint scrim exists to deepen an opaque background. With a real
         // backdrop enabled it would just mud up the blur, so it is skipped.
@@ -213,7 +280,7 @@ new_draw_pill_surface = """    void DrawPillSurface(D2D1_RECT_F rect, float radi
 
 content = content.replace(old_draw_pill_surface, new_draw_pill_surface)
 
-# 17. Dynamic Screen-Behind & Album Art Adaptive Color:
+# 18. Dynamic Screen-Behind & Album Art Adaptive Color:
 old_ensure_brushes = """void EnsureBrushes(const Settings& settings, const SharedState& state, double now) {
         D2D1_COLOR_F targetAccent = settings.customAccent;
         if (settings.accentMode == AccentMode::System) {
@@ -246,7 +313,7 @@ new_ensure_brushes = """void EnsureBrushes(const Settings& settings, const Share
 
 content = content.replace(old_ensure_brushes, new_ensure_brushes)
 
-# 18. Suppress automatic Do Not Disturb (DND) popups permanently
+# 19. Suppress automatic Do Not Disturb (DND) popups permanently
 old_wnf_dnd = """    const bool prev = g_isDnDActive.exchange(active);
     if (prev != active && g_settings.doNotDisturbIndicator) {
         {

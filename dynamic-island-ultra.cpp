@@ -11671,6 +11671,19 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
     AppendMenuW(themeMenu, MF_STRING | (activeTheme >= kCustomThemeIndex ? MF_CHECKED : 0),
                 kThemeMenuIdBase + static_cast<UINT>(kCustomThemeIndex), L"Custom Colors");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu), L"Theme");
+
+    HMENU posMenu = CreatePopupMenu();
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopCenter ? MF_CHECKED : 0), 101, L"Top Center (Default)");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopLeft ? MF_CHECKED : 0), 102, L"Top Left");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopRight ? MF_CHECKED : 0), 103, L"Top Right");
+    AppendMenuW(posMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomCenter ? MF_CHECKED : 0), 104, L"Bottom Center");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomLeft ? MF_CHECKED : 0), 105, L"Bottom Left");
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::BottomRight ? MF_CHECKED : 0), 106, L"Bottom Right");
+    AppendMenuW(posMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::Auto ? MF_CHECKED : 0), 107, L"Adaptive Edge Blade (Auto)");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(posMenu), L"Position");
+
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, 9, L"Open Windhawk settings");
 
@@ -11698,6 +11711,41 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
     }
 
     switch (cmd) {
+        case 101:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-center", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 102:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-left", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 103:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"top-right", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 104:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-center", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 105:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-left", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 106:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"bottom-right", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
+        case 107:
+            WritePrivateProfileStringW(L"Settings", L"Appearance.Position", L"auto", GetIniFilePath().c_str());
+            LoadSettings();
+            g_layoutDirty = true;
+            break;
         case 1:
             DismissTransientState();
             g_clickExpanded = false;

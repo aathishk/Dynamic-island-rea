@@ -663,9 +663,12 @@ We love community contributions! To ensure high-quality updates, please follow t
 #endif
 
 #include "launchers.h"
+#include "liquid_glass.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace std::chrono_literals;
+
+namespace settings_ui { void ShowSettingsWindow(HWND hParent); }
 
 namespace {
 
@@ -1280,6 +1283,7 @@ struct Settings {
     bool notificationRespectDnD = true;
 
     // ── Premium material / redesign ──────────────────────────────────────────
+    bool realLiquidGlass = true;    // real backdrop optical blur + lens refraction
     bool materialDepth = true;      // downward depth shading + accent bloom
     bool dropShadow = true;         // soft shadow under the island
     float accentBloom = 1.0f;       // 0..2 multiplier on the accent wash
@@ -3161,6 +3165,7 @@ void LoadSettings() {
     next.backdropTint = Clamp(Wh_GetIntSetting(L"Themes.BackdropTint") / 100.0f, 0.0f, 1.0f);
     next.backdropFillAlpha = Clamp(Wh_GetIntSetting(L"Themes.BackdropFillOpacity") / 100.0f, 0.0f, 1.0f);
 
+    next.realLiquidGlass = Wh_GetIntSetting(L"Themes.RealLiquidGlass") != 0;
     next.materialDepth = Wh_GetIntSetting(L"Themes.MaterialDepth") != 0;
     next.dropShadow = Wh_GetIntSetting(L"Themes.DropShadow") != 0;
     next.accentBloom = Clamp(Wh_GetIntSetting(L"Themes.AccentBloom") / 100.0f, 0.0f, 2.0f);
@@ -11690,7 +11695,7 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(posMenu), L"Position");
 
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, 9, L"Open Windhawk settings");
+    AppendMenuW(menu, MF_STRING, 9, L"⚙️ Dynamic Island Settings");
 
     SetForegroundWindow(hwnd);
     DwmBackdrop::EnsureBehind(hwnd);
@@ -11851,43 +11856,7 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             LoadSettings();
             break;
         case 9: {
-            // Launch the Windhawk UI, resolved relative to our own module rather
-            // than by launching our own executable.
-            //
-            // Running the current process directly only worked because under
-            // Windhawk 1.x that *is* windhawk.exe. Windhawk 2.0 runs tool mods in
-            // a separate windhawk-mod.exe, so re-launching the current process
-            // would have spawned another mod host instead of opening settings.
-            // Taking the directory and appending windhawk.exe is correct on both,
-            // since the two executables live side by side.
-            wchar_t windhawkPath[MAX_PATH] = {};
-            const DWORD pathLen =
-                GetModuleFileNameW(nullptr, windhawkPath, ARRAYSIZE(windhawkPath));
-            if (pathLen == 0 || pathLen >= ARRAYSIZE(windhawkPath)) {
-                Wh_Log(L"Could not resolve the Windhawk directory (GetModuleFileNameW: %lu).",
-                       pathLen);
-                break;
-            }
-
-            wchar_t* lastSlash = wcsrchr(windhawkPath, L'\\');
-            if (!lastSlash) {
-                Wh_Log(L"Unexpected module path with no directory separator.");
-                break;
-            }
-            *(lastSlash + 1) = L'\0';  // keep the trailing slash
-
-            if (wcscat_s(windhawkPath, ARRAYSIZE(windhawkPath), L"windhawk.exe") != 0) {
-                Wh_Log(L"Windhawk directory path is too long to append the executable name.");
-                break;
-            }
-
-            HINSTANCE result = ShellExecuteW(nullptr, L"open",
-                                             windhawkPath,
-                                             nullptr,
-                                             nullptr, SW_SHOWNORMAL);
-            if (reinterpret_cast<INT_PTR>(result) <= 32) {
-                Wh_Log(L"Failed to open Windhawk settings (%s).", windhawkPath);
-            }
+            settings_ui::ShowSettingsWindow(hwnd);
             break;
         }
         case kShapeMenuIdBase:
@@ -13579,6 +13548,21 @@ class Renderer {
             radius = 16.0f * settings.sizeScale;
         } else if (settings.w11Style) {
             radius = 8.0f * settings.sizeScale;
+        }
+
+        // ── 0. Real Optical Liquid Glass (Backdrop Capture & Refraction) ──────
+        if (settings.realLiquidGlass) {
+            ID2D1Bitmap* glassBmp = liquid_glass::g_glassEngine.UpdateAndGetBitmap(
+                target_.Get(), lastOrigin_, rect.left, rect.top, w, h, radius, NowSeconds());
+            if (glassBmp) {
+                ComPtr<ID2D1BitmapBrush> bmpBrush;
+                D2D1_BITMAP_BRUSH_PROPERTIES bbp = D2D1::BitmapBrushProperties(
+                    D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+                if (SUCCEEDED(target_->CreateBitmapBrush(glassBmp, bbp, &bmpBrush))) {
+                    bmpBrush->SetTransform(D2D1::Matrix3x2F::Translation(rect.left, rect.top));
+                    FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, bmpBrush.Get());
+                }
+            }
         }
 
         // ── 1. Crystal-Clear Transparent Glass Base (Zero Grey Mud) ────────────

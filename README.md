@@ -8,13 +8,14 @@ A hardware-accelerated (Direct2D) Dynamic Island / edge dock for Windows: media 
 
 | Area | Change |
 | :-- | :-- |
-| Standalone app | Runs as a normal EXE without Windhawk: **tray icon with menu** (show/hide, position, run at startup, open settings, exit), single-instance guard, Explorer-restart recovery |
+| Standalone app | Runs as a normal EXE without Windhawk: **tray icon with menu** (show/hide, position, settings, run at startup, exit), single-instance guard, Explorer-restart recovery |
+| Settings GUI | **Native Windows 11 Fluent Dark Settings window** with tabs for Appearance, Glass & Effects, Animation Physics, and Modules. Instantly hot-reloads the live island |
+| Look & Glass | **Real Optical Liquid Glass Engine**: Direct2D live backdrop capture, separable dual-pass blur, and lens refraction edge displacement (no square grey boxes or GDI stair-stepping) |
 | Placement | **Adaptive Edge Blade** (auto) position plus a position submenu in both the right-click and tray menus |
 | Animation | `applespring` animation style |
 | Media | Master-volume flyout with mouse-wheel scrubbing over the speaker icon, middle-click to cycle media sessions, hardware media-key fallback |
 | Feed filtering | "Quiet feed" mode that suppresses repeated banners while short-form video is playing |
 | Launcher | **User-editable quick launchers** (`[Launchers]` in `settings.ini`) in the Quick Lookup box |
-| Look | Flat glass theme with album-art adaptive colour and soft shadow |
 | Logging | Opt-in, rotated, written to `%APPDATA%\DynamicIsland` (no more `debug.log` in the working directory) |
 
 Everything else (calendar, weather, hardware monitor, lyrics, file tray, themes, 12 languages, privacy dots, …) comes from the upstream project; see its README for details.
@@ -23,7 +24,7 @@ Everything else (calendar, weather, hardware monitor, lyrics, file tray, themes,
 
 Download `DynamicIsland.exe` from the [Releases](../../releases) page (built by GitHub Actions; a `.sha256` file is attached) and run it. Use the tray icon → **Run at startup** to autostart it.
 
-Settings live in `%APPDATA%\DynamicIsland\settings.ini` (tray icon → *Open settings file*). Restart the app after editing it.
+Settings can be configured through the **Dynamic Island Settings GUI** (accessible via System Tray → **Settings...** or right-clicking the island → **⚙️ Dynamic Island Settings**). Changes apply immediately without restarting. Advanced settings can still be hand-edited in `%APPDATA%\DynamicIsland\settings.ini`.
 
 ### Quick launchers
 
@@ -58,9 +59,8 @@ With a Windhawk install you can instead pass `--toolchain <Windhawk>\Compiler` (
 
 ## Known limitations
 
-- **Blur / Acrylic backdrop is disabled in this build.** The backdrop windows are parked on purpose to avoid rectangular grey artifacts, so the "Backdrop material" option has no visible effect. The glass look is drawn with Direct2D gradients, not real refraction.
 - **The Windhawk-mod variant is not currently verified.** `legacy/compile_mod.py` is kept for reference; a fallback `GetIniFilePath()` was added so the file no longer depends on the standalone shim, but it has not been rebuilt against Windhawk.
-- Settings in the standalone build are edited via `settings.ini` (no settings window yet); unspecified numeric toggles default to `1` (enabled).
+- **Upstream Backdrop Material selector:** The upstream Acrylic/Blur window approach is superseded by the Direct2D Real Optical Liquid Glass engine (`Themes.RealLiquidGlass=1`), which captures the backdrop with subpixel anti-aliasing and lens displacement without rectangular grey artifacts.
 
 ## Repository layout
 
@@ -69,6 +69,8 @@ With a Windhawk install you can instead pass `--toolchain <Windhawk>\Compiler` (
 | `dynamic-island-ultra.cpp` | The island (single translation unit) |
 | `standalone_shim.h` | Replaces Windhawk's settings/log API with `settings.ini` |
 | `standalone_app.h` | Standalone entry point, tray icon and menu |
+| `settings_window.h` | Native Windows 11 Fluent dark-mode settings dialog |
+| `liquid_glass.h` | Real optical liquid glass engine (backdrop capture, blur, lens refraction) |
 | `launchers.h` | Editable launcher list |
 | `build.py` | Build script |
 | `tests/` | Compile-time stub check for the Win32 parts |

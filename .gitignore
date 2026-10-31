@@ -1,4 +1,5 @@
 # Binaries and large installers
+*.exe
 windhawk_setup.exe
 *.whl
 *.dll

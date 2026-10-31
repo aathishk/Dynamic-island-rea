@@ -108,6 +108,13 @@ inline void EnsureSettingsFile() {
     }
 }
 
+}  // namespace standalone_app
+
+#include "settings_window.h"
+
+namespace standalone_app {
+
+
 inline std::wstring StorageDir() {
     wchar_t dir[MAX_PATH] = {};
     Wh_GetModStoragePath(dir, MAX_PATH);
@@ -155,8 +162,8 @@ inline void ShowTrayMenu() {
     AppendMenuW(menu, MF_STRING, kCmdToggle, L"Show / hide island");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(posMenu), L"Position");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kCmdOpenSettings, L"Settings...");
     AppendMenuW(menu, MF_STRING | (IsStartupEnabled() ? MF_CHECKED : 0), kCmdStartup, L"Run at startup");
-    AppendMenuW(menu, MF_STRING, kCmdOpenSettings, L"Open settings file");
     AppendMenuW(menu, MF_STRING, kCmdOpenFolder, L"Open settings folder");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kCmdExit, L"Exit");
@@ -181,9 +188,7 @@ inline void ShowTrayMenu() {
             SetStartupEnabled(!IsStartupEnabled());
             break;
         case kCmdOpenSettings:
-            EnsureSettingsFile();
-            ShellExecuteW(nullptr, L"open", L"notepad.exe", (L"\"" + GetIniFilePath() + L"\"").c_str(), nullptr,
-                          SW_SHOWNORMAL);
+            settings_ui::ShowSettingsWindow(g_hwnd);
             break;
         case kCmdOpenFolder:
             ShellExecuteW(nullptr, L"open", StorageDir().c_str(), nullptr, nullptr, SW_SHOWNORMAL);

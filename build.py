@@ -123,7 +123,7 @@ def main():
         "-target", "x86_64-w64-mingw32",
         "-lole32", "-loleaut32", "-lshcore", "-ld2d1", "-ldwrite", "-ldwmapi",
         "-lgdi32", "-luser32", "-lshell32", "-lruntimeobject", "-lwindowscodecs",
-        "-lsetupapi", "-lwinhttp", "-lpdh", "-lwinmm", "-ladvapi32", "-lcomctl32", "-luxtheme", "-lpsapi",
+        "-lsetupapi", "-lwinhttp", "-lpdh", "-lwinmm", "-ladvapi32", "-lcomctl32", "-luxtheme", "-lpsapi", "-lcomdlg32",
         "-o", args.out,
     ]
     print("Compiler :", clang)

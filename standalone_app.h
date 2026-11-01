@@ -245,7 +245,41 @@ inline bool AcquireSingleInstance() {
 
 }  // namespace standalone_app
 
+inline LONG WINAPI CrashFilter(EXCEPTION_POINTERS* ep) {
+    FILE* f = fopen("crash.txt", "w");
+    if (f) {
+        HMODULE hMod = nullptr;
+        wchar_t modPath[MAX_PATH] = {};
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(ep->ExceptionRecord->ExceptionAddress), &hMod);
+        if (hMod) {
+            GetModuleFileNameW(hMod, modPath, MAX_PATH);
+        }
+        fprintf(f, "Crash ExceptionCode: 0x%08lX at address %p in module %ls (offset: 0x%llX)\n",
+                (unsigned long)ep->ExceptionRecord->ExceptionCode,
+                ep->ExceptionRecord->ExceptionAddress,
+                modPath,
+                hMod ? (reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress) - reinterpret_cast<uintptr_t>(hMod)) : 0ULL);
+
+        void* stack[32] = {};
+        WORD frames = CaptureStackBackTrace(0, 32, stack, nullptr);
+        for (WORD i = 0; i < frames; ++i) {
+            HMODULE m = nullptr;
+            wchar_t mPath[MAX_PATH] = {};
+            GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(stack[i]), &m);
+            if (m) GetModuleFileNameW(m, mPath, MAX_PATH);
+            const wchar_t* pName = wcsrchr(mPath, L'\\');
+            fprintf(f, "  [%02d] %p (%ls + 0x%llX)\n", i, stack[i], pName ? (pName + 1) : mPath,
+                    m ? (reinterpret_cast<uintptr_t>(stack[i]) - reinterpret_cast<uintptr_t>(m)) : 0ULL);
+        }
+        fclose(f);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
+    SetUnhandledExceptionFilter(CrashFilter);
     if (!standalone_app::AcquireSingleInstance()) {
         return 0;  // already running; the tray icon of the first instance is the entry point
     }

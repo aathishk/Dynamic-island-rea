@@ -51,7 +51,7 @@ inline PCWSTR Wh_GetStringSetting(PCWSTR name) {
     if (wcscmp(name, L"Appearance.ProgressStyle") == 0) return _wcsdup(L"slim");
     if (wcscmp(name, L"Appearance.SpectrumStyle") == 0) return _wcsdup(L"bars");
 
-    return nullptr;
+    return _wcsdup(L"");
 }
 
 inline void Wh_FreeStringSetting(PCWSTR str) {

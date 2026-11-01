@@ -34,7 +34,11 @@ private:
     ULONGLONG totalDurationMs_ = 0;
 
 public:
-    FocusTimerSession(const FocusConfig& cfg = {}) : config_(cfg) {}
+    FocusTimerSession(const FocusConfig& cfg = {}) : config_(cfg) {
+        if (config_.sessionsBeforeLongBreak <= 0) {
+            config_.sessionsBeforeLongBreak = 4;
+        }
+    }
 
     void StartWork(int customMinutes = 0) {
         int mins = (customMinutes > 0) ? customMinutes : config_.workMinutes;
@@ -89,7 +93,8 @@ public:
     void Skip() {
         if (state_ == FocusState::WorkSession) {
             completedSessions_++;
-            bool needLongBreak = (completedSessions_ % config_.sessionsBeforeLongBreak == 0);
+            int interval = (config_.sessionsBeforeLongBreak > 0) ? config_.sessionsBeforeLongBreak : 4;
+            bool needLongBreak = (completedSessions_ % interval == 0);
             StartBreak(needLongBreak);
         } else if (state_ == FocusState::ShortBreak || state_ == FocusState::LongBreak) {
             StartWork();
@@ -110,7 +115,8 @@ public:
             if (state_ == FocusState::WorkSession) {
                 completedSessions_++;
                 outCompletedWork = true;
-                bool needLongBreak = (completedSessions_ % config_.sessionsBeforeLongBreak == 0);
+                int interval = (config_.sessionsBeforeLongBreak > 0) ? config_.sessionsBeforeLongBreak : 4;
+                bool needLongBreak = (completedSessions_ % interval == 0);
                 StartBreak(needLongBreak);
             } else {
                 StartWork();
@@ -121,6 +127,10 @@ public:
     }
 
     FocusState GetState() const { return state_; }
+    bool IsActive() const { return state_ != FocusState::Idle; }
+    bool IsRunning() const {
+        return state_ == FocusState::WorkSession || state_ == FocusState::ShortBreak || state_ == FocusState::LongBreak;
+    }
     int GetCompletedSessions() const { return completedSessions_; }
 
     int GetRemainingSeconds() const {
@@ -142,7 +152,12 @@ public:
     }
 
     const FocusConfig& GetConfig() const { return config_; }
-    void SetConfig(const FocusConfig& cfg) { config_ = cfg; }
+    void SetConfig(const FocusConfig& cfg) {
+        config_ = cfg;
+        if (config_.sessionsBeforeLongBreak <= 0) {
+            config_.sessionsBeforeLongBreak = 4;
+        }
+    }
 };
 
 } // namespace island_focus

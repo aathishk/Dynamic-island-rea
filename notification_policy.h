@@ -38,6 +38,23 @@ struct NotificationItem {
     bool dismissed = false;
 };
 
+inline NotificationCategory ClassifyNotification(const std::wstring& app, const std::wstring& title) {
+    std::wstring lower = app + L" " + title;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::towlower);
+    if (lower.find(L"battery") != std::wstring::npos) return NotificationCategory::Battery;
+    if (lower.find(L"bluetooth") != std::wstring::npos) return NotificationCategory::Bluetooth;
+    if (lower.find(L"media") != std::wstring::npos || lower.find(L"spotify") != std::wstring::npos) return NotificationCategory::Media;
+    if (lower.find(L"clipboard") != std::wstring::npos) return NotificationCategory::Clipboard;
+    return NotificationCategory::Application;
+}
+
+inline NotificationPriority DeterminePriority(NotificationCategory category) {
+    if (category == NotificationCategory::Battery || category == NotificationCategory::SystemAlert) {
+        return NotificationPriority::Critical;
+    }
+    return NotificationPriority::Normal;
+}
+
 // Checks whether a given hour falls inside quiet hours, supporting midnight wrap-around
 inline bool IsInQuietHours(int currentHour, int startHour, int endHour) {
     if (startHour == endHour) {
@@ -120,6 +137,11 @@ private:
     size_t maxQueueCapacity_ = 20;
 
 public:
+    bool Enqueue(const NotificationItem& incoming) {
+        NotificationPolicySettings defSettings;
+        return Enqueue(incoming, defSettings);
+    }
+
     bool Enqueue(const NotificationItem& incoming, const NotificationPolicySettings& settings) {
         ULONGLONG now = GetTickCount64();
 

@@ -109,6 +109,10 @@ enum CtrlId : int {
     ID_COMBO_ACTIVE_PROFILE,
     ID_BTN_APPLY_PROFILE,
     ID_BTN_SAVE_PROFILE,
+    ID_BTN_DUPLICATE_PROFILE,
+    ID_BTN_DELETE_PROFILE,
+    ID_BTN_EXPORT_PROFILE,
+    ID_BTN_IMPORT_PROFILE,
     ID_BTN_RESET_PROFILE,
     ID_COMBO_ACTIVE_CONTEXT,
     ID_CHK_CONTEXT_LOCK,
@@ -369,6 +373,29 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniInt(L"Settings", L"Themes.ContourBorderEnabled", SendMessageW(hChkBorder, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
 
     // Page 2: Behaviour & Gestures
+    SettingOption gestureSaveOpts[] = {
+        {L"expand", L"expand"},
+        {L"controls", L"controls"},
+        {L"profile", L"profile"},
+        {L"focus", L"focus"},
+        {L"settings", L"settings"},
+        {L"none", L"none"}
+    };
+    SettingOption midSaveOpts[] = {
+        {L"tabs", L"tabs"},
+        {L"mute", L"mute"},
+        {L"focus", L"focus"},
+        {L"none", L"none"}
+    };
+    WriteIniString(L"Settings", L"Gestures.SingleClick", getComboVal(hComboGestureSingle, gestureSaveOpts, ARRAYSIZE(gestureSaveOpts)));
+    WriteIniString(L"Settings", L"Gestures.DoubleClick", getComboVal(hComboGestureDouble, gestureSaveOpts, ARRAYSIZE(gestureSaveOpts)));
+    WriteIniString(L"Settings", L"Gestures.MiddleClick", getComboVal(hComboGestureMiddle, midSaveOpts, ARRAYSIZE(midSaveOpts)));
+    island_globals::g_gestureManager.SetAction(island_gestures::GestureType::SingleClick,
+        island_gestures::GestureActionFromIdString(getComboVal(hComboGestureSingle, gestureSaveOpts, ARRAYSIZE(gestureSaveOpts))));
+    island_globals::g_gestureManager.SetAction(island_gestures::GestureType::DoubleClick,
+        island_gestures::GestureActionFromIdString(getComboVal(hComboGestureDouble, gestureSaveOpts, ARRAYSIZE(gestureSaveOpts))));
+    island_globals::g_gestureManager.SetAction(island_gestures::GestureType::MiddleClick,
+        island_gestures::GestureActionFromIdString(getComboVal(hComboGestureMiddle, midSaveOpts, ARRAYSIZE(midSaveOpts))));
     WriteIniInt(L"Settings", L"Behavior.ExpandOnHover", SendMessageW(hChkHover, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Behavior.AutoHideFullscreen", SendMessageW(hChkAutohideFs, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Context.AutoContextSwitching", SendMessageW(hChkAutoContext, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
@@ -427,6 +454,17 @@ inline void UpdateDiagnosticsDisplay() {
     );
     island_performance::ProcessDiagnostics diag = s_tracker.Sample(eff);
 
+    std::wstring workers;
+    if (g_workerStatus.media) workers += L"Media ";
+    if (g_workerStatus.audio) workers += L"Audio ";
+    if (g_workerStatus.bluetooth) workers += L"Bluetooth ";
+    if (g_workerStatus.weather) workers += L"Weather ";
+    if (g_workerStatus.lyrics) workers += L"Lyrics ";
+    if (g_workerStatus.notification) workers += L"Notifications ";
+    if (g_workerStatus.keyboard) workers += L"Keyboard ";
+    if (g_workerStatus.mouse) workers += L"Mouse ";
+    if (workers.empty()) workers = L"None (Idle)";
+
     wchar_t text[512];
     double memMb = static_cast<double>(diag.workingSetBytes) / (1024.0 * 1024.0);
     swprintf_s(text,
@@ -435,7 +473,7 @@ inline void UpdateDiagnosticsDisplay() {
         L"🔋 Power Status: %s (%d%%)\n"
         L"⚙️ Effective Policy: %s (Battery Saver: %s)\n"
         L"⏱️ Application Uptime: %lu seconds\n"
-        L"🧩 Auxiliary Workers: Media, Audio, Bluetooth, Weather, Lyrics active",
+        L"🧩 Auxiliary Workers (Live): %s",
         diag.processCpuPercent,
         memMb,
         static_cast<double>(diag.peakWorkingSetBytes) / (1024.0 * 1024.0),
@@ -444,7 +482,8 @@ inline void UpdateDiagnosticsDisplay() {
         (eff == island_performance::EffectivePowerMode::BatterySaver) ? L"Battery Saver" :
         (eff == island_performance::EffectivePowerMode::VisualQuality) ? L"Visual Quality" : L"Balanced",
         power.isBatterySaverActive ? L"Active" : L"Inactive",
-        diag.uptimeSeconds
+        diag.uptimeSeconds,
+        workers.c_str()
     );
     SetWindowTextW(hLblDiagMetrics, text);
 }
@@ -535,12 +574,16 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             g_pageControls[0].push_back(hComboActiveProfile);
 
             makeBtn(490, 50, 120, 28, ID_BTN_APPLY_PROFILE, L"Apply Profile", 0);
-            makeBtn(240, 88, 170, 28, ID_BTN_SAVE_PROFILE, L"💾 Save As Custom...", 0);
-            makeBtn(420, 88, 190, 28, ID_BTN_RESET_PROFILE, L"↺ Reset Active Profile", 0);
+            makeBtn(240, 88, 110, 26, ID_BTN_SAVE_PROFILE, L"💾 Save As...", 0);
+            makeBtn(355, 88, 110, 26, ID_BTN_DUPLICATE_PROFILE, L"📋 Duplicate", 0);
+            makeBtn(470, 88, 110, 26, ID_BTN_DELETE_PROFILE, L"🗑️ Delete", 0);
+            makeBtn(240, 118, 110, 26, ID_BTN_EXPORT_PROFILE, L"📤 Export...", 0);
+            makeBtn(355, 118, 110, 26, ID_BTN_IMPORT_PROFILE, L"📥 Import...", 0);
+            makeBtn(470, 118, 140, 26, ID_BTN_RESET_PROFILE, L"↺ Reset to Defaults", 0);
 
-            makeLabel(32, 140, 200, 20, L"Active Context Mode:", 0);
-            hComboActiveContext = makeCombo(240, 137, 240, 200, ID_COMBO_ACTIVE_CONTEXT, kContextOptions, ARRAYSIZE(kContextOptions), 0);
-            hChkContextLock = makeCheck(32, 175, 400, 24, ID_CHK_CONTEXT_LOCK, L"🔒 Lock Context (prevent automatic app detection)", 0);
+            makeLabel(32, 155, 200, 20, L"Active Context Mode:", 0);
+            hComboActiveContext = makeCombo(240, 152, 240, 200, ID_COMBO_ACTIVE_CONTEXT, kContextOptions, ARRAYSIZE(kContextOptions), 0);
+            hChkContextLock = makeCheck(32, 185, 400, 24, ID_CHK_CONTEXT_LOCK, L"🔒 Lock Context (prevent automatic app detection)", 0);
 
             makeBtn(32, 220, 200, 32, ID_BTN_TOGGLE_ISLAND, L"👁️ Show / Hide Island", 0);
 
@@ -724,6 +767,59 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     SaveValuesFromUi(hwnd);
                     MessageBoxW(hwnd, (L"Profile '" + profiles[cur].name + L"' applied successfully!").c_str(), L"Profile Studio", MB_OK | MB_ICONINFORMATION);
                 }
+            } else if (id == ID_BTN_DUPLICATE_PROFILE) {
+                int cur = static_cast<int>(SendMessageW(hComboActiveProfile, CB_GETCURSEL, 0, 0));
+                auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
+                if (cur >= 0 && static_cast<size_t>(cur) < profiles.size()) {
+                    std::wstring newName = profiles[cur].name + L"_Copy";
+                    if (island_profile::ProfileManager::DuplicateProfile(profiles[cur].name, newName)) {
+                        PopulateProfilesCombo(hComboActiveProfile);
+                        MessageBoxW(hwnd, (L"Profile duplicated as '" + newName + L"'").c_str(), L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                    }
+                }
+            } else if (id == ID_BTN_DELETE_PROFILE) {
+                int cur = static_cast<int>(SendMessageW(hComboActiveProfile, CB_GETCURSEL, 0, 0));
+                auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
+                if (cur >= 0 && static_cast<size_t>(cur) < profiles.size()) {
+                    if (profiles[cur].isBuiltIn) {
+                        MessageBoxW(hwnd, L"Built-in profiles cannot be deleted.", L"Profile Studio", MB_OK | MB_ICONWARNING);
+                    } else if (MessageBoxW(hwnd, (L"Are you sure you want to delete profile '" + profiles[cur].name + L"'?").c_str(), L"Confirm Delete", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                        island_profile::ProfileManager::DeleteProfile(profiles[cur].name);
+                        PopulateProfilesCombo(hComboActiveProfile);
+                    }
+                }
+            } else if (id == ID_BTN_EXPORT_PROFILE) {
+                int cur = static_cast<int>(SendMessageW(hComboActiveProfile, CB_GETCURSEL, 0, 0));
+                auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
+                if (cur >= 0 && static_cast<size_t>(cur) < profiles.size()) {
+                    wchar_t path[MAX_PATH] = {};
+                    OPENFILENAMEW ofn = { sizeof(ofn) };
+                    ofn.hwndOwner = hwnd;
+                    ofn.lpstrFilter = L"Profile INI (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
+                    ofn.lpstrFile = path;
+                    ofn.nMaxFile = MAX_PATH;
+                    ofn.Flags = OFN_OVERWRITEPROMPT;
+                    wcscpy_s(path, (profiles[cur].name + L".ini").c_str());
+                    if (GetSaveFileNameW(&ofn)) {
+                        island_profile::ProfileManager::ExportProfile(profiles[cur].name, path);
+                        MessageBoxW(hwnd, L"Profile exported successfully!", L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                    }
+                }
+            } else if (id == ID_BTN_IMPORT_PROFILE) {
+                wchar_t path[MAX_PATH] = {};
+                OPENFILENAMEW ofn = { sizeof(ofn) };
+                ofn.hwndOwner = hwnd;
+                ofn.lpstrFilter = L"Profile INI (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
+                ofn.lpstrFile = path;
+                ofn.nMaxFile = MAX_PATH;
+                ofn.Flags = OFN_FILEMUSTEXIST;
+                if (GetOpenFileNameW(&ofn)) {
+                    island_profile::ProfileData imported;
+                    if (island_profile::ProfileManager::ImportProfile(path, imported)) {
+                        PopulateProfilesCombo(hComboActiveProfile);
+                        MessageBoxW(hwnd, (L"Profile '" + imported.name + L"' imported successfully!").c_str(), L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                    }
+                }
             } else if (id == ID_BTN_SAVE_PROFILE) {
                 wchar_t customName[64] = L"MyCustomProfile";
                 island_profile::ProfileData current;
@@ -749,13 +845,11 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             } else if (id == ID_BTN_REFRESH_DIAG) {
                 UpdateDiagnosticsDisplay();
             } else if (id == ID_BTN_CLEAR_HISTORY) {
-                island_notification::NotificationHistory history;
-                history.ClearAll();
-                MessageBoxW(hwnd, L"Notification history cleared.", L"Notifications", MB_OK | MB_ICONINFORMATION);
+                island_globals::g_notificationHistory.ClearAll();
+                MessageBoxW(hwnd, L"Shared notification history cleared.", L"Notifications", MB_OK | MB_ICONINFORMATION);
             } else if (id == ID_BTN_CLEAR_CLIPBOARD) {
-                island_clipboard::ClipboardManager cb;
-                cb.ClearAll();
-                MessageBoxW(hwnd, L"Clipboard history cleared.", L"Clipboard", MB_OK | MB_ICONINFORMATION);
+                island_globals::g_clipboardManager.ClearAll();
+                MessageBoxW(hwnd, L"Shared clipboard history cleared.", L"Clipboard", MB_OK | MB_ICONINFORMATION);
             } else if (id == ID_BTN_ONBOARDING) {
                 ShowOnboardingDialog(hwnd);
             } else if (id == ID_BTN_TOGGLE_ISLAND) {
@@ -956,6 +1050,9 @@ inline LRESULT CALLBACK OnboardingWndProc(HWND hwnd, UINT msg, WPARAM wParam, LP
 
                     bool startup = (SendDlgItemMessageW(hwnd, 3006, BM_GETCHECK, 0, 0) == BST_CHECKED);
                     standalone_app::SetStartupEnabled(startup);
+                    chosen.moduleMedia = (SendDlgItemMessageW(hwnd, 3003, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                    chosen.moduleBluetooth = (SendDlgItemMessageW(hwnd, 3004, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                    chosen.moduleFocusTimer = (SendDlgItemMessageW(hwnd, 3005, BM_GETCHECK, 0, 0) == BST_CHECKED);
                 }
 
                 island_profile::ProfileManager::ApplyProfileToSettingsIni(chosen, GetIniFilePath());

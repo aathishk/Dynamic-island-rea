@@ -2,11 +2,11 @@
 // @id              dynamic-island-for-windows
 // @name            Dynamic Island for Windows
 // @description     A living, breathing pill overlay inspired by iPhone's Dynamic Island. Reacts to media, downloads, clipboard, battery, and more.
-// @version         1.4.0
+// @version         1.7.0
 // @author          Himanshu
 // @github          https://github.com/devcode90
 // @include         windhawk.exe
-// @compilerOptions -lole32 -loleaut32 -lshcore -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lruntimeobject -lwindowscodecs -lsetupapi -lwinhttp -lpdh -lwinmm
+// @compilerOptions -lole32 -loleaut32 -lshcore -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lruntimeobject -lwindowscodecs -lsetupapi -lwinhttp -lpdh -lwinmm -lpsapi -lcomdlg32
 // @license         MIT
 // ==/WindhawkMod==
 
@@ -676,6 +676,15 @@ We love community contributions! To ensure high-quality updates, please follow t
 #include "gesture_manager.h"
 #include "island_layout.h"
 
+namespace island_globals {
+    inline island_context::ContextEngine g_contextEngine;
+    inline island_clipboard::ClipboardManager g_clipboardManager;
+    inline island_notification::NotificationHistory g_notificationHistory;
+    inline island_notification::NotificationQueue g_notificationQueue;
+    inline island_focus::FocusTimerSession g_focusTimer;
+    inline island_gestures::GestureManager g_gestureManager;
+}
+
 using Microsoft::WRL::ComPtr;
 using namespace std::chrono_literals;
 
@@ -1330,6 +1339,16 @@ struct Settings {
     bool gameOverlayShowRam = true;
     bool gameOverlayShowDisk = true;
     bool gameOverlayCompact = false;
+
+    // Dynamic Edge v1.7.0 Desktop Companion settings
+    std::wstring performanceMode = L"balanced";
+    bool autoBatterySaver = true;
+    std::wstring contextMode = L"normal";
+    bool autoContextSwitching = true;
+    bool quietHoursEnabled = false;
+    int quietHoursStart = 22;
+    int quietHoursEnd = 7;
+    bool quickControlsModule = true;
 };
 
 struct BitmapPixels {
@@ -1997,7 +2016,13 @@ int ActiveTabCount(const Settings& settings) {
     if (settings.hardwareMonitorModule) ++count;
     if (settings.fileTrayModule) ++count;
     if (settings.lyrics && g_lyricsTabAvailable.load(std::memory_order_relaxed)) ++count;
+    if (settings.quickControlsModule) ++count;
     return count;
+}
+
+inline int QuickControlsTabIndex(const Settings& settings) {
+    if (!settings.quickControlsModule) return -1;
+    return ActiveTabCount(settings) - 1;
 }
 
 int NormalizedTabIndex(const Settings& settings) {
@@ -3104,7 +3129,36 @@ void LoadSettings() {
     next.battery = Wh_GetIntSetting(L"Modules.Battery") != 0;
     next.progress = Wh_GetIntSetting(L"Modules.Progress") != 0;
     next.capsLock = Wh_GetIntSetting(L"Modules.CapsLock") != 0;
-    next.timerEnabled = Wh_GetIntSetting(L"Modules.TimerModule") != 0;
+    int ft = Wh_GetIntSetting(L"Modules.FocusTimer");
+    int tm = Wh_GetIntSetting(L"Modules.TimerModule");
+    next.timerEnabled = (ft != 0) || (tm != 0);
+
+    next.performanceMode = GetStringSettingCopy(L"Performance.PerformanceMode");
+    if (next.performanceMode.empty()) next.performanceMode = L"balanced";
+    next.autoBatterySaver = Wh_GetIntSetting(L"Performance.AutoBatterySaver") != 0;
+    next.contextMode = GetStringSettingCopy(L"Context.ContextMode");
+    if (next.contextMode.empty()) next.contextMode = L"normal";
+    next.autoContextSwitching = Wh_GetIntSetting(L"Context.AutoContextSwitching") != 0;
+    next.quietHoursEnabled = Wh_GetIntSetting(L"Notifications.QuietHoursEnabled") != 0;
+    next.quietHoursStart = Wh_GetIntSetting(L"Notifications.QuietHoursStart");
+    next.quietHoursEnd = Wh_GetIntSetting(L"Notifications.QuietHoursEnd");
+    next.quickControlsModule = Wh_GetIntSetting(L"Modules.QuickControls") != 0;
+
+    std::wstring sClick = GetStringSettingCopy(L"Gestures.SingleClick");
+    if (!sClick.empty()) island_globals::g_gestureManager.SetAction(island_gestures::GestureType::SingleClick, island_gestures::GestureActionFromIdString(sClick));
+    std::wstring dClick = GetStringSettingCopy(L"Gestures.DoubleClick");
+    if (!dClick.empty()) island_globals::g_gestureManager.SetAction(island_gestures::GestureType::DoubleClick, island_gestures::GestureActionFromIdString(dClick));
+    std::wstring mClick = GetStringSettingCopy(L"Gestures.MiddleClick");
+    if (!mClick.empty()) island_globals::g_gestureManager.SetAction(island_gestures::GestureType::MiddleClick, island_gestures::GestureActionFromIdString(mClick));
+
+    static bool s_historyLoaded = false;
+    if (!s_historyLoaded) {
+        island_globals::g_notificationHistory.LoadFromFile();
+        island_globals::g_clipboardManager.LoadFromFile();
+        s_historyLoaded = true;
+    }
+    island_globals::g_clipboardManager.SetEnabled(next.clipboard);
+    island_globals::g_notificationHistory.SetEnabled(Wh_GetIntSetting(L"Notifications.HistoryEnabled") != 0);
 
     next.hideShowHotkeyEnabled = Wh_GetIntSetting(L"Shortcuts.HideShowHotkeyEnabled") != 0;
 
@@ -6049,6 +6103,14 @@ DWORD WINAPI NotificationThreadProc(void*) {
                             if (g_settings.notificationRespectDnD && g_isDnDActive.load()) {
                                 continue;
                             }
+                            SYSTEMTIME stNow;
+                            GetLocalTime(&stNow);
+                            if (g_settings.quietHoursEnabled && island_notification::IsInQuietHours(stNow.wHour, g_settings.quietHoursStart, g_settings.quietHoursEnd)) {
+                                continue;
+                            }
+                            if (g_isFullscreen.load(std::memory_order_relaxed)) {
+                                continue;
+                            }
 
                             NotificationSnapshot snapshot;
                             snapshot.active = true;
@@ -6104,6 +6166,16 @@ DWORD WINAPI NotificationThreadProc(void*) {
                             }
 
                             {
+                                island_notification::NotificationItem nItem;
+                                nItem.id = id;
+                                nItem.sourceApp = snapshot.app;
+                                nItem.title = snapshot.title;
+                                nItem.message = snapshot.body;
+                                nItem.timestampTick = GetTickCount64();
+                                nItem.category = island_notification::ClassifyNotification(snapshot.app, snapshot.title);
+                                nItem.priority = island_notification::DeterminePriority(nItem.category);
+                                island_globals::g_notificationHistory.Record(nItem);
+                                island_globals::g_notificationQueue.Enqueue(nItem);
                                 std::lock_guard lock(g_stateMutex);
                                 g_state.notification = std::move(snapshot);
                             }
@@ -9801,6 +9873,7 @@ void CaptureClipboard(HWND hwnd) {
     }
 
     if (clip.active) {
+        island_globals::g_clipboardManager.CaptureFromSystemClipboard(hwnd);
         {
             std::lock_guard lock(g_stateMutex);
             g_state.clipboard = std::move(clip);
@@ -11132,6 +11205,11 @@ void HandleStatusClickAtPoint(HWND hwnd, LPARAM lParam) {
 }
 
 void StartFocusTimer(int minutes, bool isBreak) {
+    if (isBreak) {
+        island_globals::g_focusTimer.StartBreak(false, minutes);
+    } else {
+        island_globals::g_focusTimer.StartWork(minutes);
+    }
     {
         std::lock_guard lock(g_stateMutex);
         g_state.timer.active = true;
@@ -11146,6 +11224,7 @@ void StartFocusTimer(int minutes, bool isBreak) {
 }
 
 void ToggleTimerPause() {
+    island_globals::g_focusTimer.TogglePause();
     {
         std::lock_guard lock(g_stateMutex);
         if (!g_state.timer.active) {
@@ -11164,6 +11243,7 @@ void ToggleTimerPause() {
 }
 
 void StopFocusTimer() {
+    island_globals::g_focusTimer.Stop();
     {
         std::lock_guard lock(g_stateMutex);
         g_state.timer.active = false;
@@ -13697,7 +13777,7 @@ class Renderer {
         // ── 0. Real Optical Liquid Glass (Backdrop Capture & Refraction) ──────
         const island_performance::PowerStateInfo powerInfo = island_performance::ReadSystemPowerStatus();
         const island_performance::EffectivePowerMode effMode = island_performance::DetermineEffectivePowerMode(
-            L"balanced", true, powerInfo);
+            settings.performanceMode.c_str(), settings.autoBatterySaver, powerInfo);
         const bool canCaptureLiveGlass = settings.realLiquidGlass &&
             island_performance::IsLiveBackdropCaptureAllowed(effMode, settings.realLiquidGlass);
         if (canCaptureLiveGlass) {
@@ -14700,6 +14780,60 @@ class Renderer {
             smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
             smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             textBrush_->SetOpacity(0.96f);
+        }
+    }
+
+    // Quick Controls Companion Dashboard (Dynamic Edge v1.7.0)
+    void DrawQuickControlsDashboard(const SharedState& state, D2D1_RECT_F rect,
+                                    const Settings& settings, float scale) {
+        (void)state; (void)settings;
+        if (!target_) return;
+        const float padX = 24.0f * scale;
+        const D2D1_RECT_F headerRect = D2D1::RectF(rect.left + padX, rect.top + 16.0f * scale,
+                                                   rect.right - padX, rect.top + 36.0f * scale);
+        if (textBrush_ && boldTextFormat_) {
+            textBrush_->SetOpacity(0.96f);
+            boldTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            const wchar_t* title = L"Quick Controls";
+            target_->DrawTextW(title, static_cast<UINT32>(wcslen(title)), boldTextFormat_.Get(),
+                               headerRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+            boldTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
+        const int vol = island_controls::GetMasterVolumePercent();
+        float barY = rect.top + 40.0f * scale;
+        float barLeft = rect.left + padX;
+        float barRight = rect.right - padX;
+        float barH = 14.0f * scale;
+        D2D1_ROUNDED_RECT rTrack = D2D1::RoundedRect(D2D1::RectF(barLeft, barY, barRight, barY + barH), barH * 0.5f, barH * 0.5f);
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> trackBrush;
+        if (SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.25f, 0.25f, 0.30f, 0.45f), &trackBrush))) {
+            target_->FillRoundedRectangle(rTrack, trackBrush.Get());
+        }
+        float fillW = (barRight - barLeft) * (static_cast<float>(vol) / 100.0f);
+        D2D1_ROUNDED_RECT rFill = D2D1::RoundedRect(D2D1::RectF(barLeft, barY, barLeft + fillW, barY + barH), barH * 0.5f, barH * 0.5f);
+        if (accentBrush_) {
+            target_->FillRoundedRectangle(rFill, accentBrush_.Get());
+        }
+        const auto tiles = island_controls::GetStandardControlTiles();
+        float gridY = barY + 22.0f * scale;
+        float tileW = (barRight - barLeft - 16.0f * scale) / 3.0f;
+        float tileH = 32.0f * scale;
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> tileBrush;
+        target_->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.18f, 0.22f, 0.55f), &tileBrush);
+        for (int i = 0; i < 9 && i < static_cast<int>(tiles.size()); ++i) {
+            int row = i / 3;
+            int col = i % 3;
+            float tx = barLeft + col * (tileW + 8.0f * scale);
+            float ty = gridY + row * (tileH + 8.0f * scale);
+            D2D1_ROUNDED_RECT rTile = D2D1::RoundedRect(D2D1::RectF(tx, ty, tx + tileW, ty + tileH), 8.0f * scale, 8.0f * scale);
+            if (tileBrush) {
+                target_->FillRoundedRectangle(rTile, tileBrush.Get());
+            }
+            if (smallTextFormat_ && textBrush_) {
+                smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                D2D1_RECT_F textR = D2D1::RectF(tx + 4.0f, ty + 8.0f * scale, tx + tileW - 4.0f, ty + tileH);
+                target_->DrawTextW(tiles[i].label, static_cast<UINT32>(wcslen(tiles[i].label)), smallTextFormat_.Get(), textR, textBrush_.Get());
+            }
         }
     }
 
@@ -15956,6 +16090,7 @@ class Renderer {
             if (settings.weather) activeTabs.push_back(1);
             if (settings.hardwareMonitorModule) activeTabs.push_back(2);
             if (settings.fileTrayModule) activeTabs.push_back(4);
+            if (settings.quickControlsModule) activeTabs.push_back(5);
 
             int maxTabs = static_cast<int>(activeTabs.size());
             int tabIdx = NormalizedTabIndex(settings);
@@ -15976,6 +16111,7 @@ class Renderer {
                 else if (activeTabId == 1) DrawWeatherDashboard(state, fullRect, settings, now, scale, hasWeather, wIcon, wText);
                 else if (activeTabId == 2) DrawHardwareMonitorDashboard(state, fullRect, settings, scale);
                 else if (activeTabId == 4) DrawFileTrayDashboard(state, fullRect, settings, scale);
+                else if (activeTabId == 5) DrawQuickControlsDashboard(state, fullRect, settings, scale);
             });
 
             DrawTabPagination(fullRect, maxTabs);
@@ -16529,6 +16665,7 @@ class Renderer {
             if (settings.hardwareMonitorModule) activeTabs.push_back(3);
             if (settings.fileTrayModule) activeTabs.push_back(4);
             if (settings.lyrics && !lyricsFirst) activeTabs.push_back(5);  // Lyrics (last)
+            if (settings.quickControlsModule) activeTabs.push_back(6); // Quick Controls
 
             // Same settings object as the list above, so the index can't be
             // normalised against a tab set that no longer matches.
@@ -23040,6 +23177,43 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 int xPos = GET_X_LPARAM(lParam);
                 int yPos = GET_Y_LPARAM(lParam);
 
+                const int qcTab = QuickControlsTabIndex(g_settings);
+                if (g_settings.quickControlsModule && qcTab >= 0 && NormalizedTabIndex(g_settings) == qcTab) {
+                    if (g_pillClientRect.valid) {
+                        float left = static_cast<float>(g_pillClientRect.left);
+                        float top = static_cast<float>(g_pillClientRect.top);
+                        float right = static_cast<float>(g_pillClientRect.right);
+                        float barY = top + 40.0f;
+                        float barLeft = left + 24.0f;
+                        float barRight = right - 24.0f;
+                        if (yPos >= barY - 8.0f && yPos <= barY + 22.0f && xPos >= barLeft && xPos <= barRight) {
+                            float pctF = std::clamp((static_cast<float>(xPos) - barLeft) / (barRight - barLeft), 0.0f, 1.0f);
+                            island_controls::SetMasterVolumePercent(static_cast<int>(pctF * 100.0f));
+                            TriggerNudge();
+                            return 0;
+                        }
+                        float gridY = barY + 22.0f;
+                        float tileW = (barRight - barLeft - 16.0f) / 3.0f;
+                        float tileH = 32.0f;
+                        const auto tiles = island_controls::GetStandardControlTiles();
+                        for (int i = 0; i < 9 && i < static_cast<int>(tiles.size()); ++i) {
+                            int r = i / 3;
+                            int c = i % 3;
+                            float tx = barLeft + c * (tileW + 8.0f);
+                            float ty = gridY + r * (tileH + 8.0f);
+                            if (xPos >= tx && xPos <= tx + tileW && yPos >= ty && yPos <= ty + tileH) {
+                                if (tiles[i].action == island_controls::ControlAction::OpenDynamicEdgeSettings) {
+                                    settings_ui::ShowSettingsWindow(hwnd);
+                                } else {
+                                    island_controls::ExecuteControlAction(tiles[i].action, hwnd, &island_globals::g_contextEngine);
+                                }
+                                TriggerNudge();
+                                return 0;
+                            }
+                        }
+                    }
+                }
+
                 s_touchStart.x = xPos;
                 s_touchStart.y = yPos;
                 s_touchStartTime = GetTickCount64();
@@ -23505,23 +23679,57 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             return 0;
 
         case WM_MBUTTONUP: {
-            bool hasMultiple = false;
-            {
-                std::lock_guard lock(g_stateMutex);
-                hasMultiple = g_state.mediaSources.size() > 1;
-            }
-            if (hasMultiple) {
-                CycleNextMediaSession();
+            using namespace island_gestures;
+            GestureAction act = island_globals::g_gestureManager.GetAction(GestureType::MiddleClick);
+            if (act == GestureAction::CycleTabs) {
+                StepIdleTab(1);
+            } else if (act == GestureAction::ToggleFocusMode) {
+                if (island_globals::g_focusTimer.IsActive()) {
+                    StopFocusTimer();
+                } else {
+                    StartFocusTimer(25, false);
+                }
+            } else if (act == GestureAction::OpenSettings) {
+                settings_ui::ShowSettingsWindow(hwnd);
             } else {
-                ToggleEndpointMute();
+                bool hasMultiple = false;
+                {
+                    std::lock_guard lock(g_stateMutex);
+                    hasMultiple = g_state.mediaSources.size() > 1;
+                }
+                if (hasMultiple) {
+                    CycleNextMediaSession();
+                } else {
+                    ToggleEndpointMute();
+                }
             }
             return 0;
         }
 
         case WM_LBUTTONDBLCLK: {
-            const bool nextVal = !g_pinnedExpanded.load();
-            g_pinnedExpanded.store(nextVal);
-            Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
+            using namespace island_gestures;
+            GestureAction act = island_globals::g_gestureManager.GetAction(GestureType::DoubleClick);
+            if (act == GestureAction::OpenQuickControls) {
+                const int qc = QuickControlsTabIndex(g_settings);
+                if (qc >= 0) {
+                    g_idleTab = qc;
+                    g_pinnedExpanded.store(true);
+                    g_layoutDirty = true;
+                    TriggerNudge();
+                }
+            } else if (act == GestureAction::ToggleFocusMode) {
+                if (island_globals::g_focusTimer.IsActive()) {
+                    StopFocusTimer();
+                } else {
+                    StartFocusTimer(25, false);
+                }
+            } else if (act == GestureAction::OpenSettings) {
+                settings_ui::ShowSettingsWindow(hwnd);
+            } else {
+                const bool nextVal = !g_pinnedExpanded.load();
+                g_pinnedExpanded.store(nextVal);
+                Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
+            }
             return 0;
         }
 
@@ -24186,6 +24394,28 @@ DWORD WINAPI RenderThreadProc(void*) {
             isFullscreen = newFullscreen;
             g_isFullscreen.store(isFullscreen, std::memory_order_relaxed);
             lastFullscreenCheck = now;
+
+            // Sample foreground window executable for Adaptive Context Engine
+            HWND fgWnd = GetForegroundWindow();
+            if (fgWnd && fgWnd != hwnd) {
+                DWORD fgPid = 0;
+                GetWindowThreadProcessId(fgWnd, &fgPid);
+                if (fgPid != 0) {
+                    HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, fgPid);
+                    if (hProc) {
+                        wchar_t exePath[MAX_PATH] = {};
+                        DWORD sz = MAX_PATH;
+                        if (QueryFullProcessImageNameW(hProc, 0, exePath, &sz)) {
+                            const wchar_t* pName = wcsrchr(exePath, L'\\');
+                            std::wstring exeName = pName ? (pName + 1) : exePath;
+                            std::wstring suggestedProfile;
+                            island_context::ContextMode mode = island_globals::g_contextEngine.Evaluate(exeName, suggestedProfile);
+                            (void)mode;
+                        }
+                        CloseHandle(hProc);
+                    }
+                }
+            }
         }
 
         // Reclaim the top of the z-order if another always-on-top window has

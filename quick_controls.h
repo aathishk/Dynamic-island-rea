@@ -6,6 +6,8 @@
 #include <endpointvolume.h>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include "context_policy.h"
 
 namespace island_controls {
 
@@ -50,43 +52,72 @@ inline std::vector<ControlTile> GetStandardControlTiles() {
 }
 
 // Executes a quick control action safely using standard Windows URI schemes or official APIs
-inline bool ExecuteControlAction(ControlAction action, HWND parentHwnd = nullptr) {
+inline bool ExecuteControlAction(ControlAction action, HWND parentHwnd = nullptr, island_context::ContextEngine* pContext = nullptr) {
+    auto runShell = [&](const wchar_t* target) -> bool {
+        HINSTANCE hInst = ShellExecuteW(parentHwnd, L"open", target, nullptr, nullptr, SW_SHOWNORMAL);
+        return (reinterpret_cast<INT_PTR>(hInst) > 32);
+    };
+
     switch (action) {
     case ControlAction::OpenWifiSettings:
-        ShellExecuteW(parentHwnd, L"open", L"ms-settings:network-wifi", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"ms-settings:network-wifi");
 
     case ControlAction::OpenBluetoothSettings:
-        ShellExecuteW(parentHwnd, L"open", L"ms-settings:bluetooth", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"ms-settings:bluetooth");
 
     case ControlAction::OpenSoundSettings:
-        ShellExecuteW(parentHwnd, L"open", L"ms-settings:sound", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"ms-settings:sound");
 
     case ControlAction::OpenDisplaySettings:
-        ShellExecuteW(parentHwnd, L"open", L"ms-settings:display", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"ms-settings:display");
 
     case ControlAction::OpenPowerSettings:
-        ShellExecuteW(parentHwnd, L"open", L"ms-settings:powersleep", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"ms-settings:powersleep");
 
     case ControlAction::OpenNightLightSettings:
-        ShellExecuteW(parentHwnd, L"open", L"ms-settings:nightlight", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"ms-settings:nightlight");
 
     case ControlAction::LaunchScreenClip:
-        ShellExecuteW(parentHwnd, L"open", L"ms-screenclip:", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"ms-screenclip:");
 
     case ControlAction::OpenTaskManager:
-        ShellExecuteW(parentHwnd, L"open", L"taskmgr.exe", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"taskmgr.exe");
 
     case ControlAction::OpenWindowsSettings:
-        ShellExecuteW(parentHwnd, L"open", L"ms-settings:", nullptr, nullptr, SW_SHOWNORMAL);
-        return true;
+        return runShell(L"ms-settings:");
+
+    case ControlAction::ToggleFocusMode:
+        if (pContext) {
+            if (pContext->GetActiveMode() == island_context::ContextMode::Focus) {
+                pContext->ClearManualLock();
+            } else {
+                pContext->SetManualLock(island_context::ContextMode::Focus, 60);
+            }
+            return true;
+        }
+        return false;
+
+    case ControlAction::ToggleGamingMode:
+        if (pContext) {
+            if (pContext->GetActiveMode() == island_context::ContextMode::Gaming) {
+                pContext->ClearManualLock();
+            } else {
+                pContext->SetManualLock(island_context::ContextMode::Gaming, 120);
+            }
+            return true;
+        }
+        return false;
+
+    case ControlAction::TogglePresentationMode:
+        if (pContext) {
+            if (pContext->GetActiveMode() == island_context::ContextMode::Presentation) {
+                pContext->ClearManualLock();
+            } else {
+                pContext->SetManualLock(island_context::ContextMode::Presentation, 60);
+            }
+            return true;
+        }
+        return false;
 
     case ControlAction::OpenDynamicEdgeSettings:
         // Handled directly by callers via settings_ui::ShowSettingsWindow
@@ -95,6 +126,35 @@ inline bool ExecuteControlAction(ControlAction action, HWND parentHwnd = nullptr
     default:
         return false;
     }
+}
+
+// Sets current master audio volume percentage (0 - 100) using Core Audio APIs
+inline bool SetMasterVolumePercent(int percent) {
+    percent = std::clamp(percent, 0, 100);
+    float scalar = static_cast<float>(percent) / 100.0f;
+    bool success = false;
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    IMMDeviceEnumerator* enumerator = nullptr;
+    if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                  __uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(&enumerator)))) {
+        IMMDevice* device = nullptr;
+        if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device))) {
+            IAudioEndpointVolume* endpointVolume = nullptr;
+            if (SUCCEEDED(device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
+                                          reinterpret_cast<void**>(&endpointVolume)))) {
+                if (SUCCEEDED(endpointVolume->SetMasterVolumeLevelScalar(scalar, nullptr))) {
+                    success = true;
+                }
+                endpointVolume->Release();
+            }
+            device->Release();
+        }
+        enumerator->Release();
+    }
+    if (SUCCEEDED(hr)) {
+        CoUninitialize();
+    }
+    return success;
 }
 
 // Retrieves current master audio volume percentage (0 - 100) using Core Audio APIs

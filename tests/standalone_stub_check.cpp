@@ -40,6 +40,27 @@ void StopThreads() {}
 void LoadSettings() {}
 void TriggerNudge() {}
 
+struct WorkerStatus {
+    std::atomic<bool> media{true};
+    std::atomic<bool> audio{true};
+    std::atomic<bool> weather{true};
+    std::atomic<bool> lyrics{true};
+    std::atomic<bool> keyboard{true};
+    std::atomic<bool> mouse{true};
+    std::atomic<bool> notification{true};
+    std::atomic<bool> bluetooth{true};
+};
+inline WorkerStatus g_workerStatus;
+
+namespace island_globals {
+    inline island_context::ContextEngine g_contextEngine;
+    inline island_clipboard::ClipboardManager g_clipboardManager;
+    inline island_notification::NotificationHistory g_notificationHistory;
+    inline island_notification::NotificationQueue g_notificationQueue;
+    inline island_focus::FocusTimerSession g_focusTimer;
+    inline island_gestures::GestureManager g_gestureManager;
+}
+
 #include "standalone_app.h"
 
 // Test 1: Production launcher parsing & alias resolution checks
@@ -312,6 +333,17 @@ int RunClipboardAndFocusTimerPolicyTest() {
     timer.Skip();
     if (timer.GetCompletedSessions() != 1) return 907;
     if (timer.GetState() != island_focus::FocusState::ShortBreak) return 908;
+    if (!timer.IsActive()) return 909;
+    if (!timer.IsRunning()) return 910;
+
+    // Zero modulo protection check: setting sessionsBeforeLongBreak = 0 must clamp to 4 and never crash
+    cfg.sessionsBeforeLongBreak = 0;
+    timer.SetConfig(cfg);
+    if (timer.GetConfig().sessionsBeforeLongBreak <= 0) return 911;
+    timer.Skip(); // Must not divide/modulo by zero!
+
+    // Safe clipboard CopyToSystemClipboard check: non-existent id returns false without wiping clipboard
+    if (cb.CopyToSystemClipboard(999999)) return 912;
 
     return 0;
 }
@@ -354,6 +386,21 @@ int RunGesturesAndLayoutPolicyTest() {
 
     IslandPresentationState s6 = ArbitratePresentationState(false, false, false, false, false);
     if (s6 != IslandPresentationState::Collapsed) return 1010;
+
+    // 4. Wheel Gestures
+    gm.SetAction(GestureType::WheelScrollUp, GestureAction::NextMediaTrack);
+    if (gm.GetAction(GestureType::WheelScrollUp) != GestureAction::NextMediaTrack) return 1011;
+    if (gm.GetAction(GestureType::WheelScrollDown) != GestureAction::None) return 1012;
+
+    // 5. Quick Controls Context Mode Toggles
+    island_context::ContextEngine ce;
+    island_controls::ExecuteControlAction(island_controls::ControlAction::ToggleFocusMode, nullptr, &ce);
+    if (ce.GetActiveMode() != island_context::ContextMode::Focus) return 1013;
+    island_controls::ExecuteControlAction(island_controls::ControlAction::ToggleFocusMode, nullptr, &ce);
+    if (ce.GetActiveMode() != island_context::ContextMode::Normal) return 1014;
+
+    // 6. Profile CRUD & Built-in Protection
+    if (island_profile::ProfileManager::DeleteProfile(L"Obsidian")) return 1015; // Built-in must NOT be deletable!
 
     return 0;
 }

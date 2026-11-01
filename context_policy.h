@@ -130,6 +130,7 @@ public:
     void ClearManualLock() {
         isManualLocked_ = false;
         lockExpiryTick_ = 0;
+        activeMode_ = ContextMode::Normal;
     }
 
     bool IsManualLocked() const {

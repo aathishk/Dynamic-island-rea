@@ -296,6 +296,66 @@ public:
         }
         return buf;
     }
+
+    static bool GetProfileByName(const std::wstring& name, ProfileData& outProfile) {
+        for (const auto& b : GetAllBuiltInProfiles()) {
+            if (_wcsicmp(b.name.c_str(), name.c_str()) == 0) {
+                outProfile = b;
+                return true;
+            }
+        }
+        std::wstring path = GetProfileFilePath(name);
+        return LoadProfileFromFile(path, outProfile);
+    }
+
+    static bool DuplicateProfile(const std::wstring& sourceName, const std::wstring& newName) {
+        ProfileData p;
+        if (!GetProfileByName(sourceName, p)) return false;
+        p.name = SanitizeProfileName(newName);
+        p.isBuiltIn = false;
+        std::wstring destPath = GetProfileFilePath(p.name);
+        return SaveProfileToFile(p, destPath);
+    }
+
+    static bool RenameProfile(const std::wstring& oldName, const std::wstring& newName) {
+        // Built-in profiles cannot be renamed
+        for (const auto& b : GetAllBuiltInProfiles()) {
+            if (_wcsicmp(b.name.c_str(), oldName.c_str()) == 0) return false;
+        }
+        ProfileData p;
+        std::wstring oldPath = GetProfileFilePath(oldName);
+        if (!LoadProfileFromFile(oldPath, p)) return false;
+
+        p.name = SanitizeProfileName(newName);
+        p.isBuiltIn = false;
+        std::wstring newPath = GetProfileFilePath(p.name);
+        if (!SaveProfileToFile(p, newPath)) return false;
+
+        DeleteFileW(oldPath.c_str());
+        return true;
+    }
+
+    static bool DeleteProfile(const std::wstring& profileName) {
+        // Built-in profiles cannot be deleted
+        for (const auto& b : GetAllBuiltInProfiles()) {
+            if (_wcsicmp(b.name.c_str(), profileName.c_str()) == 0) return false;
+        }
+        std::wstring path = GetProfileFilePath(profileName);
+        return DeleteFileW(path.c_str()) != 0;
+    }
+
+    static bool ExportProfile(const std::wstring& profileName, const std::wstring& destinationPath) {
+        ProfileData p;
+        if (!GetProfileByName(profileName, p)) return false;
+        return SaveProfileToFile(p, destinationPath);
+    }
+
+    static bool ImportProfile(const std::wstring& sourcePath, ProfileData& outImported) {
+        if (!LoadProfileFromFile(sourcePath, outImported)) return false;
+        outImported.isBuiltIn = false;
+        std::wstring dest = GetProfileFilePath(outImported.name);
+        return SaveProfileToFile(outImported, dest);
+    }
 };
 
 } // namespace island_profile

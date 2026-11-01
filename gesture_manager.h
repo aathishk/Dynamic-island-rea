@@ -53,6 +53,38 @@ inline const wchar_t* GestureActionToString(GestureAction action) {
     return L"None";
 }
 
+inline const wchar_t* GestureActionToIdString(GestureAction action) {
+    switch (action) {
+    case GestureAction::ExpandCollapse: return L"expand";
+    case GestureAction::ToggleFocusMode: return L"focus";
+    case GestureAction::OpenQuickControls: return L"controls";
+    case GestureAction::OpenProfileStudio: return L"profile";
+    case GestureAction::StartPauseTimer: return L"timer";
+    case GestureAction::ToggleVisibility: return L"toggle_vis";
+    case GestureAction::OpenSettings: return L"settings";
+    case GestureAction::NextMediaTrack: return L"next_track";
+    case GestureAction::PreviousMediaTrack: return L"prev_track";
+    case GestureAction::CycleTabs: return L"tabs";
+    case GestureAction::None: return L"none";
+    }
+    return L"expand";
+}
+
+inline GestureAction GestureActionFromIdString(const std::wstring& id) {
+    if (_wcsicmp(id.c_str(), L"expand") == 0) return GestureAction::ExpandCollapse;
+    if (_wcsicmp(id.c_str(), L"focus") == 0) return GestureAction::ToggleFocusMode;
+    if (_wcsicmp(id.c_str(), L"controls") == 0) return GestureAction::OpenQuickControls;
+    if (_wcsicmp(id.c_str(), L"profile") == 0) return GestureAction::OpenProfileStudio;
+    if (_wcsicmp(id.c_str(), L"timer") == 0) return GestureAction::StartPauseTimer;
+    if (_wcsicmp(id.c_str(), L"toggle_vis") == 0) return GestureAction::ToggleVisibility;
+    if (_wcsicmp(id.c_str(), L"settings") == 0) return GestureAction::OpenSettings;
+    if (_wcsicmp(id.c_str(), L"next_track") == 0) return GestureAction::NextMediaTrack;
+    if (_wcsicmp(id.c_str(), L"prev_track") == 0) return GestureAction::PreviousMediaTrack;
+    if (_wcsicmp(id.c_str(), L"tabs") == 0) return GestureAction::CycleTabs;
+    if (_wcsicmp(id.c_str(), L"none") == 0) return GestureAction::None;
+    return GestureAction::ExpandCollapse;
+}
+
 struct CustomQuickAction {
     std::wstring label;
     std::wstring targetPathOrUri; // Executable path, folder path, or ms-settings URI
@@ -92,6 +124,8 @@ private:
     GestureAction doubleClickAction_ = GestureAction::OpenQuickControls;
     GestureAction middleClickAction_ = GestureAction::CycleTabs;
     GestureAction rightClickAction_ = GestureAction::OpenSettings;
+    GestureAction wheelUpAction_ = GestureAction::None;
+    GestureAction wheelDownAction_ = GestureAction::None;
 
 public:
     void SetAction(GestureType gesture, GestureAction action) {
@@ -100,6 +134,8 @@ public:
         case GestureType::DoubleClick: doubleClickAction_ = action; break;
         case GestureType::MiddleClick: middleClickAction_ = action; break;
         case GestureType::RightClick: rightClickAction_ = action; break;
+        case GestureType::WheelScrollUp: wheelUpAction_ = action; break;
+        case GestureType::WheelScrollDown: wheelDownAction_ = action; break;
         default: break;
         }
     }
@@ -110,6 +146,8 @@ public:
         case GestureType::DoubleClick: return doubleClickAction_;
         case GestureType::MiddleClick: return middleClickAction_;
         case GestureType::RightClick: return rightClickAction_;
+        case GestureType::WheelScrollUp: return wheelUpAction_;
+        case GestureType::WheelScrollDown: return wheelDownAction_;
         default: return GestureAction::None;
         }
     }
@@ -119,6 +157,8 @@ public:
         doubleClickAction_ = GestureAction::OpenQuickControls;
         middleClickAction_ = GestureAction::CycleTabs;
         rightClickAction_ = GestureAction::OpenSettings;
+        wheelUpAction_ = GestureAction::None;
+        wheelDownAction_ = GestureAction::None;
     }
 };
 

@@ -3144,6 +3144,13 @@ void LoadSettings() {
     next.contextMode = GetStringSettingCopy(L"Context.ContextMode");
     if (next.contextMode.empty()) next.contextMode = L"normal";
     next.autoContextSwitching = Wh_GetIntSetting(L"Context.AutoContextSwitching") != 0;
+    const bool isManualLocked = (Wh_GetIntSetting(L"Context.IsManualLocked") != 0);
+    island_globals::g_contextEngine.SetAutoDetectionEnabled(next.autoContextSwitching);
+    if (isManualLocked) {
+        island_globals::g_contextEngine.SetManualLock(island_context::StringToContextMode(next.contextMode));
+    } else {
+        island_globals::g_contextEngine.ClearManualLock();
+    }
     next.notificationEnabled = Wh_GetIntSetting(L"Notifications.Enabled") != 0;
     next.quietHoursEnabled = Wh_GetIntSetting(L"Notifications.QuietHoursEnabled") != 0;
     next.quietHoursStart = Wh_GetIntSetting(L"Notifications.QuietHoursStart");
@@ -6112,18 +6119,8 @@ DWORD WINAPI NotificationThreadProc(void*) {
                             // Immediately mark as seen so we don't process it again
                             seenIds.insert(id);
 
-                            if (g_settings.notificationRespectDnD && g_isDnDActive.load()) {
-                                continue;
-                            }
-                            SYSTEMTIME stNow;
-                            GetLocalTime(&stNow);
-                            if (g_settings.quietHoursEnabled && island_notification::IsInQuietHours(stNow.wHour, g_settings.quietHoursStart, g_settings.quietHoursEnd)) {
-                                continue;
-                            }
-                            if (g_isFullscreen.load(std::memory_order_relaxed)) {
-                                continue;
-                            }
-
+                            // Do NOT early-discard here: let all notifications enter history and
+                            // queue, so central policy can arbitrate presentation and critical bypass.
                             NotificationSnapshot snapshot;
                             snapshot.active = true;
                             snapshot.expiresAt = NowSeconds() + 4.0;
@@ -23735,17 +23732,50 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_MBUTTONUP: {
             using namespace island_gestures;
             GestureAction act = island_globals::g_gestureManager.GetAction(GestureType::MiddleClick);
-            if (act == GestureAction::CycleTabs) {
+            switch (act) {
+            case GestureAction::CycleTabs:
                 StepIdleTab(1);
-            } else if (act == GestureAction::ToggleFocusMode) {
+                break;
+            case GestureAction::StartPauseTimer:
+                ToggleTimerPause();
+                break;
+            case GestureAction::ToggleFocusMode:
                 if (island_globals::g_focusTimer.IsActive()) {
                     StopFocusTimer();
                 } else {
                     StartFocusTimer(25, false);
                 }
-            } else if (act == GestureAction::OpenSettings) {
+                break;
+            case GestureAction::OpenSettings:
                 settings_ui::ShowSettingsWindow(hwnd);
-            } else {
+                break;
+            case GestureAction::OpenQuickControls: {
+                const int qc = QuickControlsTabIndex(g_settings);
+                if (qc >= 0) {
+                    g_idleTab = qc;
+                    g_pinnedExpanded.store(true);
+                    g_layoutDirty = true;
+                    TriggerNudge();
+                }
+                break;
+            }
+            case GestureAction::NextMediaTrack:
+                SendMediaTransportCommand(2);
+                break;
+            case GestureAction::PreviousMediaTrack:
+                SendMediaTransportCommand(0);
+                break;
+            case GestureAction::ExpandCollapse: {
+                const bool nextVal = !g_pinnedExpanded.load();
+                g_pinnedExpanded.store(nextVal);
+                Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
+                g_layoutDirty = true;
+                TriggerNudge();
+                break;
+            }
+            case GestureAction::None:
+                break;
+            default: {
                 bool hasMultiple = false;
                 {
                     std::lock_guard lock(g_stateMutex);
@@ -23756,6 +23786,8 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 } else {
                     ToggleEndpointMute();
                 }
+                break;
+            }
             }
             return 0;
         }
@@ -23816,12 +23848,40 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 GestureAction wAct = (delta > 0)
                     ? island_globals::g_gestureManager.GetAction(GestureType::WheelScrollUp)
                     : island_globals::g_gestureManager.GetAction(GestureType::WheelScrollDown);
-                if (wAct != GestureAction::None && wAct != GestureAction::CycleTabs) {
-                    if (wAct == GestureAction::NextMediaTrack) { SendMediaTransportCommand(2); return 0; }
-                    else if (wAct == GestureAction::PreviousMediaTrack) { SendMediaTransportCommand(0); return 0; }
-                    else if (wAct == GestureAction::StartPauseTimer) { ToggleTimerPause(); return 0; }
-                    else if (wAct == GestureAction::ToggleFocusMode) {
+                if (wAct != GestureAction::None) {
+                    if (wAct == GestureAction::CycleTabs) {
+                        StepIdleTab(delta > 0 ? 1 : -1);
+                        return 0;
+                    } else if (wAct == GestureAction::NextMediaTrack) {
+                        SendMediaTransportCommand(2);
+                        return 0;
+                    } else if (wAct == GestureAction::PreviousMediaTrack) {
+                        SendMediaTransportCommand(0);
+                        return 0;
+                    } else if (wAct == GestureAction::StartPauseTimer) {
+                        ToggleTimerPause();
+                        return 0;
+                    } else if (wAct == GestureAction::ToggleFocusMode) {
                         if (island_globals::g_focusTimer.IsActive()) StopFocusTimer(); else StartFocusTimer(25, false);
+                        return 0;
+                    } else if (wAct == GestureAction::OpenSettings) {
+                        settings_ui::ShowSettingsWindow(hwnd);
+                        return 0;
+                    } else if (wAct == GestureAction::OpenQuickControls) {
+                        const int qc = QuickControlsTabIndex(g_settings);
+                        if (qc >= 0) {
+                            g_idleTab = qc;
+                            g_pinnedExpanded.store(true);
+                            g_layoutDirty = true;
+                            TriggerNudge();
+                        }
+                        return 0;
+                    } else if (wAct == GestureAction::ExpandCollapse) {
+                        const bool nextVal = (delta > 0);
+                        g_pinnedExpanded.store(nextVal);
+                        Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
+                        g_layoutDirty = true;
+                        TriggerNudge();
                         return 0;
                     }
                 }
@@ -24321,7 +24381,7 @@ DWORD WINAPI RenderThreadProc(void*) {
             }
             if (!g_state.notification.active && island_globals::g_notificationQueue.Size() > 0) {
                 island_notification::NotificationPolicySettings nSettings;
-                nSettings.enabled = g_settings.notificationEnabled && (!g_settings.notificationRespectDnD || !g_state.doNotDisturb.enabled);
+                nSettings.enabled = g_settings.notificationEnabled && (!g_settings.notificationRespectDnD || (!g_state.doNotDisturb.enabled && !g_isDnDActive.load()));
                 nSettings.quietHoursEnabled = g_settings.quietHoursEnabled;
                 nSettings.quietHoursStart = g_settings.quietHoursStart;
                 nSettings.quietHoursEnd = g_settings.quietHoursEnd;
@@ -24651,18 +24711,30 @@ DWORD WINAPI RenderThreadProc(void*) {
                 primary.width = qcDims.width;
                 primary.height = qcDims.height;
             } else if (!isFullscreen && (pinned || isHoverExpanded)) {
-                primary.width = MediaLayout::kExpandedWidth * g_settings.sizeScale;
-                primary.height = MediaLayout::kExpandedHeight * g_settings.sizeScale;
+                island_layout::IslandContentDimensions expDims =
+                    island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::ExpandedDashboard, g_settings.sizeScale, 1.0f, currentTab);
+                primary.width = expDims.width;
+                primary.height = expDims.height;
             } else if (primary.width > 0.0f) {
                 // Collapsed: size the strip to the text it will actually render
-                // (windhawk-mods#5086). ActivityForKind's 96/170px was wrong both
-                // ways -- dead air around a short "9:41", and clipping on
-                // "10:41:32 PM" at larger Text size.
-                // The > 0 guard preserves ActivityForKind's fully-hidden case.
-                primary.width =
-                    renderer.MeasureIdleStrip(snapshot, g_settings, now).totalWidth *
-                    g_settings.sizeScale;
+                island_layout::IslandContentDimensions colDims =
+                    island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::Collapsed, g_settings.sizeScale, 1.0f);
+                float measured = renderer.MeasureIdleStrip(snapshot, g_settings, now).totalWidth * g_settings.sizeScale;
+                primary.width = std::max(measured, colDims.width);
+                primary.height = colDims.height;
             }
+        }
+        if (primary.kind == IslandKind::Notification) {
+            island_layout::IslandContentDimensions notifDims =
+                island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::NotificationCard, g_settings.sizeScale, 1.0f);
+            primary.width = notifDims.width;
+            primary.height = notifDims.height;
+        }
+        if (primary.kind == IslandKind::Timer && !isHoveredOrPinned) {
+            island_layout::IslandContentDimensions timerDims =
+                island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::CompactTimer, g_settings.sizeScale, 1.0f);
+            primary.width = timerDims.width;
+            primary.height = timerDims.height;
         }
         if (!isFullscreen && primary.kind == IslandKind::Idle &&
             (g_settings.gameOverlay || g_gameOverlayPinned.load())) {
@@ -24683,8 +24755,10 @@ DWORD WINAPI RenderThreadProc(void*) {
         }
         if (primary.kind == IslandKind::Media) {
             if (!isFullscreen && (isHoverExpanded || pinned || recentTrackChange)) {
-                primary.width = MediaLayout::kExpandedWidth * g_settings.sizeScale;
-                primary.height = MediaLayout::kExpandedHeight * g_settings.sizeScale;
+                island_layout::IslandContentDimensions expDims =
+                    island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::ExpandedDashboard, g_settings.sizeScale, 1.0f, currentTab);
+                primary.width = expDims.width;
+                primary.height = expDims.height;
                 // (Immersive lyrics: the island keeps its normal 380px width.)
             } else {
                 // Optional clock section on the left of the collapsed pill.
@@ -24696,6 +24770,11 @@ DWORD WINAPI RenderThreadProc(void*) {
                     primary.width = (kCollapsedLyricsWidth + clockSection) * g_settings.sizeScale;
                 } else if (g_settings.mediaPillClock) {
                     primary.width = (MediaPillLayout::kBaseWidth + clockSection) * g_settings.sizeScale;
+                } else {
+                    island_layout::IslandContentDimensions medDims =
+                        island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::CompactMedia, g_settings.sizeScale, 1.0f);
+                    primary.width = medDims.width;
+                    primary.height = medDims.height;
                 }
             }
         }

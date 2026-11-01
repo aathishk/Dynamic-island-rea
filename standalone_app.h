@@ -278,6 +278,7 @@ inline LONG WINAPI CrashFilter(EXCEPTION_POINTERS* ep) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+#ifndef DYNAMIC_ISLAND_TEST_RUNNER
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
     SetUnhandledExceptionFilter(CrashFilter);
     if (!standalone_app::AcquireSingleInstance()) {
@@ -343,3 +344,5 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR, int nCmdShow) {
     return wWinMain(hInst, hPrev, GetCommandLineW(), nCmdShow);
 }
+
+#endif

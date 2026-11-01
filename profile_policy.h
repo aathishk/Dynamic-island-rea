@@ -72,6 +72,8 @@ struct ProfileData {
     bool moduleFileTray = true;
     bool moduleFocusTimer = true;
     bool moduleClipboard = false; // Opt-in privacy default
+    bool moduleQuickLookup = true;
+    bool moduleLyrics = true;
 };
 
 // Sanitizes a profile name for safe file naming on Windows (letters, digits, spaces, dashes, underscores)
@@ -219,6 +221,8 @@ inline ProfileData CreateBuiltInProfile(BuiltInProfileType type) {
         p.moduleCalendar = false;
         p.moduleFileTray = false;
         p.moduleFocusTimer = true;
+        p.moduleQuickLookup = false;
+        p.moduleLyrics = false;
         break;
 
     case BuiltInProfileType::Studio:
@@ -239,6 +243,8 @@ inline ProfileData CreateBuiltInProfile(BuiltInProfileType type) {
         p.moduleFocusTimer = true;
         p.moduleWeather = true;
         p.moduleCalendar = true;
+        p.moduleQuickLookup = true;
+        p.moduleLyrics = true;
         break;
 
     default:

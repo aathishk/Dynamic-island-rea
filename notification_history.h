@@ -168,6 +168,11 @@ private:
 
 public:
 
+    std::vector<NotificationItem> GetAllEntries() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return history_;
+    }
+
     std::vector<NotificationItem> GetRecent(size_t count = 20) const {
         std::lock_guard<std::mutex> lock(mutex_);
         std::vector<NotificationItem> out;
@@ -189,8 +194,23 @@ public:
         for (auto& item : history_) {
             if (item.id == id) {
                 item.dismissed = true;
+                SaveToFileLocked();
                 return true;
             }
+        }
+        return false;
+    }
+
+    bool DismissEntry(uint64_t id) {
+        return Dismiss(id);
+    }
+
+    bool DeleteEntry(size_t index) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (index < history_.size()) {
+            history_.erase(history_.begin() + index);
+            SaveToFileLocked();
+            return true;
         }
         return false;
     }

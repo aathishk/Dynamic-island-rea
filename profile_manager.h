@@ -93,10 +93,14 @@ public:
         writeInt(L"Modules", L"Bluetooth", p.moduleBluetooth ? 1 : 0);
         writeInt(L"Modules", L"Weather", p.moduleWeather ? 1 : 0);
         writeInt(L"Modules", L"Calendar", p.moduleCalendar ? 1 : 0);
+        writeInt(L"Modules", L"HardwareMonitorModule", p.moduleHardware ? 1 : 0);
         writeInt(L"Modules", L"Hardware", p.moduleHardware ? 1 : 0);
+        writeInt(L"Modules", L"FileTrayModule", p.moduleFileTray ? 1 : 0);
         writeInt(L"Modules", L"FileTray", p.moduleFileTray ? 1 : 0);
         writeInt(L"Modules", L"FocusTimer", p.moduleFocusTimer ? 1 : 0);
         writeInt(L"Modules", L"Clipboard", p.moduleClipboard ? 1 : 0);
+        writeInt(L"Modules", L"QuickLookup", p.moduleQuickLookup ? 1 : 0);
+        writeInt(L"Modules", L"Lyrics", p.moduleLyrics ? 1 : 0);
 
         // Flush cache
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, tempPath.c_str());
@@ -173,10 +177,12 @@ public:
         outProfile.moduleBluetooth = (readInt(L"Modules", L"Bluetooth", 1) != 0);
         outProfile.moduleWeather = (readInt(L"Modules", L"Weather", 1) != 0);
         outProfile.moduleCalendar = (readInt(L"Modules", L"Calendar", 1) != 0);
-        outProfile.moduleHardware = (readInt(L"Modules", L"Hardware", 1) != 0);
-        outProfile.moduleFileTray = (readInt(L"Modules", L"FileTray", 1) != 0);
+        outProfile.moduleHardware = (readInt(L"Modules", L"HardwareMonitorModule", readInt(L"Modules", L"Hardware", 1)) != 0);
+        outProfile.moduleFileTray = (readInt(L"Modules", L"FileTrayModule", readInt(L"Modules", L"FileTray", 1)) != 0);
         outProfile.moduleFocusTimer = (readInt(L"Modules", L"FocusTimer", 1) != 0);
         outProfile.moduleClipboard = (readInt(L"Modules", L"Clipboard", 0) != 0);
+        outProfile.moduleQuickLookup = (readInt(L"Modules", L"QuickLookup", 1) != 0);
+        outProfile.moduleLyrics = (readInt(L"Modules", L"Lyrics", 1) != 0);
 
         ValidateProfile(outProfile);
         return true;
@@ -278,10 +284,14 @@ public:
         setInt(L"Modules.Bluetooth", p.moduleBluetooth ? 1 : 0);
         setInt(L"Modules.Weather", p.moduleWeather ? 1 : 0);
         setInt(L"Modules.Calendar", p.moduleCalendar ? 1 : 0);
+        setInt(L"Modules.HardwareMonitorModule", p.moduleHardware ? 1 : 0);
         setInt(L"Modules.Hardware", p.moduleHardware ? 1 : 0);
+        setInt(L"Modules.FileTrayModule", p.moduleFileTray ? 1 : 0);
         setInt(L"Modules.FileTray", p.moduleFileTray ? 1 : 0);
         setInt(L"Modules.FocusTimer", p.moduleFocusTimer ? 1 : 0);
         setInt(L"Modules.Clipboard", p.moduleClipboard ? 1 : 0);
+        setInt(L"Modules.QuickLookup", p.moduleQuickLookup ? 1 : 0);
+        setInt(L"Modules.Lyrics", p.moduleLyrics ? 1 : 0);
 
         // Flush
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, settingsIniPath.c_str());

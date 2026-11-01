@@ -1,9 +1,11 @@
+
 // tests/standalone_stub_check.cpp
 // Self-contained unit and regression test runner for Dynamic Edge v1.7.0.
 // Directly tests production code and policies: launchers, opacity, bluetooth, shutdown,
 // profiles, context engine, notifications, performance, clipboard, focus timer, gestures, and layout.
 #ifndef DYNAMIC_ISLAND_STANDALONE
 #define DYNAMIC_ISLAND_STANDALONE 1
+#define DYNAMIC_ISLAND_TEST_RUNNER 1
 #endif
 
 #define _WIN32_WINNT 0x0A00
@@ -29,6 +31,57 @@
 #include "focus_timer.h"
 #include "gesture_manager.h"
 #include "island_layout.h"
+
+struct StressProducerData {
+    island_notification::NotificationQueue* q;
+    island_notification::NotificationPolicySettings s;
+    std::atomic<bool>* start;
+    std::atomic<int>* pushed;
+    int producerId;
+};
+
+static DWORD WINAPI StressProducerProc(void* p) {
+    auto* d = static_cast<StressProducerData*>(p);
+    while (!d->start->load()) { Sleep(0); }
+    for (int j = 0; j < 100; ++j) {
+        island_notification::NotificationItem item;
+        item.id = static_cast<uint64_t>(d->producerId * 1000 + j);
+        item.title = L"Item " + std::to_wstring(item.id);
+        item.message = L"Stress payload";
+        item.category = island_notification::NotificationCategory::Application;
+        item.priority = (j % 5 == 0) ? island_notification::NotificationPriority::Critical : island_notification::NotificationPriority::Normal;
+        if (d->q->Enqueue(item, d->s)) {
+            d->pushed->fetch_add(1);
+        }
+    }
+    return 0;
+}
+
+struct StressConsumerData {
+    island_notification::NotificationQueue* q;
+    std::atomic<bool>* start;
+    std::atomic<int>* popped;
+    std::atomic<bool> done{false};
+};
+
+static DWORD WINAPI StressConsumerProc(void* p) {
+    auto* d = static_cast<StressConsumerData*>(p);
+    while (!d->start->load()) { Sleep(0); }
+    while (!d->done.load()) {
+        island_notification::NotificationItem item;
+        if (d->q->PopNext(item)) {
+            d->popped->fetch_add(1);
+        } else {
+            Sleep(1);
+        }
+    }
+    island_notification::NotificationItem item;
+    while (d->q->PopNext(item)) {
+        d->popped->fetch_add(1);
+    }
+    return 0;
+}
+
 
 HWND g_hwnd = nullptr;
 HANDLE g_renderThread = nullptr;
@@ -194,6 +247,31 @@ int RunProfilePolicyTest() {
     std::wstring safe = SanitizeProfileName(L"  My:Cool*Profile?123  ");
     if (safe != L"MyCoolProfile123") return 507;
 
+    // 6. INI module keys parity
+    {
+        ProfileData p = CreateBuiltInProfile(BuiltInProfileType::Studio);
+        std::wstring tempIni = ProfileManager::GetProfilesDirectory() + L"\\test_keys.ini";
+        ProfileManager::SaveProfileToFile(p, tempIni);
+
+        ProfileData loaded;
+        if (!ProfileManager::LoadProfileFromFile(tempIni, loaded)) return 508;
+        if (!loaded.moduleHardware || !loaded.moduleFileTray || !loaded.moduleQuickLookup || !loaded.moduleLyrics) return 509;
+
+        std::wstring targetIni = ProfileManager::GetProfilesDirectory() + L"\\test_settings.ini";
+        ProfileManager::ApplyProfileToSettingsIni(loaded, targetIni);
+
+        int hw = GetPrivateProfileIntW(L"Settings", L"Modules.HardwareMonitorModule", 0, targetIni.c_str());
+        int ft = GetPrivateProfileIntW(L"Settings", L"Modules.FileTrayModule", 0, targetIni.c_str());
+        int ql = GetPrivateProfileIntW(L"Settings", L"Modules.QuickLookup", 0, targetIni.c_str());
+        int ly = GetPrivateProfileIntW(L"Settings", L"Modules.Lyrics", 0, targetIni.c_str());
+
+        DeleteFileW(tempIni.c_str());
+        DeleteFileW(targetIni.c_str());
+        DeleteFileW((targetIni + L".bak").c_str());
+
+        if (hw != 1 || ft != 1 || ql != 1 || ly != 1) return 510;
+    }
+
     return 0;
 }
 
@@ -306,6 +384,76 @@ int RunNotificationPolicyTest() {
     q.Enqueue(critItem, settings); // Enqueue critical
     if (!q.PopNext(popped)) return 718;
     if (popped.priority != NotificationPriority::Critical) return 719; // Critical MUST be popped first!
+
+    // 6. Concurrent multi-threaded stress test of NotificationQueue
+    {
+        NotificationQueue cq;
+        std::atomic<bool> startFlag{false};
+        std::atomic<int> totalPushed{0};
+        std::atomic<int> totalPopped{0};
+
+        std::vector<HANDLE> threads;
+        StressProducerData pData[4];
+        for (int i = 0; i < 4; ++i) {
+            pData[i] = {&cq, settings, &startFlag, &totalPushed, i};
+            threads.push_back(CreateThread(nullptr, 0, StressProducerProc, &pData[i], 0, nullptr));
+        }
+
+        StressConsumerData cData[2];
+        for (int i = 0; i < 2; ++i) {
+            cData[i].q = &cq;
+            cData[i].start = &startFlag;
+            cData[i].popped = &totalPopped;
+            cData[i].done.store(false);
+            threads.push_back(CreateThread(nullptr, 0, StressConsumerProc, &cData[i], 0, nullptr));
+        }
+
+        startFlag.store(true);
+        WaitForMultipleObjects(4, threads.data(), TRUE, 5000);
+
+        cData[0].done.store(true);
+        cData[1].done.store(true);
+        WaitForMultipleObjects(2, threads.data() + 4, TRUE, 5000);
+
+        for (HANDLE h : threads) {
+            CloseHandle(h);
+        }
+
+        if (totalPushed.load() <= 0) return 720;
+    }
+
+    // 7. NotificationHistory methods test
+    {
+        NotificationHistory nh;
+        nh.SetEnabled(true);
+        nh.ClearAll();
+        if (nh.Count() != 0) return 721;
+
+        NotificationItem it1;
+        it1.id = 101;
+        it1.title = L"Test 1";
+        it1.message = L"Message 1";
+        it1.sourceApp = L"App 1";
+        nh.Record(it1);
+
+        NotificationItem it2;
+        it2.id = 102;
+        it2.title = L"Test 2";
+        it2.message = L"Message 2";
+        it2.sourceApp = L"App 2";
+        nh.Record(it2);
+
+        auto all = nh.GetAllEntries();
+        if (all.size() != 2) return 722;
+
+        if (!nh.DismissEntry(101)) return 723;
+        auto allDismissed = nh.GetAllEntries();
+        if (!allDismissed[0].dismissed) return 724;
+
+        if (!nh.DeleteEntry(0)) return 725;
+        if (nh.Count() != 1) return 726;
+        nh.ClearAll();
+    }
 
     return 0;
 }
@@ -451,6 +599,28 @@ int RunGesturesAndLayoutPolicyTest() {
 
     // 6. Profile CRUD & Built-in Protection
     if (island_profile::ProfileManager::DeleteProfile(L"Obsidian")) return 1015; // Built-in must NOT be deletable!
+
+    // 7. CalculateAdaptiveDimensions across all states
+    IslandContentDimensions dNotif = CalculateAdaptiveDimensions(IslandPresentationState::NotificationCard, 1.0f, 1.0f);
+    if (std::abs(dNotif.width - 320.0f) > 0.1f || std::abs(dNotif.height - 72.0f) > 0.1f) return 1016;
+
+    IslandContentDimensions dQc = CalculateAdaptiveDimensions(IslandPresentationState::QuickControlGrid, 1.0f, 1.0f);
+    if (std::abs(dQc.width - 380.0f) > 0.1f || std::abs(dQc.height - 240.0f) > 0.1f) return 1017;
+
+    IslandContentDimensions dExp = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, 0);
+    if (std::abs(dExp.width - 380.0f) > 0.1f || std::abs(dExp.height - 184.0f) > 0.1f) return 1018;
+
+    IslandContentDimensions dExpTray = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, 33);
+    if (std::abs(dExpTray.width - 380.0f) > 0.1f || std::abs(dExpTray.height - 190.0f) > 0.1f) return 1019;
+
+    IslandContentDimensions dTimer = CalculateAdaptiveDimensions(IslandPresentationState::CompactTimer, 1.0f, 1.0f);
+    if (std::abs(dTimer.width - 200.0f) > 0.1f || std::abs(dTimer.height - 36.0f) > 0.1f) return 1020;
+
+    IslandContentDimensions dMedia = CalculateAdaptiveDimensions(IslandPresentationState::CompactMedia, 1.0f, 1.0f);
+    if (std::abs(dMedia.width - 220.0f) > 0.1f || std::abs(dMedia.height - 38.0f) > 0.1f) return 1021;
+
+    IslandContentDimensions dCol = CalculateAdaptiveDimensions(IslandPresentationState::Collapsed, 1.0f, 1.0f);
+    if (std::abs(dCol.width - 160.0f) > 0.1f || std::abs(dCol.height - 36.0f) > 0.1f) return 1022;
 
     return 0;
 }

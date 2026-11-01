@@ -92,7 +92,7 @@ inline IslandContentDimensions CalculateAdaptiveDimensions(
     default:
         // Expanded tabs (Media = 380x184, Hardware = 380x140, File Tray = 380x190)
         dims.width = 380.0f * scale;
-        dims.height = (tabType == 33 /* File Tray */) ? (190.0f * scale) : (180.0f * scale);
+        dims.height = (tabType == 33 /* File Tray */) ? (190.0f * scale) : (184.0f * scale);
         dims.cornerRadius = 28.0f * scale;
         break;
     }

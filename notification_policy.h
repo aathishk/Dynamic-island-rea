@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <deque>
 #include <memory>
+#include <mutex>
 
 namespace island_notification {
 
@@ -131,6 +132,7 @@ inline bool ShouldPresentNotification(
 // Arbitration Queue: maintains priority order, deduplication, and bounds
 class NotificationQueue {
 private:
+    mutable std::mutex mutex_;
     std::deque<NotificationItem> queue_;
     std::wstring lastTitle_;
     std::wstring lastMessage_;
@@ -145,6 +147,7 @@ public:
     }
 
     bool Enqueue(const NotificationItem& incoming, const NotificationPolicySettings& settings) {
+        std::lock_guard<std::mutex> lock(mutex_);
         ULONGLONG now = GetTickCount64();
 
         // Duplicate de-bounce check
@@ -179,6 +182,7 @@ public:
     }
 
     bool PopNext(NotificationItem& outItem) {
+        std::lock_guard<std::mutex> lock(mutex_);
         // Expire items older than 30 seconds
         ULONGLONG now = GetTickCount64();
         while (!queue_.empty()) {
@@ -195,8 +199,15 @@ public:
         return true;
     }
 
-    size_t Size() const { return queue_.size(); }
-    void Clear() { queue_.clear(); }
+    size_t Size() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return queue_.size();
+    }
+
+    void Clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        queue_.clear();
+    }
 };
 
 } // namespace island_notification

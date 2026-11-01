@@ -100,6 +100,41 @@ inline const SettingOption kPowerOptions[] = {
     {L"Battery Saver (Throttle & No Optical Glass)", L"battery_saver"},
     {L"Visual Quality (Full Direct2D Effects)", L"visual_quality"},
 };
+inline const SettingOption kClickGestureOptions[] = {
+    {L"Expand / Collapse", L"expand"},
+    {L"Open Quick Controls", L"controls"},
+    {L"Toggle Focus Mode", L"focus"},
+    {L"Open Profile Studio", L"profile"},
+    {L"Open Settings", L"settings"},
+    {L"Start / Pause Timer", L"timer"},
+    {L"Cycle Island Tabs", L"tabs"},
+    {L"Do Nothing", L"none"},
+};
+
+inline const SettingOption kMiddleGestureOptions[] = {
+    {L"Cycle Island Tabs", L"tabs"},
+    {L"Start / Pause Timer", L"timer"},
+    {L"Toggle Focus Mode", L"focus"},
+    {L"Open Quick Controls", L"controls"},
+    {L"Open Settings", L"settings"},
+    {L"Expand / Collapse", L"expand"},
+    {L"Next Media Track", L"next_track"},
+    {L"Previous Media Track", L"prev_track"},
+    {L"Do Nothing", L"none"},
+};
+
+inline const SettingOption kWheelGestureOptions[] = {
+    {L"Do Nothing", L"none"},
+    {L"Next Media Track", L"next_track"},
+    {L"Previous Media Track", L"prev_track"},
+    {L"Cycle Island Tabs", L"tabs"},
+    {L"Start / Pause Timer", L"timer"},
+    {L"Toggle Focus Mode", L"focus"},
+    {L"Expand / Collapse", L"expand"},
+    {L"Open Quick Controls", L"controls"},
+    {L"Open Settings", L"settings"},
+};
+
 
 // Control IDs
 enum CtrlId : int {
@@ -139,6 +174,8 @@ enum CtrlId : int {
     ID_COMBO_GESTURE_SINGLE,
     ID_COMBO_GESTURE_DOUBLE,
     ID_COMBO_GESTURE_MIDDLE,
+    ID_COMBO_GESTURE_WHEEL_UP,
+    ID_COMBO_GESTURE_WHEEL_DOWN,
 
     // Page 3: Notifications & History
     ID_CHK_NOTIF_ENABLED,
@@ -150,6 +187,7 @@ enum CtrlId : int {
     ID_CHK_NOTIF_BLE_FILTER,
     ID_CHK_NOTIF_HISTORY,
     ID_BTN_CLEAR_HISTORY,
+    ID_BTN_BROWSE_NOTIF_HISTORY,
 
     // Page 4: Performance & Diagnostics
     ID_COMBO_POWER_POLICY,
@@ -168,6 +206,7 @@ enum CtrlId : int {
     ID_CHK_MOD_FOCUS_TIMER,
     ID_CHK_MOD_CLIPBOARD,
     ID_BTN_CLEAR_CLIPBOARD,
+    ID_BTN_BROWSE_CLIPBOARD,
     ID_CHK_STARTUP,
     ID_CHK_LOG,
     ID_BTN_ONBOARDING,
@@ -185,19 +224,12 @@ inline HWND hTab = nullptr;
 inline std::vector<HWND> g_pageControls[6];
 
 // Page 0 controls
-inline bool PromptUserString(HWND hwndParent, const wchar_t* title, const wchar_t* prompt, const wchar_t* defaultText, wchar_t* outBuf, size_t maxChars) {
-    if (!outBuf || maxChars == 0) return false;
-    outBuf[0] = L'\0';
+namespace dynamic_input_dlg {
+    inline wchar_t s_result[256] = {};
+    inline bool s_confirmed = false;
+    inline HWND s_hEdit = nullptr;
 
-    static bool s_classRegistered = false;
-    static wchar_t s_result[256] = {};
-    static bool s_confirmed = false;
-    static HWND s_hEdit = nullptr;
-
-    wcscpy_s(s_result, defaultText ? defaultText : L"");
-    s_confirmed = false;
-
-    auto InputWndProc = [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) -> LRESULT {
+    inline LRESULT CALLBACK InputWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         switch (msg) {
         case WM_CREATE: {
             CREATESTRUCTW* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
@@ -246,15 +278,24 @@ inline bool PromptUserString(HWND hwndParent, const wchar_t* title, const wchar_
             return 0;
         }
         return DefWindowProcW(hwnd, msg, wParam, lParam);
-    };
+    }
+}
+
+inline bool PromptUserString(HWND hwndParent, const wchar_t* title, const wchar_t* prompt, const wchar_t* defaultText, wchar_t* outBuf, size_t maxChars) {
+    if (!outBuf || maxChars == 0) return false;
+    outBuf[0] = L'\0';
+
+    static bool s_classRegistered = false;
+    wcscpy_s(dynamic_input_dlg::s_result, defaultText ? defaultText : L"");
+    dynamic_input_dlg::s_confirmed = false;
 
     HINSTANCE hInst = GetModuleHandleW(nullptr);
     if (!s_classRegistered) {
         WNDCLASSEXW wc = { sizeof(wc) };
         wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = InputWndProc;
+        wc.lpfnWndProc = dynamic_input_dlg::InputWndProc;
         wc.hInstance = hInst;
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
         wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
         wc.lpszClassName = L"DynamicEdgeInputDialog";
         RegisterClassExW(&wc);
@@ -281,14 +322,14 @@ inline bool PromptUserString(HWND hwndParent, const wchar_t* title, const wchar_
     MSG msg;
     while (IsWindow(hDlg) && GetMessageW(&msg, nullptr, 0, 0)) {
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE) {
-            s_confirmed = false;
+            dynamic_input_dlg::s_confirmed = false;
             DestroyWindow(hDlg);
             break;
         }
         if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN) {
-            if (s_hEdit) {
-                GetWindowTextW(s_hEdit, s_result, ARRAYSIZE(s_result));
-                s_confirmed = true;
+            if (dynamic_input_dlg::s_hEdit) {
+                GetWindowTextW(dynamic_input_dlg::s_hEdit, dynamic_input_dlg::s_result, ARRAYSIZE(dynamic_input_dlg::s_result));
+                dynamic_input_dlg::s_confirmed = true;
             }
             DestroyWindow(hDlg);
             break;
@@ -302,11 +343,335 @@ inline bool PromptUserString(HWND hwndParent, const wchar_t* title, const wchar_
         SetActiveWindow(hwndParent);
     }
 
-    if (s_confirmed) {
-        wcsncpy_s(outBuf, maxChars, s_result, maxChars - 1);
+    if (dynamic_input_dlg::s_confirmed) {
+        wcsncpy_s(outBuf, maxChars, dynamic_input_dlg::s_result, maxChars - 1);
         return true;
     }
     return false;
+}
+
+namespace dynamic_clipboard_dlg {
+    inline HWND s_hList = nullptr;
+    inline HWND s_hPreview = nullptr;
+    inline std::vector<island_clipboard::ClipboardEntry> s_entries;
+
+    inline void RefreshList() {
+        if (!s_hList || !s_hPreview) return;
+        SendMessageW(s_hList, LB_RESETCONTENT, 0, 0);
+        s_entries = island_globals::g_clipboardManager.GetEntries();
+        for (const auto& entry : s_entries) {
+            std::wstring display = (entry.pinned ? L"[PIN] " : L"      ") + entry.preview;
+            SendMessageW(s_hList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(display.c_str()));
+        }
+        if (!s_entries.empty()) {
+            SendMessageW(s_hList, LB_SETCURSEL, 0, 0);
+            SetWindowTextW(s_hPreview, s_entries[0].text.c_str());
+        } else {
+            SetWindowTextW(s_hPreview, L"No clipboard history items recorded.");
+        }
+    }
+
+    inline LRESULT CALLBACK ClipboardWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        switch (msg) {
+        case WM_CREATE: {
+            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            HWND lblList = CreateWindowExW(0, L"STATIC", L"Saved Clipboard Entries:", WS_CHILD | WS_VISIBLE,
+                                           16, 12, 300, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblList, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            s_hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+                                      WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY,
+                                      16, 36, 520, 160, hwnd, reinterpret_cast<HMENU>(301), nullptr, nullptr);
+            SendMessageW(s_hList, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND lblPrev = CreateWindowExW(0, L"STATIC", L"Full Text Preview:", WS_CHILD | WS_VISIBLE,
+                                           16, 206, 300, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblPrev, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            s_hPreview = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                                         WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
+                                         16, 228, 520, 120, hwnd, reinterpret_cast<HMENU>(302), nullptr, nullptr);
+            SendMessageW(s_hPreview, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnCopy = CreateWindowExW(0, L"BUTTON", L"📋 Copy", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                           16, 362, 95, 28, hwnd, reinterpret_cast<HMENU>(303), nullptr, nullptr);
+            SendMessageW(btnCopy, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnPin = CreateWindowExW(0, L"BUTTON", L"📌 Toggle Pin", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                          118, 362, 110, 28, hwnd, reinterpret_cast<HMENU>(304), nullptr, nullptr);
+            SendMessageW(btnPin, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnDel = CreateWindowExW(0, L"BUTTON", L"🗑️ Delete", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                          235, 362, 95, 28, hwnd, reinterpret_cast<HMENU>(305), nullptr, nullptr);
+            SendMessageW(btnDel, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnClear = CreateWindowExW(0, L"BUTTON", L"🧹 Clear All", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                            337, 362, 95, 28, hwnd, reinterpret_cast<HMENU>(306), nullptr, nullptr);
+            SendMessageW(btnClear, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnClose = CreateWindowExW(0, L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                                            441, 362, 95, 28, hwnd, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+            SendMessageW(btnClose, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            RefreshList();
+            return 0;
+        }
+        case WM_COMMAND: {
+            int id = LOWORD(wParam);
+            int code = HIWORD(wParam);
+            if (id == 301 && code == LBN_SELCHANGE) {
+                int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
+                if (cur >= 0 && static_cast<size_t>(cur) < s_entries.size()) {
+                    SetWindowTextW(s_hPreview, s_entries[cur].text.c_str());
+                }
+            } else if (id == 303) { // Copy
+                int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
+                if (cur >= 0 && static_cast<size_t>(cur) < s_entries.size()) {
+                    if (island_globals::g_clipboardManager.CopyToSystemClipboard(s_entries[cur].id, hwnd)) {
+                        MessageBoxW(hwnd, L"Text copied to Windows system clipboard!", L"Clipboard", MB_OK | MB_ICONINFORMATION);
+                    }
+                }
+            } else if (id == 304) { // Pin
+                int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
+                if (cur >= 0 && static_cast<size_t>(cur) < s_entries.size()) {
+                    island_globals::g_clipboardManager.TogglePin(s_entries[cur].id);
+                    RefreshList();
+                    SendMessageW(s_hList, LB_SETCURSEL, cur, 0);
+                }
+            } else if (id == 305) { // Delete
+                int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
+                if (cur >= 0 && static_cast<size_t>(cur) < s_entries.size()) {
+                    island_globals::g_clipboardManager.DeleteEntry(s_entries[cur].id);
+                    RefreshList();
+                }
+            } else if (id == 306) { // Clear All
+                if (MessageBoxW(hwnd, L"Clear all clipboard history?", L"Confirm Clear", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                    island_globals::g_clipboardManager.ClearAll();
+                    RefreshList();
+                }
+            } else if (id == IDCANCEL) {
+                DestroyWindow(hwnd);
+                return 0;
+            }
+            break;
+        }
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+}
+
+inline void ShowClipboardHistoryDialog(HWND hwndParent) {
+    static bool s_classRegistered = false;
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = { sizeof(wc) };
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = dynamic_clipboard_dlg::ClipboardWndProc;
+        wc.hInstance = hInst;
+        wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+        wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"DynamicEdgeClipboardViewer";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
+
+    RECT rcParent = {};
+    if (hwndParent) GetWindowRect(hwndParent, &rcParent);
+    int px = rcParent.left + (rcParent.right - rcParent.left - 570) / 2;
+    int py = rcParent.top + (rcParent.bottom - rcParent.top - 440) / 2;
+
+    HWND hDlg = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+        L"DynamicEdgeClipboardViewer",
+        L"Dynamic Edge — Clipboard History",
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        px, py, 570, 440,
+        hwndParent, nullptr, hInst, nullptr);
+
+    if (!hDlg) return;
+    if (hwndParent) EnableWindow(hwndParent, FALSE);
+
+    MSG msg;
+    while (IsWindow(hDlg) && GetMessageW(&msg, nullptr, 0, 0)) {
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE) {
+            DestroyWindow(hDlg);
+            break;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    if (hwndParent) {
+        EnableWindow(hwndParent, TRUE);
+        SetFocus(hwndParent);
+    }
+}
+
+namespace dynamic_notif_dlg {
+    inline HWND s_hList = nullptr;
+    inline HWND s_hPreview = nullptr;
+    inline std::vector<island_notification::NotificationItem> s_items;
+
+    inline void RefreshList() {
+        if (!s_hList || !s_hPreview) return;
+        SendMessageW(s_hList, LB_RESETCONTENT, 0, 0);
+        s_items = island_globals::g_notificationHistory.GetAllEntries();
+        for (const auto& it : s_items) {
+            std::wstring display = (it.dismissed ? L"[DISMISSED] " : L"[ACTIVE]    ") +
+                                   it.sourceApp + L" - " + it.title;
+            SendMessageW(s_hList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(display.c_str()));
+        }
+        if (!s_items.empty()) {
+            SendMessageW(s_hList, LB_SETCURSEL, 0, 0);
+            const auto& first = s_items[0];
+            std::wstring details = L"Source: " + first.sourceApp + L"\r\n" +
+                                   L"Title: " + first.title + L"\r\n" +
+                                   L"Status: " + (first.dismissed ? L"Dismissed" : L"Active") + L"\r\n" +
+                                   L"Priority: " + (first.priority == island_notification::NotificationPriority::Critical ? L"Critical" : L"Normal") + L"\r\n\r\n" +
+                                   L"Message:\r\n" + first.message;
+            SetWindowTextW(s_hPreview, details.c_str());
+        } else {
+            SetWindowTextW(s_hPreview, L"No notification history recorded.");
+        }
+    }
+
+    inline LRESULT CALLBACK NotifWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        switch (msg) {
+        case WM_CREATE: {
+            HFONT hFont = CreateFontW(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            HWND lblList = CreateWindowExW(0, L"STATIC", L"Recorded Notifications:", WS_CHILD | WS_VISIBLE,
+                                           16, 12, 300, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblList, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            s_hList = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+                                      WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY,
+                                      16, 36, 540, 160, hwnd, reinterpret_cast<HMENU>(401), nullptr, nullptr);
+            SendMessageW(s_hList, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND lblPrev = CreateWindowExW(0, L"STATIC", L"Notification Details:", WS_CHILD | WS_VISIBLE,
+                                           16, 206, 300, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblPrev, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            s_hPreview = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+                                         WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
+                                         16, 228, 540, 130, hwnd, reinterpret_cast<HMENU>(402), nullptr, nullptr);
+            SendMessageW(s_hPreview, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnDismiss = CreateWindowExW(0, L"BUTTON", L"❌ Dismiss", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                              16, 372, 110, 28, hwnd, reinterpret_cast<HMENU>(403), nullptr, nullptr);
+            SendMessageW(btnDismiss, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnDel = CreateWindowExW(0, L"BUTTON", L"🗑️ Delete Entry", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                          136, 372, 120, 28, hwnd, reinterpret_cast<HMENU>(404), nullptr, nullptr);
+            SendMessageW(btnDel, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnClear = CreateWindowExW(0, L"BUTTON", L"🧹 Clear All", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                            266, 372, 110, 28, hwnd, reinterpret_cast<HMENU>(405), nullptr, nullptr);
+            SendMessageW(btnClear, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnClose = CreateWindowExW(0, L"BUTTON", L"Close", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                                            446, 372, 110, 28, hwnd, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+            SendMessageW(btnClose, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            RefreshList();
+            return 0;
+        }
+        case WM_COMMAND: {
+            int id = LOWORD(wParam);
+            int code = HIWORD(wParam);
+            if (id == 401 && code == LBN_SELCHANGE) {
+                int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
+                if (cur >= 0 && static_cast<size_t>(cur) < s_items.size()) {
+                    const auto& item = s_items[cur];
+                    std::wstring details = L"Source: " + item.sourceApp + L"\r\n" +
+                                           L"Title: " + item.title + L"\r\n" +
+                                           L"Status: " + (item.dismissed ? L"Dismissed" : L"Active") + L"\r\n" +
+                                           L"Priority: " + (item.priority == island_notification::NotificationPriority::Critical ? L"Critical" : L"Normal") + L"\r\n\r\n" +
+                                           L"Message:\r\n" + item.message;
+                    SetWindowTextW(s_hPreview, details.c_str());
+                }
+            } else if (id == 403) { // Dismiss
+                int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
+                if (cur >= 0 && static_cast<size_t>(cur) < s_items.size()) {
+                    island_globals::g_notificationHistory.DismissEntry(s_items[cur].id);
+                    RefreshList();
+                    SendMessageW(s_hList, LB_SETCURSEL, cur, 0);
+                }
+            } else if (id == 404) { // Delete
+                int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
+                if (cur >= 0 && static_cast<size_t>(cur) < s_items.size()) {
+                    island_globals::g_notificationHistory.DeleteEntry(static_cast<size_t>(cur));
+                    RefreshList();
+                }
+            } else if (id == 405) { // Clear All
+                if (MessageBoxW(hwnd, L"Clear all notification history?", L"Confirm Clear", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                    island_globals::g_notificationHistory.ClearAll();
+                    RefreshList();
+                }
+            } else if (id == IDCANCEL) {
+                DestroyWindow(hwnd);
+                return 0;
+            }
+            break;
+        }
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+}
+
+inline void ShowNotificationHistoryDialog(HWND hwndParent) {
+    static bool s_classRegistered = false;
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = { sizeof(wc) };
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = dynamic_notif_dlg::NotifWndProc;
+        wc.hInstance = hInst;
+        wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+        wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"DynamicEdgeNotifHistoryViewer";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
+
+    RECT rcParent = {};
+    if (hwndParent) GetWindowRect(hwndParent, &rcParent);
+    int px = rcParent.left + (rcParent.right - rcParent.left - 590) / 2;
+    int py = rcParent.top + (rcParent.bottom - rcParent.top - 450) / 2;
+
+    HWND hDlg = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+        L"DynamicEdgeNotifHistoryViewer",
+        L"Dynamic Edge — Notification History",
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        px, py, 590, 450,
+        hwndParent, nullptr, hInst, nullptr);
+
+    if (!hDlg) return;
+    if (hwndParent) EnableWindow(hwndParent, FALSE);
+
+    MSG msg;
+    while (IsWindow(hDlg) && GetMessageW(&msg, nullptr, 0, 0)) {
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE) {
+            DestroyWindow(hDlg);
+            break;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+    if (hwndParent) {
+        EnableWindow(hwndParent, TRUE);
+        SetFocus(hwndParent);
+    }
 }
 
 inline HWND hComboActiveProfile = nullptr;
@@ -333,6 +698,8 @@ inline HWND hChkAutoContext = nullptr;
 inline HWND hComboGestureSingle = nullptr;
 inline HWND hComboGestureDouble = nullptr;
 inline HWND hComboGestureMiddle = nullptr;
+inline HWND hComboGestureWheelUp = nullptr;
+inline HWND hComboGestureWheelDown = nullptr;
 
 // Page 3 controls
 inline HWND hChkNotifEnabled = nullptr;
@@ -444,6 +811,12 @@ inline void LoadValuesIntoUi() {
     SendMessageW(hChkAutohideFs, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.AutoHideFullscreen", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkAutoContext, BM_SETCHECK, ReadIniInt(L"Settings", L"Context.AutoContextSwitching", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
 
+    selectCombo(hComboGestureSingle, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), ReadIniString(L"Settings", L"Gestures.SingleClick", L"expand"));
+    selectCombo(hComboGestureDouble, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), ReadIniString(L"Settings", L"Gestures.DoubleClick", L"controls"));
+    selectCombo(hComboGestureMiddle, kMiddleGestureOptions, ARRAYSIZE(kMiddleGestureOptions), ReadIniString(L"Settings", L"Gestures.MiddleClick", L"tabs"));
+    selectCombo(hComboGestureWheelUp, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions), ReadIniString(L"Settings", L"Gestures.WheelScrollUp", L"none"));
+    selectCombo(hComboGestureWheelDown, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions), ReadIniString(L"Settings", L"Gestures.WheelScrollDown", L"none"));
+
     // Page 3: Notifications
     SendMessageW(hChkNotifEnabled, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.Enabled", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkQuietHours, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.QuietHoursEnabled", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -498,32 +871,41 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniInt(L"Settings", L"Themes.ContourBorderEnabled", SendMessageW(hChkBorder, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
 
     // Page 2: Behaviour & Gestures
-    SettingOption gestureSaveOpts[] = {
-        {L"expand", L"expand"},
-        {L"controls", L"controls"},
-        {L"profile", L"profile"},
-        {L"focus", L"focus"},
-        {L"settings", L"settings"},
-        {L"none", L"none"}
-    };
-    SettingOption midSaveOpts[] = {
-        {L"tabs", L"tabs"},
-        {L"mute", L"mute"},
-        {L"focus", L"focus"},
-        {L"none", L"none"}
-    };
-    WriteIniString(L"Settings", L"Gestures.SingleClick", getComboVal(hComboGestureSingle, gestureSaveOpts, ARRAYSIZE(gestureSaveOpts)));
-    WriteIniString(L"Settings", L"Gestures.DoubleClick", getComboVal(hComboGestureDouble, gestureSaveOpts, ARRAYSIZE(gestureSaveOpts)));
-    WriteIniString(L"Settings", L"Gestures.MiddleClick", getComboVal(hComboGestureMiddle, midSaveOpts, ARRAYSIZE(midSaveOpts)));
+    const wchar_t* sClickVal = getComboVal(hComboGestureSingle, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions));
+    const wchar_t* dClickVal = getComboVal(hComboGestureDouble, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions));
+    const wchar_t* mClickVal = getComboVal(hComboGestureMiddle, kMiddleGestureOptions, ARRAYSIZE(kMiddleGestureOptions));
+    const wchar_t* wUpVal = getComboVal(hComboGestureWheelUp, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions));
+    const wchar_t* wDownVal = getComboVal(hComboGestureWheelDown, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions));
+
+    WriteIniString(L"Settings", L"Gestures.SingleClick", sClickVal);
+    WriteIniString(L"Settings", L"Gestures.DoubleClick", dClickVal);
+    WriteIniString(L"Settings", L"Gestures.MiddleClick", mClickVal);
+    WriteIniString(L"Settings", L"Gestures.WheelScrollUp", wUpVal);
+    WriteIniString(L"Settings", L"Gestures.WheelScrollDown", wDownVal);
+
     island_globals::g_gestureManager.SetAction(island_gestures::GestureType::SingleClick,
-        island_gestures::GestureActionFromIdString(getComboVal(hComboGestureSingle, gestureSaveOpts, ARRAYSIZE(gestureSaveOpts))));
+        island_gestures::GestureActionFromIdString(sClickVal));
     island_globals::g_gestureManager.SetAction(island_gestures::GestureType::DoubleClick,
-        island_gestures::GestureActionFromIdString(getComboVal(hComboGestureDouble, gestureSaveOpts, ARRAYSIZE(gestureSaveOpts))));
+        island_gestures::GestureActionFromIdString(dClickVal));
     island_globals::g_gestureManager.SetAction(island_gestures::GestureType::MiddleClick,
-        island_gestures::GestureActionFromIdString(getComboVal(hComboGestureMiddle, midSaveOpts, ARRAYSIZE(midSaveOpts))));
+        island_gestures::GestureActionFromIdString(mClickVal));
+    island_globals::g_gestureManager.SetAction(island_gestures::GestureType::WheelScrollUp,
+        island_gestures::GestureActionFromIdString(wUpVal));
+    island_globals::g_gestureManager.SetAction(island_gestures::GestureType::WheelScrollDown,
+        island_gestures::GestureActionFromIdString(wDownVal));
+
     WriteIniInt(L"Settings", L"Behavior.ExpandOnHover", SendMessageW(hChkHover, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Behavior.AutoHideFullscreen", SendMessageW(hChkAutohideFs, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Context.AutoContextSwitching", SendMessageW(hChkAutoContext, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+
+    const wchar_t* curCtxMode = getComboVal(hComboActiveContext, kContextOptions, ARRAYSIZE(kContextOptions));
+    const bool isCtxLocked = (SendMessageW(hChkContextLock, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    island_globals::g_contextEngine.SetAutoDetectionEnabled(SendMessageW(hChkAutoContext, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    if (isCtxLocked) {
+        island_globals::g_contextEngine.SetManualLock(island_context::StringToContextMode(curCtxMode));
+    } else {
+        island_globals::g_contextEngine.ClearManualLock();
+    }
 
     // Page 3: Notifications
     WriteIniInt(L"Settings", L"Notifications.Enabled", SendMessageW(hChkNotifEnabled, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
@@ -744,31 +1126,24 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             hChkBorder = makeCheck(32, 385, 540, 24, ID_CHK_BORDER, L"✨ Specular Hairline Contour Rim", 1);
 
             // ── PAGE 2: Behaviour & Gestures ────────────────────────────────────
-            hChkHover = makeCheck(32, 55, 540, 24, ID_CHK_HOVER, L"🖱️ Expand on Mouse Hover (vs Click to Expand)", 2);
-            hChkAutohideFs = makeCheck(32, 90, 540, 24, ID_CHK_AUTOHIDE_FS, L"🖥️ Auto-hide when Fullscreen Apps/Games are active", 2);
-            hChkAutoContext = makeCheck(32, 125, 540, 24, ID_CHK_AUTO_CONTEXT, L"🧠 Enable Application-Aware Context Rules (Code $\\rightarrow$ Focus, etc.)", 2);
+            hChkHover = makeCheck(32, 45, 540, 24, ID_CHK_HOVER, L"🖱️ Expand on Mouse Hover (vs Click to Expand)", 2);
+            hChkAutohideFs = makeCheck(32, 75, 540, 24, ID_CHK_AUTOHIDE_FS, L"🖥️ Auto-hide when Fullscreen Apps/Games are active", 2);
+            hChkAutoContext = makeCheck(32, 105, 540, 24, ID_CHK_AUTO_CONTEXT, L"🧠 Enable Application-Aware Context Rules (Code $\\rightarrow$ Focus, etc.)", 2);
 
-            makeLabel(32, 170, 200, 20, L"Single Click Gesture:", 2);
-            SettingOption gestureOpts[] = {
-                {L"Expand / Collapse", L"expand"},
-                {L"Open Quick Controls", L"controls"},
-                {L"Toggle Focus Mode", L"focus"},
-                {L"Do Nothing", L"none"},
-            };
-            hComboGestureSingle = makeCombo(240, 167, 340, 160, ID_COMBO_GESTURE_SINGLE, gestureOpts, ARRAYSIZE(gestureOpts), 2);
+            makeLabel(32, 145, 190, 20, L"Single Click Gesture:", 2);
+            hComboGestureSingle = makeCombo(230, 142, 350, 180, ID_COMBO_GESTURE_SINGLE, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), 2);
 
-            makeLabel(32, 210, 200, 20, L"Double Click Gesture:", 2);
-            hComboGestureDouble = makeCombo(240, 207, 340, 160, ID_COMBO_GESTURE_DOUBLE, gestureOpts, ARRAYSIZE(gestureOpts), 2);
-            SendMessageW(hComboGestureDouble, CB_SETCURSEL, 1, 0); // Default: Open Quick Controls
+            makeLabel(32, 180, 190, 20, L"Double Click Gesture:", 2);
+            hComboGestureDouble = makeCombo(230, 177, 350, 180, ID_COMBO_GESTURE_DOUBLE, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), 2);
 
-            makeLabel(32, 250, 200, 20, L"Middle Click Gesture:", 2);
-            SettingOption midOpts[] = {
-                {L"Cycle Island Tabs", L"cycle"},
-                {L"Start / Pause Timer", L"timer"},
-                {L"Open Settings", L"settings"},
-                {L"Do Nothing", L"none"},
-            };
-            hComboGestureMiddle = makeCombo(240, 247, 340, 160, ID_COMBO_GESTURE_MIDDLE, midOpts, ARRAYSIZE(midOpts), 2);
+            makeLabel(32, 215, 190, 20, L"Middle Click Gesture:", 2);
+            hComboGestureMiddle = makeCombo(230, 212, 350, 180, ID_COMBO_GESTURE_MIDDLE, kMiddleGestureOptions, ARRAYSIZE(kMiddleGestureOptions), 2);
+
+            makeLabel(32, 250, 190, 20, L"Mouse Wheel Up:", 2);
+            hComboGestureWheelUp = makeCombo(230, 247, 350, 180, ID_COMBO_GESTURE_WHEEL_UP, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions), 2);
+
+            makeLabel(32, 285, 190, 20, L"Mouse Wheel Down:", 2);
+            hComboGestureWheelDown = makeCombo(230, 282, 350, 180, ID_COMBO_GESTURE_WHEEL_DOWN, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions), 2);
 
             // ── PAGE 3: Notifications & History ─────────────────────────────────
             hChkNotifEnabled = makeCheck(32, 55, 540, 24, ID_CHK_NOTIF_ENABLED, L"🔔 Enable Central Notification Engine", 3);
@@ -800,6 +1175,7 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             hChkNotifHistory = makeCheck(32, 240, 540, 24, ID_CHK_NOTIF_HISTORY, L"📜 Enable Notification History (Bounded Local Storage, Opt-In)", 3);
 
             makeBtn(32, 280, 220, 30, ID_BTN_CLEAR_HISTORY, L"🗑️ Clear Notification History", 3);
+            makeBtn(270, 280, 220, 30, ID_BTN_BROWSE_NOTIF_HISTORY, L"📜 Browse Notifications...", 3);
 
             // ── PAGE 4: Performance & Diagnostics ───────────────────────────────
             makeLabel(32, 55, 180, 20, L"Power & Rendering Policy:", 4);
@@ -834,6 +1210,7 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
             makeBtn(32, 280, 240, 30, ID_BTN_ONBOARDING, L"✨ Re-run First-Run Onboarding...", 5);
             makeBtn(320, 280, 220, 30, ID_BTN_CLEAR_CLIPBOARD, L"🗑️ Clear Clipboard History", 5);
+            makeBtn(320, 320, 220, 30, ID_BTN_BROWSE_CLIPBOARD, L"📋 Browse Clipboard...", 5);
             makeBtn(32, 330, 240, 30, ID_BTN_RESET_DEFAULTS, L"⚠️ Restore All Factory Defaults", 5);
 
             // ── Dialog Bottom Buttons ───────────────────────────────────────────
@@ -1015,10 +1392,12 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     current.moduleBluetooth = (ReadIniInt(L"Settings", L"Modules.Bluetooth", 1) != 0);
                     current.moduleWeather = (ReadIniInt(L"Settings", L"Modules.Weather", 1) != 0);
                     current.moduleCalendar = (ReadIniInt(L"Settings", L"Modules.Calendar", 1) != 0);
-                    current.moduleHardware = (ReadIniInt(L"Settings", L"Modules.Hardware", 1) != 0);
-                    current.moduleFileTray = (ReadIniInt(L"Settings", L"Modules.FileTray", 1) != 0);
+                    current.moduleHardware = (ReadIniInt(L"Settings", L"Modules.HardwareMonitorModule", ReadIniInt(L"Settings", L"Modules.Hardware", 1)) != 0);
+                    current.moduleFileTray = (ReadIniInt(L"Settings", L"Modules.FileTrayModule", ReadIniInt(L"Settings", L"Modules.FileTray", 1)) != 0);
                     current.moduleFocusTimer = (ReadIniInt(L"Settings", L"Modules.FocusTimer", 1) != 0);
                     current.moduleClipboard = (ReadIniInt(L"Settings", L"Modules.Clipboard", 0) != 0);
+                    current.moduleQuickLookup = (ReadIniInt(L"Settings", L"Modules.QuickLookup", 1) != 0);
+                    current.moduleLyrics = (ReadIniInt(L"Settings", L"Modules.Lyrics", 1) != 0);
 
                     std::wstring targetPath = island_profile::ProfileManager::GetProfileFilePath(current.name);
                     if (island_profile::ProfileManager::SaveProfileToFile(current, targetPath)) {
@@ -1036,6 +1415,10 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                 MessageBoxW(hwnd, L"Active profile reset to Obsidian factory defaults.", L"Profile Studio", MB_OK | MB_ICONINFORMATION);
             } else if (id == ID_BTN_REFRESH_DIAG) {
                 UpdateDiagnosticsDisplay();
+            } else if (id == ID_BTN_BROWSE_NOTIF_HISTORY) {
+                ShowNotificationHistoryDialog(hwnd);
+            } else if (id == ID_BTN_BROWSE_CLIPBOARD) {
+                ShowClipboardHistoryDialog(hwnd);
             } else if (id == ID_BTN_CLEAR_HISTORY) {
                 island_globals::g_notificationHistory.ClearAll();
                 MessageBoxW(hwnd, L"Shared notification history cleared.", L"Notifications", MB_OK | MB_ICONINFORMATION);

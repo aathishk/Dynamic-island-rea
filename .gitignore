@@ -3,6 +3,8 @@
 windhawk_setup.exe
 *.whl
 *.dll
+*.zip
+*.sha256
 
 # Logs and captures
 debug.log

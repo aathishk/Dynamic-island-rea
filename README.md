@@ -56,7 +56,7 @@ Requires an LLVM-MinGW toolchain and C++/WinRT headers.
 python build.py --toolchain C:\llvm-mingw --cppwinrt "C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\cppwinrt"
 ```
 
-With a Windhawk install you can instead pass `--toolchain <Windhawk>\Compiler` (it bundles the WinRT headers). `ci/build.yml` is a ready-made GitHub Actions workflow (builds the EXE, attaches a SHA-256, and publishes a release when you push a `vX.Y.Z` tag). Copy it to `.github/workflows/build.yml` to enable it.
+With a Windhawk install you can instead pass `--toolchain <Windhawk>\Compiler` (it bundles the WinRT headers). `.github/workflows/build.yml` provides automated GitHub Actions CI/CD (builds the EXE, runs unit tests, attaches a SHA-256 sidecar, and publishes releases on `v*` tags).
 
 ## Known limitations
 
@@ -75,7 +75,7 @@ With a Windhawk install you can instead pass `--toolchain <Windhawk>\Compiler` (
 | `launchers.h` | Editable launcher list |
 | `build.py` | Build script |
 | `tests/` | Compile-time stub check for the Win32 parts |
-| `ci/` | GitHub Actions workflow (copy to `.github/workflows/`) |
+| `.github/workflows/` | Automated GitHub Actions CI/CD workflow |
 | `tools/` | Developer helper scripts (RAM/CPU probe, window inspector, …) |
 | `legacy/` | The original string-patch pipeline used to derive this file from upstream (historical, not needed to build) |
 

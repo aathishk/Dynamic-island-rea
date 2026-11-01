@@ -1,4 +1,4 @@
-# Copy this file to .github/workflows/build.yml in the GitHub web interface to enable automated CI.
+# Dynamic Island CI/CD - Automated build, test, and release workflow
 name: build
 
 on:

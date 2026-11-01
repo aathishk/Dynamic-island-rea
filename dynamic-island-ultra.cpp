@@ -24885,10 +24885,8 @@ void StopThreads() {
         HANDLE h = handles[i];
         if (h) {
             DWORD waitRes = WaitForSingleObject(h, 3000);
-            if (waitRes == WAIT_TIMEOUT) {
-                allExited = false;
-                Wh_Log(L"StopThreads: warning: worker thread (index %zu) timed out waiting for exit; preserving handle.", i);
-            } else {
+            island_policy::WorkerWaitResult classification = island_policy::ClassifyWorkerWait(waitRes);
+            if (classification == island_policy::WorkerWaitResult::Exited) {
                 CloseHandle(h);
                 if (h == g_renderThread) g_renderThread = nullptr;
                 else if (h == g_mediaThread) g_mediaThread = nullptr;
@@ -24899,6 +24897,16 @@ void StopThreads() {
                 else if (h == g_keyboardThread) { g_keyboardThread = nullptr; g_keyboardThreadId = 0; }
                 else if (h == g_mouseThread) { g_mouseThread = nullptr; g_mouseThreadId = 0; }
                 else if (h == g_bluetoothThread) g_bluetoothThread = nullptr;
+            } else {
+                allExited = false;
+                if (classification == island_policy::WorkerWaitResult::TimedOut) {
+                    Wh_Log(L"StopThreads: warning: worker thread (index %zu) timed out waiting for exit; preserving handle.", i);
+                } else if (classification == island_policy::WorkerWaitResult::Failed) {
+                    DWORD err = GetLastError();
+                    Wh_Log(L"StopThreads: error: WaitForSingleObject failed for worker thread (index %zu) with error %lu; preserving handle.", i, err);
+                } else {
+                    Wh_Log(L"StopThreads: warning: unexpected wait result 0x%08X for worker thread (index %zu); preserving handle.", waitRes, i);
+                }
             }
         }
     }

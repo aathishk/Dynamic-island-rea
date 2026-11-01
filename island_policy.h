@@ -93,4 +93,29 @@ inline BluetoothDeviceCategory ClassifyDeviceByName(const std::wstring& nameLowe
     return BluetoothDeviceCategory::Generic;
 }
 
+// Thread shutdown wait classification
+enum class WorkerWaitResult {
+    Exited,      // WAIT_OBJECT_0: Thread terminated successfully within timeout
+    TimedOut,    // WAIT_TIMEOUT: Thread still running after timeout
+    Failed,      // WAIT_FAILED: WaitForSingleObject returned WAIT_FAILED
+    Unexpected,  // Any other return code (e.g. WAIT_ABANDONED)
+};
+
+inline WorkerWaitResult ClassifyWorkerWait(unsigned long waitVal) {
+    if (waitVal == 0x00000000UL /* WAIT_OBJECT_0 */) {
+        return WorkerWaitResult::Exited;
+    }
+    if (waitVal == 0x00000102UL /* WAIT_TIMEOUT */) {
+        return WorkerWaitResult::TimedOut;
+    }
+    if (waitVal == 0xFFFFFFFFUL /* WAIT_FAILED */) {
+        return WorkerWaitResult::Failed;
+    }
+    return WorkerWaitResult::Unexpected;
+}
+
+inline bool ShouldCloseWorkerHandle(WorkerWaitResult res) {
+    return res == WorkerWaitResult::Exited;
+}
+
 }  // namespace island_policy

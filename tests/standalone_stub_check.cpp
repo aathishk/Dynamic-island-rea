@@ -89,6 +89,10 @@ int RunBluetoothPolicyTest() {
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Keyboard, false)) return 207;
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Gamepad, false)) return 208;
 
+    // 7. Explicit gamepad edge cases: disconnected initially -> suppress; classic gamepad -> must NOT suppress
+    if (!island_policy::ShouldSuppressBluetoothDisconnect(false, true, BluetoothDeviceCategory::Gamepad, false)) return 209;
+    if (island_policy::ShouldSuppressBluetoothDisconnect(true, false, BluetoothDeviceCategory::Gamepad, false)) return 210;
+
     return 0;
 }
 
@@ -104,6 +108,33 @@ int RunDeviceClassificationTest() {
     if (island_policy::ClassifyDeviceByName(L"dualsense wireless controller") != BluetoothDeviceCategory::Gamepad) return 309;
     if (island_policy::ClassifyDeviceByName(L"ps4 dualshock gamepad") != BluetoothDeviceCategory::Gamepad) return 310;
     if (island_policy::ClassifyDeviceByName(L"gp325") != BluetoothDeviceCategory::Generic) return 307;
+    return 0;
+}
+
+// Test 5: Production thread wait & shutdown classification checks (island_policy.h)
+int RunWorkerWaitPolicyTest() {
+    using namespace island_policy;
+
+    // 1. WAIT_OBJECT_0 (0x00000000L) -> must classify as Exited and permit closing handle
+    WorkerWaitResult resExited = ClassifyWorkerWait(0x00000000UL /* WAIT_OBJECT_0 */);
+    if (resExited != WorkerWaitResult::Exited) return 401;
+    if (!ShouldCloseWorkerHandle(resExited)) return 402;
+
+    // 2. WAIT_TIMEOUT (0x00000102L / 258L) -> must classify as TimedOut and preserve handle
+    WorkerWaitResult resTimeout = ClassifyWorkerWait(0x00000102UL /* WAIT_TIMEOUT */);
+    if (resTimeout != WorkerWaitResult::TimedOut) return 403;
+    if (ShouldCloseWorkerHandle(resTimeout)) return 404;
+
+    // 3. WAIT_FAILED (0xFFFFFFFFL / (DWORD)-1) -> must classify as Failed and preserve handle
+    WorkerWaitResult resFailed = ClassifyWorkerWait(0xFFFFFFFFUL /* WAIT_FAILED */);
+    if (resFailed != WorkerWaitResult::Failed) return 405;
+    if (ShouldCloseWorkerHandle(resFailed)) return 406;
+
+    // 4. Unexpected / abandoned wait (e.g. WAIT_ABANDONED_0 = 0x80) -> must classify as Unexpected and preserve handle
+    WorkerWaitResult resAbandoned = ClassifyWorkerWait(0x00000080UL /* WAIT_ABANDONED_0 */);
+    if (resAbandoned != WorkerWaitResult::Unexpected) return 407;
+    if (ShouldCloseWorkerHandle(resAbandoned)) return 408;
+
     return 0;
 }
 
@@ -135,6 +166,12 @@ int wmain(int argc, wchar_t** argv) {
         return r4;
     }
 
-    printf("SUCCESS: All 4 production unit & regression test suites passed (launchers, opacity policy, BT policy, gamepad/device classification)!\n");
+    int r5 = RunWorkerWaitPolicyTest();
+    if (r5 != 0) {
+        printf("FAIL: Worker wait shutdown policy self-test failed with code: %d\n", r5);
+        return r5;
+    }
+
+    printf("SUCCESS: All 5 production unit & regression test suites passed (launchers, opacity policy, BT policy, gamepad classification, thread wait shutdown policy)!\n");
     return 0;
 }

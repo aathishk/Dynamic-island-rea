@@ -1,20 +1,28 @@
 # Changelog
 
 ## 1.5.5
+- **Thread Shutdown Safety & Wait Classification:**
+  - `StopThreads()` now strictly requires `WAIT_OBJECT_0` before closing worker thread handles.
+  - `WAIT_TIMEOUT`, `WAIT_FAILED` (logging `GetLastError()`), and unexpected wait codes preserve thread handles and keep synchronization events alive, preventing handle invalidation and use-after-free crashes.
+  - Added shared `WorkerWaitResult` classification policy (`island_policy.h`) with unit test verification.
+- **Dedicated Gamepad Category & Glyph:**
+  - Added `BluetoothDeviceCategory::Gamepad` mapped to Xbox, DualSense, DualShock, and controller peripherals.
+  - Dedicated Segoe Fluent/MDL2 gamepad glyph `\uE7FC` in `DrawBluetoothCategoryIcon()`.
+  - Disconnect policy ensures gamepad disconnects are never suppressed.
 - **Bluetooth Crash Guard for Windows N / Server Editions:**
-  - Wrapped `BluetoothThreadProc` in a top-level `try/catch` guard. On Windows editions lacking the WinRT Bluetooth subsystem, `winrt::hresult_class_not_registered` is caught cleanly, logging a warning and disabling only the Bluetooth module rather than terminating the application with `std::terminate`.
+  - Wrapped `BluetoothThreadProc` in a comprehensive exception guard distinguishing `winrt::hresult_error` (specifically detecting `REGDB_E_CLASSNOTREG` `0x80040154` when WinRT Bluetooth classes are unregistered on stripped Windows editions) and `std::exception` (logging `ex.what()`).
+  - Implemented RAII `ApartmentScope` ensuring `winrt::uninit_apartment()` runs cleanly on all exit and exception paths.
 - **Complete Direct2D Device-Dependent Resource Recovery:**
   - Added `ReleaseDeviceDependentResources()` in `Renderer`: resets all persistent brushes, bitmap textures, tab layers, and gradient slots upon `D2DERR_RECREATE_TARGET`, preventing `D2DERR_WRONG_RESOURCE_DOMAIN` errors.
-  - Added `EnsureRenderTarget()` to guard `target_` creation and prevent null dereferences during active GPU resets.
+  - Added `EnsureRenderTarget()` and `CreateBackingBitmap()` return value verification during device-loss recovery; safe fallback (`stageValid_ = false`) if GPU allocation fails.
 - **Fixed Bluetooth Startup State Tracking & Debounce:**
   - Track devices discovered at launch with `isConnected = true` in the initial device cache, enabling `Modules.BluetoothAlertOnGenericBle = 1` to alert on disconnects for devices connected before app boot.
   - Reset `lastDisconnectTime = -100.0` upon new device connections so valid disconnects following a reconnect are never falsely suppressed.
-  - Added classification rules for gamepads and wireless controllers (`Xbox`, `DualSense`, `DualShock`).
-- **Live Worker Health Lifecycle & Clean Shutdown:**
-  - `spawnOptionalWorker` now manages a runner wrapper ensuring worker status flags automatically reset to `false` if a worker thread exits.
-  - `StopThreads()` detects wait timeouts and prevents closing synchronization events out from under running threads.
-- **CI Pipeline Gating:**
-  - Configured `exe` job to explicitly depend on `needs: stub-check` so release builds only proceed after successful test execution.
+- **Live Worker Health Lifecycle & Clean Diagnostics:**
+  - `spawnOptionalWorker` manages a runner wrapper recording worker names and logging exception details on termination.
+- **Active GitHub Actions CI Workflow:**
+  - Moved CI workflow into standard `.github/workflows/build.yml` with Linux Wine testing and Windows native build/test gating.
+  - Expanded unit test suite to 5 test groups (launchers, opacity policy, BT policy, gamepad classification, thread wait shutdown policy).
 
 
 ## 1.5.4

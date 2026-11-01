@@ -69,13 +69,13 @@ int RunOpacityPolicyTest() {
 
 // Test 3: Production Bluetooth disconnect suppression checks (island_policy.h)
 int RunBluetoothPolicyTest() {
-    // 1. Never connected device -> must suppress disconnect card
+    // 1. Device that was never connected -> must suppress disconnect card
     if (!island_policy::ShouldSuppressBluetoothDisconnect(false, true, BluetoothDeviceCategory::Headphones, false)) return 201;
 
-    // 2. Generic BLE peripheral (e.g. GP325 sleeping) -> must suppress by default to prevent notification spam
+    // 2. Generic BLE peripheral present at launch (wasConnected=true) -> suppressed by default to prevent sleep polling spam
     if (!island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Generic, false)) return 202;
 
-    // 3. Generic BLE peripheral when user explicitly enables generic BLE alerts -> must NOT suppress
+    // 3. Generic BLE peripheral present at launch when user sets Modules.BluetoothAlertOnGenericBle=1 -> must NOT suppress
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Generic, true)) return 203;
 
     // 4. BLE Audio headset (e.g. AirPods / Sony WH-1000XM) -> must NOT suppress
@@ -84,7 +84,7 @@ int RunBluetoothPolicyTest() {
     // 5. Classic Bluetooth Audio speaker -> must NOT suppress
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, false, BluetoothDeviceCategory::Speaker, false)) return 205;
 
-    // 6. Bluetooth mouse / keyboard -> must NOT suppress
+    // 6. Bluetooth mouse / keyboard / gamepad -> must NOT suppress
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Mouse, false)) return 206;
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Keyboard, false)) return 207;
 
@@ -99,6 +99,8 @@ int RunDeviceClassificationTest() {
     if (island_policy::ClassifyDeviceByName(L"jbl flip 6 speaker") != BluetoothDeviceCategory::Speaker) return 304;
     if (island_policy::ClassifyDeviceByName(L"logitech mx master 3 mouse") != BluetoothDeviceCategory::Mouse) return 305;
     if (island_policy::ClassifyDeviceByName(L"keychron k2 keyboard") != BluetoothDeviceCategory::Keyboard) return 306;
+    if (island_policy::ClassifyDeviceByName(L"xbox wireless controller") != BluetoothDeviceCategory::Mouse) return 308;
+    if (island_policy::ClassifyDeviceByName(L"dualsense wireless controller") != BluetoothDeviceCategory::Mouse) return 309;
     if (island_policy::ClassifyDeviceByName(L"gp325") != BluetoothDeviceCategory::Generic) return 307;
     return 0;
 }

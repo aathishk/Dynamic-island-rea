@@ -6395,6 +6395,7 @@ void HandleBluetoothConnected(
         entry.isBle = isBle;
         entry.isConnected = true;
         entry.lastConnectTime = now;
+        entry.lastDisconnectTime = -100.0;
     }
 
     if (!g_settings.bluetoothIndicator) {
@@ -6518,7 +6519,7 @@ void HandleBluetoothDisconnected(
     TriggerNudge();
 }
 
-DWORD WINAPI BluetoothThreadProc(void*) {
+static DWORD WINAPI BluetoothThreadProcImpl(void*) {
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
     using winrt::Windows::Devices::Enumeration::DeviceInformation;
@@ -6558,11 +6559,10 @@ DWORD WINAPI BluetoothThreadProc(void*) {
                         std::lock_guard lock(cacheMutex);
                         BluetoothDeviceCategory cat = ClassifyBluetoothDevice(info);
                         const bool isBleDevice = (wcscmp(label, L"BLE") == 0);
-                        // Audio and user-input devices connected at launch will alert if disconnected later.
-                        // Generic BLE peripherals that Windows polls are marked not actively connected.
-                        const bool trackAsConnected = !isBleDevice || (cat != BluetoothDeviceCategory::Generic);
+                        // Devices present at launch are genuinely connected.
+                        // island_policy::ShouldSuppressBluetoothDisconnect evaluates whether to alert on disconnect.
                         deviceCache[std::wstring(info.Id().c_str())] =
-                            BluetoothTrackedDevice{name, cat, isBleDevice, trackAsConnected, -100.0, -100.0};
+                            BluetoothTrackedDevice{name, cat, isBleDevice, true, -100.0, -100.0};
                     }
                     return;
                 }
@@ -6608,6 +6608,19 @@ DWORD WINAPI BluetoothThreadProc(void*) {
 
     winrt::uninit_apartment();
     return 0;
+}
+
+// Windows editions without the Bluetooth WinRT components (for example "N"
+// editions or Server) throw winrt::hresult_class_not_registered when the device
+// selector is requested. An exception escaping a thread procedure calls
+// std::terminate, so catch it here: only the Bluetooth indicator is disabled.
+DWORD WINAPI BluetoothThreadProc(void* param) {
+    try {
+        return BluetoothThreadProcImpl(param);
+    } catch (...) {
+        Wh_Log(L"Bluetooth: WinRT Bluetooth is unavailable; indicator disabled.");
+        return 0;
+    }
 }
 
 #else  // !DYNAMIC_ISLAND_HAS_BLUETOOTH_WATCHER
@@ -12205,9 +12218,27 @@ class Renderer {
         return CreateBackingBitmap(520, 140);
     }
 
+    // (Re)creates the DC render target if it is missing. Returns false while the
+    // device is unavailable so callers can skip the frame instead of dereferencing null.
+    bool EnsureRenderTarget() {
+        if (target_) return true;
+        if (!d2dFactory_) return false;
+        D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_DEFAULT,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+            0.0f, 0.0f,
+            D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE);
+        return SUCCEEDED(d2dFactory_->CreateDCRenderTarget(&props, &target_)) && target_;
+    }
+
     bool Render(const SharedState& state, const Settings& settings, const Activity& primary,
                 const std::optional<Activity>& secondary, float width, float height,
                 float nudge, bool hover, bool pinned, double now) {
+        if (!target_) {
+            // Previous device-loss recovery could not recreate the target yet.
+            if (!EnsureRenderTarget()) return false;
+            CreateBackingBitmap(bitmapWidth_, bitmapHeight_);
+        }
         EnsureTextFormats(settings.sizeScale, settings.fontFamily, settings.textScale);
 
         width = std::max(width, 0.0f);
@@ -12335,17 +12366,12 @@ class Renderer {
             stageValid_ = false;
             if (hr == D2DERR_RECREATE_TARGET) {
                 Wh_Log(L"Renderer: Direct2D device loss (D2DERR_RECREATE_TARGET), rebuilding render target...");
-                target_.Reset();
-                liquid_glass::g_glassEngine.Release();
-                D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-                    D2D1_RENDER_TARGET_TYPE_DEFAULT,
-                    D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-                    0.0f, 0.0f,
-                    D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE);
-                if (d2dFactory_) {
-                    d2dFactory_->CreateDCRenderTarget(&props, &target_);
+                ReleaseDeviceDependentResources();
+                // The new target is created here when possible; if the GPU is still
+                // resetting, Render() retries at the top of the next frame.
+                if (EnsureRenderTarget()) {
+                    CreateBackingBitmap(bitmapWidth_, bitmapHeight_);
                 }
-                CreateBackingBitmap(bitmapWidth_, bitmapHeight_);
             }
             return false;
         }
@@ -13145,6 +13171,48 @@ class Renderer {
         bloomGrad_ = RadialGradientSlot{};
         swapGroupLayer_.Reset();
         for (ShapeEntry& e : shapeCache_) e = ShapeEntry{};
+    }
+
+    // Direct2D resources (brushes, bitmaps, layers, gradients) belong to the render
+    // target that created them. After D2DERR_RECREATE_TARGET a new target rejects
+    // them with D2DERR_WRONG_RESOURCE_DOMAIN, so every one must be released and is
+    // then recreated lazily on the next frame. Device-independent objects (DirectWrite
+    // formats and layouts, geometries, stroke styles) are intentionally kept.
+    void ReleaseDeviceDependentResources() {
+        ReleaseCachedResources();  // brush/layer pools, gradient slots, raised brushes, group layer
+
+        accentBrush_.Reset();
+        redBrush_.Reset();
+        textBrush_.Reset();
+        mutedBrush_.Reset();
+        tintBrush_.Reset();
+        shadowBrush_.Reset();
+        micDotBrush_.Reset();
+        micGlowBrush_.Reset();
+        camDotBrush_.Reset();
+        camGlowBrush_.Reset();
+        scratchColorBrush_.Reset();
+
+        // Cached bitmaps are re-uploaded from their pixel data when null
+        // (see DrawBitmapPixels), so resetting them is enough.
+        artBitmap_.Reset();
+        notificationIconBitmap_.Reset();
+        mediaSourceIconBitmap_.Reset();
+        clipboardIconBitmap_.Reset();
+        clipboardImageBitmap_.Reset();
+        fileTrayIconBitmap_.Reset();
+        artFlipOld_.Reset();
+        pillArtOld_.Reset();
+        pillArtLast_.Reset();
+        pillArtStart_ = -1.0;
+        pillArtInit_ = false;
+        for (auto& bmp : dockIconBitmap_) bmp.Reset();
+
+        tabLayer_.Reset();
+        immKaraokeGrad_ = LinearGradientSlot{};
+
+        liquid_glass::g_glassEngine.Release();
+        target_.Reset();
     }
 
     void BuildMaterialTokens(const Settings& settings) {
@@ -24725,12 +24793,31 @@ bool StartThreads() {
 
     // 3. Optional auxiliary worker threads: failures disable corresponding module with graceful degradation
     auto spawnOptionalWorker = [](LPTHREAD_START_ROUTINE fn, const wchar_t* name, std::atomic<bool>& statusFlag, LPDWORD pId = nullptr) -> HANDLE {
-        HANDLE h = CreateThread(nullptr, 0, fn, nullptr, 0, pId);
+        struct Runner {
+            LPTHREAD_START_ROUTINE realFn;
+            std::atomic<bool>* pFlag;
+            static DWORD WINAPI ThreadEntry(void* arg) {
+                auto* self = static_cast<Runner*>(arg);
+                LPTHREAD_START_ROUTINE rf = self->realFn;
+                std::atomic<bool>* pf = self->pFlag;
+                delete self;
+                if (pf) pf->store(true);
+                DWORD res = 0;
+                try {
+                    res = rf(nullptr);
+                } catch (...) {
+                    res = 1;
+                }
+                if (pf) pf->store(false);
+                return res;
+            }
+        };
+        auto* runner = new Runner{fn, &statusFlag};
+        HANDLE h = CreateThread(nullptr, 0, Runner::ThreadEntry, runner, 0, pId);
         if (!h) {
+            delete runner;
             statusFlag.store(false);
             Wh_Log(L"StartThreads: warning: optional module thread '%s' failed to spawn (error: %lu); feature disabled.", name, GetLastError());
-        } else {
-            statusFlag.store(true);
         }
         return h;
     };
@@ -24763,9 +24850,14 @@ void StopThreads() {
     }
 
     HANDLE handles[] = {g_renderThread, g_mediaThread, g_audioThread, g_weatherThread, g_lyricsThread, g_notificationThread, g_keyboardThread, g_mouseThread, g_bluetoothThread};
+    bool allExited = true;
     for (HANDLE handle : handles) {
         if (handle) {
-            WaitForSingleObject(handle, 3000);
+            DWORD waitRes = WaitForSingleObject(handle, 3000);
+            if (waitRes == WAIT_TIMEOUT) {
+                allExited = false;
+                Wh_Log(L"StopThreads: warning: worker thread timed out waiting for exit.");
+            }
             CloseHandle(handle);
         }
     }

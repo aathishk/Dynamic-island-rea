@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.5
+- **Bluetooth Crash Guard for Windows N / Server Editions:**
+  - Wrapped `BluetoothThreadProc` in a top-level `try/catch` guard. On Windows editions lacking the WinRT Bluetooth subsystem, `winrt::hresult_class_not_registered` is caught cleanly, logging a warning and disabling only the Bluetooth module rather than terminating the application with `std::terminate`.
+- **Complete Direct2D Device-Dependent Resource Recovery:**
+  - Added `ReleaseDeviceDependentResources()` in `Renderer`: resets all persistent brushes, bitmap textures, tab layers, and gradient slots upon `D2DERR_RECREATE_TARGET`, preventing `D2DERR_WRONG_RESOURCE_DOMAIN` errors.
+  - Added `EnsureRenderTarget()` to guard `target_` creation and prevent null dereferences during active GPU resets.
+- **Fixed Bluetooth Startup State Tracking & Debounce:**
+  - Track devices discovered at launch with `isConnected = true` in the initial device cache, enabling `Modules.BluetoothAlertOnGenericBle = 1` to alert on disconnects for devices connected before app boot.
+  - Reset `lastDisconnectTime = -100.0` upon new device connections so valid disconnects following a reconnect are never falsely suppressed.
+  - Added classification rules for gamepads and wireless controllers (`Xbox`, `DualSense`, `DualShock`).
+- **Live Worker Health Lifecycle & Clean Shutdown:**
+  - `spawnOptionalWorker` now manages a runner wrapper ensuring worker status flags automatically reset to `false` if a worker thread exits.
+  - `StopThreads()` detects wait timeouts and prevents closing synchronization events out from under running threads.
+- **CI Pipeline Gating:**
+  - Configured `exe` job to explicitly depend on `needs: stub-check` so release builds only proceed after successful test execution.
+
+
 ## 1.5.4
 - **Shared Domain Policy Architecture (`island_policy.h`):**
   - Extracted opacity calculation (`CalculatePillOpacity`), window alpha byte conversion (`PillOpacityToAlphaByte`), Bluetooth disconnect suppression policy (`ShouldSuppressBluetoothDisconnect`), and friendly-name device classification (`ClassifyDeviceByName`) into a shared header.

@@ -36,11 +36,18 @@ jobs:
             -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -D_WIN32_IE=0x0A00 -DNTDDI_VERSION=0x0A000008 \
             -D__USE_MINGW_ANSI_STDIO=0 -include standalone_shim.h tests/standalone_stub_check.cpp \
             -lole32 -lshell32 -luser32 -ladvapi32 -lshcore -ldwmapi -lgdi32 -lcomctl32 -luxtheme -static -o stub.exe
-          wine ./stub.exe || wine64 ./stub.exe
+          WINE_CMD=$(command -v wine64 || command -v wine || true)
+          if [ -n "$WINE_CMD" ]; then
+            "$WINE_CMD" ./stub.exe
+          else
+            echo "Wine binary not found in PATH"
+            exit 1
+          fi
 
   exe:
     # Native Windows release build & test execution
     runs-on: windows-latest
+    needs: stub-check
     permissions:
       contents: write
     steps:

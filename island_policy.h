@@ -67,11 +67,20 @@ inline BluetoothDeviceCategory ClassifyDeviceByName(const std::wstring& nameLowe
         nameLower.find(L"boombox") != std::wstring::npos) {
         return BluetoothDeviceCategory::Speaker;
     }
-    if (nameLower.find(L"mouse") != std::wstring::npos) {
+    if (nameLower.find(L"mouse") != std::wstring::npos ||
+        nameLower.find(L"trackpad") != std::wstring::npos) {
         return BluetoothDeviceCategory::Mouse;
     }
-    if (nameLower.find(L"keyboard") != std::wstring::npos) {
+    if (nameLower.find(L"keyboard") != std::wstring::npos ||
+        nameLower.find(L"keypad") != std::wstring::npos) {
         return BluetoothDeviceCategory::Keyboard;
+    }
+    if (nameLower.find(L"controller") != std::wstring::npos ||
+        nameLower.find(L"gamepad") != std::wstring::npos ||
+        nameLower.find(L"xbox") != std::wstring::npos ||
+        nameLower.find(L"dualsense") != std::wstring::npos ||
+        nameLower.find(L"dualshock") != std::wstring::npos) {
+        return BluetoothDeviceCategory::Mouse; // Classified as input peripheral
     }
     if (nameLower.find(L"iphone") != std::wstring::npos ||
         nameLower.find(L"phone") != std::wstring::npos ||

@@ -1017,14 +1017,8 @@ enum class IslandKind {
     Lookup,
 };
 
-enum class BluetoothDeviceCategory {
-    Headphones,
-    Speaker,
-    Mouse,
-    Keyboard,
-    Phone,
-    Generic,
-};
+#include "island_policy.h"
+
 
 enum class Position {
     Auto,
@@ -1735,6 +1729,18 @@ HANDLE g_weatherThread = nullptr;
 HANDLE g_lyricsThread = nullptr;
 HANDLE g_notificationThread = nullptr;
 HANDLE g_bluetoothThread = nullptr;
+
+struct WorkerStatus {
+    std::atomic<bool> media{false};
+    std::atomic<bool> audio{false};
+    std::atomic<bool> weather{false};
+    std::atomic<bool> lyrics{false};
+    std::atomic<bool> keyboard{false};
+    std::atomic<bool> mouse{false};
+    std::atomic<bool> notification{false};
+    std::atomic<bool> bluetooth{false};
+};
+inline WorkerStatus g_workerStatus;
 std::atomic<bool> g_running = false;
 std::atomic<int> g_idleTab = 0;
 // True while a media pill exists, i.e. while the Lyrics tab can be shown.
@@ -3277,8 +3283,7 @@ void LoadSettings() {
     g_pillOpacityOverride.store(localOpacity);
     g_gameOverlayPinned.store(Wh_GetIntValue(L"GameOverlayPinned", 0) != 0);
     g_pinnedExpanded.store(Wh_GetIntValue(L"PinnedExpanded", 0) != 0);
-    next.pillOpacity = Clamp((localOpacity >= 0 ? localOpacity : settingOpacity) / 100.0f,
-                             0.10f, 1.0f);
+    next.pillOpacity = island_policy::CalculatePillOpacity(localOpacity >= 0 ? localOpacity : settingOpacity);
     next.gameOverlay = Wh_GetIntSetting(L"Modules.GameOverlay") != 0;
     next.showMetricText = Wh_GetIntSetting(L"Modules.ShowMetricText") != 0;
     next.weather = Wh_GetIntSetting(L"Modules.Weather") != 0;
@@ -6146,34 +6151,11 @@ DWORD WINAPI NotificationThreadProc(void*) {
 
 BluetoothDeviceCategory ClassifyBluetoothDevice(
     const winrt::Windows::Devices::Enumeration::DeviceInformation& info) {
-    // 1) Name-based heuristic first — cheap, synchronous, and correct for
-    //    the overwhelming majority of consumer devices, which advertise a
-    //    descriptive friendly name.
+    // 1) Fast friendly-name heuristic from island_policy (single source of truth)
     std::wstring name = ToLowerCopy(std::wstring(info.Name().c_str()));
-
-    if (name.find(L"headphone") != std::wstring::npos ||
-        name.find(L"headset") != std::wstring::npos ||
-        name.find(L"earbud") != std::wstring::npos ||
-        name.find(L"buds") != std::wstring::npos ||
-        name.find(L"airpods") != std::wstring::npos) {
-        return BluetoothDeviceCategory::Headphones;
-    }
-    if (name.find(L"speaker") != std::wstring::npos ||
-        name.find(L"soundbar") != std::wstring::npos ||
-        name.find(L"boombox") != std::wstring::npos) {
-        return BluetoothDeviceCategory::Speaker;
-    }
-    if (name.find(L"mouse") != std::wstring::npos) {
-        return BluetoothDeviceCategory::Mouse;
-    }
-    if (name.find(L"keyboard") != std::wstring::npos) {
-        return BluetoothDeviceCategory::Keyboard;
-    }
-    if (name.find(L"iphone") != std::wstring::npos ||
-        name.find(L"phone") != std::wstring::npos ||
-        name.find(L"galaxy") != std::wstring::npos ||
-        name.find(L"pixel") != std::wstring::npos) {
-        return BluetoothDeviceCategory::Phone;
+    BluetoothDeviceCategory nameCat = island_policy::ClassifyDeviceByName(name);
+    if (nameCat != BluetoothDeviceCategory::Generic) {
+        return nameCat;
     }
 
     // 2) Fall back to the classic Bluetooth Class-of-Device major-class bits.
@@ -6510,10 +6492,8 @@ void HandleBluetoothDisconnected(
         return;
     }
 
-    // Never alert on disconnect if the device was not actively connected.
-    // Suppress disconnect alerts for generic BLE peripherals (like GP325 sleeping in background)
-    // unless the user explicitly enables generic BLE disconnect alerts.
-    if (!wasConnected || (isBle && category == BluetoothDeviceCategory::Generic && !g_settings.bluetoothAlertOnGenericBle)) {
+    // Single source of truth Bluetooth disconnect policy from island_policy.h
+    if (island_policy::ShouldSuppressBluetoothDisconnect(wasConnected, isBle, category, g_settings.bluetoothAlertOnGenericBle)) {
         return;
     }
 
@@ -12245,7 +12225,7 @@ class Renderer {
         const float top = stage.pillTop + (flushTop ? std::max(0.0f, nudge) : nudge);
         const float left = stage.pillLeft;
 
-        const BYTE alpha = static_cast<BYTE>(Clamp(settings.pillOpacity, 0.35f, 1.0f) * 255.0f);
+        const BYTE alpha = island_policy::PillOpacityToAlphaByte(settings.pillOpacity);
         const bool sizeChanged = pixelWidth != bitmapWidth_ || pixelHeight != bitmapHeight_;
         const bool moved = stage.origin.x != lastOrigin_.x || stage.origin.y != lastOrigin_.y;
 
@@ -12353,6 +12333,20 @@ class Renderer {
         hr = target_->EndDraw();
         if (FAILED(hr)) {
             stageValid_ = false;
+            if (hr == D2DERR_RECREATE_TARGET) {
+                Wh_Log(L"Renderer: Direct2D device loss (D2DERR_RECREATE_TARGET), rebuilding render target...");
+                target_.Reset();
+                liquid_glass::g_glassEngine.Release();
+                D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+                    D2D1_RENDER_TARGET_TYPE_DEFAULT,
+                    D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                    0.0f, 0.0f,
+                    D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE);
+                if (d2dFactory_) {
+                    d2dFactory_->CreateDCRenderTarget(&props, &target_);
+                }
+                CreateBackingBitmap(bitmapWidth_, bitmapHeight_);
+            }
             return false;
         }
 
@@ -24707,43 +24701,50 @@ DWORD WINAPI RenderThreadProc(void*) {
 
 
 
+void StopThreads();
+
 bool StartThreads() {
-    // 1. Critical synchronization events: failure aborts startup
+    // 1. Critical synchronization events: failure cleans up and aborts startup safely
     g_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     g_settingsChangedEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     g_mediaRefreshEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     if (!g_stopEvent || !g_settingsChangedEvent || !g_mediaRefreshEvent) {
         Wh_Log(L"StartThreads: fatal error: failed to create core synchronization events (error: %lu)", GetLastError());
+        StopThreads();
         return false;
     }
 
     g_running = true;
-    // 2. Critical rendering engine thread: failure aborts startup
+    // 2. Critical rendering engine thread: failure cleans up and aborts startup safely
     g_renderThread = CreateThread(nullptr, 0, RenderThreadProc, nullptr, 0, nullptr);
     if (!g_renderThread) {
         Wh_Log(L"StartThreads: fatal error: failed to create primary Render thread (error: %lu)", GetLastError());
+        StopThreads();
         return false;
     }
 
     // 3. Optional auxiliary worker threads: failures disable corresponding module with graceful degradation
-    auto spawnOptionalWorker = [](LPTHREAD_START_ROUTINE fn, const wchar_t* name, LPDWORD pId = nullptr) -> HANDLE {
+    auto spawnOptionalWorker = [](LPTHREAD_START_ROUTINE fn, const wchar_t* name, std::atomic<bool>& statusFlag, LPDWORD pId = nullptr) -> HANDLE {
         HANDLE h = CreateThread(nullptr, 0, fn, nullptr, 0, pId);
         if (!h) {
+            statusFlag.store(false);
             Wh_Log(L"StartThreads: warning: optional module thread '%s' failed to spawn (error: %lu); feature disabled.", name, GetLastError());
+        } else {
+            statusFlag.store(true);
         }
         return h;
     };
 
-    g_mediaThread = spawnOptionalWorker(MediaThreadProc, L"Media");
-    g_audioThread = spawnOptionalWorker(AudioThreadProc, L"Audio");
-    g_weatherThread = spawnOptionalWorker(WeatherThreadProc, L"Weather");
-    g_lyricsThread = spawnOptionalWorker(LyricsThreadProc, L"Lyrics");
-    g_keyboardThread = spawnOptionalWorker(KeyboardThreadProc, L"Keyboard", &g_keyboardThreadId);
-    g_mouseThread = spawnOptionalWorker(MouseThreadProc, L"Mouse", &g_mouseThreadId);
+    g_mediaThread = spawnOptionalWorker(MediaThreadProc, L"Media", g_workerStatus.media);
+    g_audioThread = spawnOptionalWorker(AudioThreadProc, L"Audio", g_workerStatus.audio);
+    g_weatherThread = spawnOptionalWorker(WeatherThreadProc, L"Weather", g_workerStatus.weather);
+    g_lyricsThread = spawnOptionalWorker(LyricsThreadProc, L"Lyrics", g_workerStatus.lyrics);
+    g_keyboardThread = spawnOptionalWorker(KeyboardThreadProc, L"Keyboard", g_workerStatus.keyboard, &g_keyboardThreadId);
+    g_mouseThread = spawnOptionalWorker(MouseThreadProc, L"Mouse", g_workerStatus.mouse, &g_mouseThreadId);
 #if DYNAMIC_ISLAND_HAS_USER_NOTIFICATION_LISTENER
-    g_notificationThread = spawnOptionalWorker(NotificationThreadProc, L"Notification");
+    g_notificationThread = spawnOptionalWorker(NotificationThreadProc, L"Notification", g_workerStatus.notification);
 #endif
-    g_bluetoothThread = spawnOptionalWorker(BluetoothThreadProc, L"Bluetooth");
+    g_bluetoothThread = spawnOptionalWorker(BluetoothThreadProc, L"Bluetooth", g_workerStatus.bluetooth);
     SubscribeDndNotification();
 
     return true;
@@ -24794,6 +24795,14 @@ void StopThreads() {
         g_mediaRefreshEvent = nullptr;
     }
 
+    g_workerStatus.media = false;
+    g_workerStatus.audio = false;
+    g_workerStatus.weather = false;
+    g_workerStatus.lyrics = false;
+    g_workerStatus.keyboard = false;
+    g_workerStatus.mouse = false;
+    g_workerStatus.notification = false;
+    g_workerStatus.bluetooth = false;
     g_running = false;
 }
 

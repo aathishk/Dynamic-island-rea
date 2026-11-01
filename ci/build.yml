@@ -1,4 +1,4 @@
-# Copy this file to .github/workflows/build.yml to enable CI.
+# Copy this file to .github/workflows/build.yml in the GitHub web interface to enable automated CI.
 name: build
 
 on:
@@ -13,7 +13,7 @@ env:
 
 jobs:
   stub-check:
-    # Fast check of the Win32-only parts (tray, launchers, shim) on Linux.
+    # Cross-platform compilation & wine unit testing on Linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,17 +22,24 @@ jobs:
           curl -sSL -o llvm.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz"
           tar xf llvm.tar.xz
           echo "$PWD/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64/bin" >> "$GITHUB_PATH"
-      - name: Compile and run stub check
+
+      - name: Install Wine runner
         run: |
-          sudo apt-get update && sudo apt-get install -y wine64
+          sudo dpkg --add-architecture i386 || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wine wine64 || true
+
+      - name: Compile and run test suite
+        run: |
           x86_64-w64-mingw32-clang++ -std=c++23 -O1 -Wall -Wextra -Wno-unused-parameter -I. \
             -municode -DDYNAMIC_ISLAND_STANDALONE -DUNICODE -D_UNICODE \
             -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -D_WIN32_IE=0x0A00 -DNTDDI_VERSION=0x0A000008 \
             -D__USE_MINGW_ANSI_STDIO=0 -include standalone_shim.h tests/standalone_stub_check.cpp \
             -lole32 -lshell32 -luser32 -ladvapi32 -lshcore -ldwmapi -lgdi32 -lcomctl32 -luxtheme -static -o stub.exe
-          wine64 ./stub.exe
+          wine ./stub.exe || wine64 ./stub.exe
 
   exe:
+    # Native Windows release build & test execution
     runs-on: windows-latest
     permissions:
       contents: write
@@ -58,7 +65,7 @@ jobs:
           "DI_CPPWINRT=$($d.FullName)\cppwinrt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "Using $($d.FullName)\cppwinrt"
 
-      - name: Run test suite
+      - name: Run native test suite
         shell: pwsh
         run: |
           & "$env:DI_TOOLCHAIN\bin\clang++.exe" -std=c++23 -O1 -Wall -Wextra -Wno-unused-parameter -I. `
@@ -68,7 +75,7 @@ jobs:
             -lole32 -lshell32 -luser32 -ladvapi32 -lshcore -ldwmapi -lgdi32 -lcomctl32 -luxtheme -static -o test_stub.exe
           .\test_stub.exe
 
-      - name: Build
+      - name: Build release executable
         run: python build.py --out DynamicIsland.exe
 
       - name: Verify imports and manifest

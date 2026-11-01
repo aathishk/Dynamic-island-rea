@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.5.4
+- **Shared Domain Policy Architecture (`island_policy.h`):**
+  - Extracted opacity calculation (`CalculatePillOpacity`), window alpha byte conversion (`PillOpacityToAlphaByte`), Bluetooth disconnect suppression policy (`ShouldSuppressBluetoothDisconnect`), and friendly-name device classification (`ClassifyDeviceByName`) into a shared header.
+  - Both production code in `dynamic-island-ultra.cpp` and unit tests in `tests/standalone_stub_check.cpp` now execute the exact same single source of truth.
+- **Fixed Layered Window 16% Opacity Clamp:**
+  - Removed remaining hardcoded `Clamp(..., 0.35f, 1.0f)` on line 12248 in `Renderer::Render()`, allowing true 16% obsidian glass transparency to reach `UPDATELAYEREDWINDOWINFO`.
+- **True Direct2D Render Target Device-Loss Recovery:**
+  - Added `D2DERR_RECREATE_TARGET` recovery in `Renderer::Render()` on `EndDraw()` failure, rebuilding the Direct2D DC render target and backing DIB on GPU resets and display mode switches.
+- **Leak-Proof Thread Lifecycle & Worker Status:**
+  - `StartThreads()` unwinds and terminates already-created events/threads immediately if critical initialization fails.
+  - Added atomic `WorkerStatus` tracking (`g_workerStatus`) providing live operational status for all auxiliary workers.
+- **Full Production Regression Suite:**
+  - All 4 test groups in `tests/standalone_stub_check.cpp` execute and validate production symbols directly.
+
+
 ## 1.5.3
 - **Settings GUI Fluent Dark Styling:**
   - Integrated `uxtheme.dll` (`SetWindowTheme(..., L"DarkMode_Explorer", nullptr)`) across tab controls, combo boxes, checkboxes, and buttons.

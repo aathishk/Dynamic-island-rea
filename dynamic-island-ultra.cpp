@@ -5829,7 +5829,6 @@ DWORD WINAPI MediaThreadProc(void*) {
         WaitForMultipleObjects(g_mediaRefreshEvent ? 2 : 1, mediaWaits, FALSE, 1500);
     }
 
-    winrt::uninit_apartment();
     return 0;
 }
 
@@ -6520,7 +6519,10 @@ void HandleBluetoothDisconnected(
 }
 
 static DWORD WINAPI BluetoothThreadProcImpl(void*) {
-    winrt::init_apartment(winrt::apartment_type::multi_threaded);
+    struct ApartmentScope {
+        ApartmentScope() { winrt::init_apartment(winrt::apartment_type::multi_threaded); }
+        ~ApartmentScope() { try { winrt::uninit_apartment(); } catch (...) {} }
+    } aptScope;
 
     using winrt::Windows::Devices::Enumeration::DeviceInformation;
     using winrt::Windows::Devices::Enumeration::DeviceInformationUpdate;
@@ -6617,8 +6619,19 @@ static DWORD WINAPI BluetoothThreadProcImpl(void*) {
 DWORD WINAPI BluetoothThreadProc(void* param) {
     try {
         return BluetoothThreadProcImpl(param);
+    } catch (const winrt::hresult_error& ex) {
+        HRESULT hr = ex.code();
+        if (hr == static_cast<HRESULT>(0x80040154) /* REGDB_E_CLASSNOTREG */) {
+            Wh_Log(L"Bluetooth: WinRT Bluetooth classes are not registered on this Windows edition (0x%08X); indicator disabled.", hr);
+        } else {
+            Wh_Log(L"Bluetooth: WinRT error 0x%08X: %s; indicator disabled.", hr, ex.message().c_str());
+        }
+        return 0;
+    } catch (const std::exception& ex) {
+        Wh_Log(L"Bluetooth: unexpected standard exception '%S'; indicator disabled.", ex.what());
+        return 0;
     } catch (...) {
-        Wh_Log(L"Bluetooth: WinRT Bluetooth is unavailable; indicator disabled.");
+        Wh_Log(L"Bluetooth: unknown non-standard exception; indicator disabled.");
         return 0;
     }
 }
@@ -12236,8 +12249,10 @@ class Renderer {
                 float nudge, bool hover, bool pinned, double now) {
         if (!target_) {
             // Previous device-loss recovery could not recreate the target yet.
-            if (!EnsureRenderTarget()) return false;
-            CreateBackingBitmap(bitmapWidth_, bitmapHeight_);
+            if (!EnsureRenderTarget() || !CreateBackingBitmap(bitmapWidth_, bitmapHeight_)) {
+                stageValid_ = false;
+                return false;
+            }
         }
         EnsureTextFormats(settings.sizeScale, settings.fontFamily, settings.textScale);
 
@@ -12370,7 +12385,13 @@ class Renderer {
                 // The new target is created here when possible; if the GPU is still
                 // resetting, Render() retries at the top of the next frame.
                 if (EnsureRenderTarget()) {
-                    CreateBackingBitmap(bitmapWidth_, bitmapHeight_);
+                    if (!CreateBackingBitmap(bitmapWidth_, bitmapHeight_)) {
+                        stageValid_ = false;
+                        return false;
+                    }
+                } else {
+                    stageValid_ = false;
+                    return false;
                 }
             }
             return false;
@@ -20386,6 +20407,9 @@ class Renderer {
             case BluetoothDeviceCategory::Mouse:
                 glyph = L"\uE962";
                 break;
+            case BluetoothDeviceCategory::Gamepad:
+                glyph = L"\uE7FC"; // Game controller glyph
+                break;
             case BluetoothDeviceCategory::Keyboard:
                 glyph = L"\uE92E";
                 break;
@@ -24796,23 +24820,29 @@ bool StartThreads() {
         struct Runner {
             LPTHREAD_START_ROUTINE realFn;
             std::atomic<bool>* pFlag;
+            std::wstring workerName;
             static DWORD WINAPI ThreadEntry(void* arg) {
                 auto* self = static_cast<Runner*>(arg);
                 LPTHREAD_START_ROUTINE rf = self->realFn;
                 std::atomic<bool>* pf = self->pFlag;
+                std::wstring name = std::move(self->workerName);
                 delete self;
                 if (pf) pf->store(true);
                 DWORD res = 0;
                 try {
                     res = rf(nullptr);
+                } catch (const std::exception& e) {
+                    Wh_Log(L"Worker '%s' terminated with exception: %S", name.c_str(), e.what());
+                    res = 1;
                 } catch (...) {
+                    Wh_Log(L"Worker '%s' terminated with unknown exception.", name.c_str());
                     res = 1;
                 }
                 if (pf) pf->store(false);
                 return res;
             }
         };
-        auto* runner = new Runner{fn, &statusFlag};
+        auto* runner = new Runner{fn, &statusFlag, name};
         HANDLE h = CreateThread(nullptr, 0, Runner::ThreadEntry, runner, 0, pId);
         if (!h) {
             delete runner;
@@ -24851,51 +24881,53 @@ void StopThreads() {
 
     HANDLE handles[] = {g_renderThread, g_mediaThread, g_audioThread, g_weatherThread, g_lyricsThread, g_notificationThread, g_keyboardThread, g_mouseThread, g_bluetoothThread};
     bool allExited = true;
-    for (HANDLE handle : handles) {
-        if (handle) {
-            DWORD waitRes = WaitForSingleObject(handle, 3000);
+    for (size_t i = 0; i < std::size(handles); ++i) {
+        HANDLE h = handles[i];
+        if (h) {
+            DWORD waitRes = WaitForSingleObject(h, 3000);
             if (waitRes == WAIT_TIMEOUT) {
                 allExited = false;
-                Wh_Log(L"StopThreads: warning: worker thread timed out waiting for exit.");
+                Wh_Log(L"StopThreads: warning: worker thread (index %zu) timed out waiting for exit; preserving handle.", i);
+            } else {
+                CloseHandle(h);
+                if (h == g_renderThread) g_renderThread = nullptr;
+                else if (h == g_mediaThread) g_mediaThread = nullptr;
+                else if (h == g_audioThread) g_audioThread = nullptr;
+                else if (h == g_weatherThread) g_weatherThread = nullptr;
+                else if (h == g_lyricsThread) g_lyricsThread = nullptr;
+                else if (h == g_notificationThread) g_notificationThread = nullptr;
+                else if (h == g_keyboardThread) { g_keyboardThread = nullptr; g_keyboardThreadId = 0; }
+                else if (h == g_mouseThread) { g_mouseThread = nullptr; g_mouseThreadId = 0; }
+                else if (h == g_bluetoothThread) g_bluetoothThread = nullptr;
             }
-            CloseHandle(handle);
         }
     }
 
-    g_renderThread = nullptr;
-    g_mediaThread = nullptr;
-    g_audioThread = nullptr;
-    g_weatherThread = nullptr;
-    g_lyricsThread = nullptr;
-    g_notificationThread = nullptr;
-    g_keyboardThread = nullptr;
-    g_keyboardThreadId = 0;
-    g_mouseThread = nullptr;
-    g_mouseThreadId = 0;
-    g_bluetoothThread = nullptr;
-
-    if (g_stopEvent) {
-        CloseHandle(g_stopEvent);
-        g_stopEvent = nullptr;
+    // Only close shared synchronization primitives when all threads have cleanly exited.
+    // If a thread timed out, keep g_stopEvent signaled so running workers do not crash from use-after-free!
+    if (allExited) {
+        if (g_stopEvent) {
+            CloseHandle(g_stopEvent);
+            g_stopEvent = nullptr;
+        }
+        if (g_settingsChangedEvent) {
+            CloseHandle(g_settingsChangedEvent);
+            g_settingsChangedEvent = nullptr;
+        }
+        if (g_mediaRefreshEvent) {
+            CloseHandle(g_mediaRefreshEvent);
+            g_mediaRefreshEvent = nullptr;
+        }
+        g_workerStatus.media = false;
+        g_workerStatus.audio = false;
+        g_workerStatus.weather = false;
+        g_workerStatus.lyrics = false;
+        g_workerStatus.keyboard = false;
+        g_workerStatus.mouse = false;
+        g_workerStatus.notification = false;
+        g_workerStatus.bluetooth = false;
+        g_running = false;
     }
-    if (g_settingsChangedEvent) {
-        CloseHandle(g_settingsChangedEvent);
-        g_settingsChangedEvent = nullptr;
-    }
-    if (g_mediaRefreshEvent) {
-        CloseHandle(g_mediaRefreshEvent);
-        g_mediaRefreshEvent = nullptr;
-    }
-
-    g_workerStatus.media = false;
-    g_workerStatus.audio = false;
-    g_workerStatus.weather = false;
-    g_workerStatus.lyrics = false;
-    g_workerStatus.keyboard = false;
-    g_workerStatus.mouse = false;
-    g_workerStatus.notification = false;
-    g_workerStatus.bluetooth = false;
-    g_running = false;
 }
 
 

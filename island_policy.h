@@ -12,6 +12,7 @@ enum class BluetoothDeviceCategory {
     Speaker,
     Mouse,
     Keyboard,
+    Gamepad,
     Phone,
     Generic,
 };
@@ -35,7 +36,7 @@ inline unsigned char PillOpacityToAlphaByte(float opacity) {
 // Determines whether a Bluetooth device disconnect event should be suppressed.
 // - wasConnected: true if the device was actively connected prior to disconnect.
 // - isBle: true if the device uses Bluetooth Low Energy transport.
-// - cat: category classification.
+// - cat: category classification (Headphones, Speaker, Mouse, Keyboard, Gamepad, Phone, Generic).
 // - allowGenericBle: user configuration (Modules.BluetoothAlertOnGenericBle).
 inline bool ShouldSuppressBluetoothDisconnect(
     bool wasConnected,
@@ -47,6 +48,7 @@ inline bool ShouldSuppressBluetoothDisconnect(
     }
     // Generic BLE peripherals (e.g. GP325) poll and sleep continuously;
     // suppress disconnect cards by default unless user explicitly enabled raw BLE alerts.
+    // Audio, input peripherals, and gamepads are never suppressed.
     if (isBle && cat == BluetoothDeviceCategory::Generic && !allowGenericBle) {
         return true;
     }
@@ -80,7 +82,7 @@ inline BluetoothDeviceCategory ClassifyDeviceByName(const std::wstring& nameLowe
         nameLower.find(L"xbox") != std::wstring::npos ||
         nameLower.find(L"dualsense") != std::wstring::npos ||
         nameLower.find(L"dualshock") != std::wstring::npos) {
-        return BluetoothDeviceCategory::Mouse; // Classified as input peripheral
+        return BluetoothDeviceCategory::Gamepad;
     }
     if (nameLower.find(L"iphone") != std::wstring::npos ||
         nameLower.find(L"phone") != std::wstring::npos ||

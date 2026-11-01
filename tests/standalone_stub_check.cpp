@@ -87,6 +87,7 @@ int RunBluetoothPolicyTest() {
     // 6. Bluetooth mouse / keyboard / gamepad -> must NOT suppress
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Mouse, false)) return 206;
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Keyboard, false)) return 207;
+    if (island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Gamepad, false)) return 208;
 
     return 0;
 }
@@ -99,8 +100,9 @@ int RunDeviceClassificationTest() {
     if (island_policy::ClassifyDeviceByName(L"jbl flip 6 speaker") != BluetoothDeviceCategory::Speaker) return 304;
     if (island_policy::ClassifyDeviceByName(L"logitech mx master 3 mouse") != BluetoothDeviceCategory::Mouse) return 305;
     if (island_policy::ClassifyDeviceByName(L"keychron k2 keyboard") != BluetoothDeviceCategory::Keyboard) return 306;
-    if (island_policy::ClassifyDeviceByName(L"xbox wireless controller") != BluetoothDeviceCategory::Mouse) return 308;
-    if (island_policy::ClassifyDeviceByName(L"dualsense wireless controller") != BluetoothDeviceCategory::Mouse) return 309;
+    if (island_policy::ClassifyDeviceByName(L"xbox wireless controller") != BluetoothDeviceCategory::Gamepad) return 308;
+    if (island_policy::ClassifyDeviceByName(L"dualsense wireless controller") != BluetoothDeviceCategory::Gamepad) return 309;
+    if (island_policy::ClassifyDeviceByName(L"ps4 dualshock gamepad") != BluetoothDeviceCategory::Gamepad) return 310;
     if (island_policy::ClassifyDeviceByName(L"gp325") != BluetoothDeviceCategory::Generic) return 307;
     return 0;
 }
@@ -133,6 +135,6 @@ int wmain(int argc, wchar_t** argv) {
         return r4;
     }
 
-    printf("SUCCESS: All 4 production unit & regression test suites passed (launchers, opacity policy, BT policy, device classification)!\n");
+    printf("SUCCESS: All 4 production unit & regression test suites passed (launchers, opacity policy, BT policy, gamepad/device classification)!\n");
     return 0;
 }

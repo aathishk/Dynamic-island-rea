@@ -9,7 +9,7 @@ import pefile
 ALLOWED = {
     "kernel32.dll", "user32.dll", "gdi32.dll", "advapi32.dll", "shell32.dll", "ole32.dll",
     "oleaut32.dll", "shcore.dll", "d2d1.dll", "dwrite.dll", "dwmapi.dll", "setupapi.dll",
-    "winhttp.dll", "pdh.dll", "winmm.dll", "comctl32.dll", "msvcrt.dll", "ucrtbase.dll",
+    "winhttp.dll", "pdh.dll", "winmm.dll", "comctl32.dll", "uxtheme.dll", "msvcrt.dll", "ucrtbase.dll",
 }
 pe = pefile.PE(sys.argv[1])
 bad = sorted({e.dll.decode(errors="replace") for e in pe.DIRECTORY_ENTRY_IMPORT

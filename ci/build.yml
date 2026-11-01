@@ -22,13 +22,15 @@ jobs:
           curl -sSL -o llvm.tar.xz "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64.tar.xz"
           tar xf llvm.tar.xz
           echo "$PWD/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-x86_64/bin" >> "$GITHUB_PATH"
-      - name: Compile stub check
+      - name: Compile and run stub check
         run: |
+          sudo apt-get update && sudo apt-get install -y wine64
           x86_64-w64-mingw32-clang++ -std=c++23 -O1 -Wall -Wextra -Wno-unused-parameter -I. \
-            -mwindows -municode -DDYNAMIC_ISLAND_STANDALONE -DUNICODE -D_UNICODE \
+            -municode -DDYNAMIC_ISLAND_STANDALONE -DUNICODE -D_UNICODE \
             -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -D_WIN32_IE=0x0A00 -DNTDDI_VERSION=0x0A000008 \
             -D__USE_MINGW_ANSI_STDIO=0 -include standalone_shim.h tests/standalone_stub_check.cpp \
-            -lole32 -lshell32 -luser32 -ladvapi32 -lshcore -o stub.exe
+            -lole32 -lshell32 -luser32 -ladvapi32 -lshcore -ldwmapi -lgdi32 -lcomctl32 -luxtheme -static -o stub.exe
+          wine64 ./stub.exe
 
   exe:
     runs-on: windows-latest
@@ -55,6 +57,16 @@ jobs:
           if (-not $d) { throw "No Windows SDK with C++/WinRT headers found" }
           "DI_CPPWINRT=$($d.FullName)\cppwinrt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "Using $($d.FullName)\cppwinrt"
+
+      - name: Run test suite
+        shell: pwsh
+        run: |
+          & "$env:DI_TOOLCHAIN\bin\clang++.exe" -std=c++23 -O1 -Wall -Wextra -Wno-unused-parameter -I. `
+            -municode -DDYNAMIC_ISLAND_STANDALONE -DUNICODE -D_UNICODE `
+            -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -D_WIN32_IE=0x0A00 -DNTDDI_VERSION=0x0A000008 `
+            -include standalone_shim.h tests/standalone_stub_check.cpp `
+            -lole32 -lshell32 -luser32 -ladvapi32 -lshcore -ldwmapi -lgdi32 -lcomctl32 -luxtheme -static -o test_stub.exe
+          .\test_stub.exe
 
       - name: Build
         run: python build.py --out DynamicIsland.exe

@@ -1233,6 +1233,7 @@ struct Settings {
     UINT lookupVk = VK_SPACE;
     bool bluetoothIndicator = true;
     bool bluetoothShowBattery = true;
+    bool bluetoothAlertOnGenericBle = false;
     D2D1_COLOR_F privacyDotsMicHex = D2D1::ColorF(1.0f, 0.584f, 0.0f, 1.0f); // #FF9500
     D2D1_COLOR_F privacyDotsCamHex = D2D1::ColorF(0.133f, 0.776f, 0.239f, 1.0f); // #10B981
     float tintOpacity = 0.72f;
@@ -3148,6 +3149,7 @@ void LoadSettings() {
 
     next.bluetoothIndicator = Wh_GetIntSetting(L"Modules.BluetoothIndicator") != 0;
     next.bluetoothShowBattery = Wh_GetIntSetting(L"Modules.BluetoothShowBattery") != 0;
+    next.bluetoothAlertOnGenericBle = Wh_GetIntSetting(L"Modules.BluetoothAlertOnGenericBle") != 0;
     next.doNotDisturbIndicator = Wh_GetIntSetting(L"Modules.DoNotDisturbIndicator") != 0;
     next.notificationRespectDnD = Wh_GetIntSetting(L"Modules.NotificationRespectDnD") != 0;
 
@@ -6383,7 +6385,8 @@ struct BluetoothTrackedDevice {
 void HandleBluetoothConnected(
     const winrt::Windows::Devices::Enumeration::DeviceInformation& info,
     std::unordered_map<std::wstring, BluetoothTrackedDevice>& cache,
-    std::mutex& cacheMutex) {
+    std::mutex& cacheMutex,
+    bool isBle = false) {
     std::wstring name = info.Name().c_str();
     if (name.empty()) {
         return;
@@ -6407,6 +6410,7 @@ void HandleBluetoothConnected(
         }
         entry.name = name;
         entry.category = category;
+        entry.isBle = isBle;
         entry.isConnected = true;
         entry.lastConnectTime = now;
     }
@@ -6507,8 +6511,9 @@ void HandleBluetoothDisconnected(
     }
 
     // Never alert on disconnect if the device was not actively connected.
-    // Also suppress disconnect alerts for generic BLE peripherals (like GP325 sleeping in background).
-    if (!wasConnected || (isBle && category == BluetoothDeviceCategory::Generic)) {
+    // Suppress disconnect alerts for generic BLE peripherals (like GP325 sleeping in background)
+    // unless the user explicitly enables generic BLE disconnect alerts.
+    if (!wasConnected || (isBle && category == BluetoothDeviceCategory::Generic && !g_settings.bluetoothAlertOnGenericBle)) {
         return;
     }
 
@@ -6581,7 +6586,8 @@ DWORD WINAPI BluetoothThreadProc(void*) {
                     }
                     return;
                 }
-                HandleBluetoothConnected(info, deviceCache, cacheMutex);
+                const bool isBleDevice = (wcscmp(label, L"BLE") == 0);
+                HandleBluetoothConnected(info, deviceCache, cacheMutex, isBleDevice);
             });
 
             watcher.Removed([&deviceCache, &cacheMutex, enumDone](
@@ -24702,37 +24708,42 @@ DWORD WINAPI RenderThreadProc(void*) {
 
 
 bool StartThreads() {
+    // 1. Critical synchronization events: failure aborts startup
     g_stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     g_settingsChangedEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     g_mediaRefreshEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    if (!g_stopEvent || !g_settingsChangedEvent) {
+    if (!g_stopEvent || !g_settingsChangedEvent || !g_mediaRefreshEvent) {
+        Wh_Log(L"StartThreads: fatal error: failed to create core synchronization events (error: %lu)", GetLastError());
         return false;
     }
 
     g_running = true;
+    // 2. Critical rendering engine thread: failure aborts startup
     g_renderThread = CreateThread(nullptr, 0, RenderThreadProc, nullptr, 0, nullptr);
     if (!g_renderThread) {
+        Wh_Log(L"StartThreads: fatal error: failed to create primary Render thread (error: %lu)", GetLastError());
         return false;
     }
 
-    auto spawnThread = [](LPTHREAD_START_ROUTINE fn, const wchar_t* name, LPDWORD pId = nullptr) -> HANDLE {
+    // 3. Optional auxiliary worker threads: failures disable corresponding module with graceful degradation
+    auto spawnOptionalWorker = [](LPTHREAD_START_ROUTINE fn, const wchar_t* name, LPDWORD pId = nullptr) -> HANDLE {
         HANDLE h = CreateThread(nullptr, 0, fn, nullptr, 0, pId);
         if (!h) {
-            Wh_Log(L"StartThreads: warning: failed to create %s thread (error: %lu)", name, GetLastError());
+            Wh_Log(L"StartThreads: warning: optional module thread '%s' failed to spawn (error: %lu); feature disabled.", name, GetLastError());
         }
         return h;
     };
 
-    g_mediaThread = spawnThread(MediaThreadProc, L"Media");
-    g_audioThread = spawnThread(AudioThreadProc, L"Audio");
-    g_weatherThread = spawnThread(WeatherThreadProc, L"Weather");
-    g_lyricsThread = spawnThread(LyricsThreadProc, L"Lyrics");
-    g_keyboardThread = spawnThread(KeyboardThreadProc, L"Keyboard", &g_keyboardThreadId);
-    g_mouseThread = spawnThread(MouseThreadProc, L"Mouse", &g_mouseThreadId);
+    g_mediaThread = spawnOptionalWorker(MediaThreadProc, L"Media");
+    g_audioThread = spawnOptionalWorker(AudioThreadProc, L"Audio");
+    g_weatherThread = spawnOptionalWorker(WeatherThreadProc, L"Weather");
+    g_lyricsThread = spawnOptionalWorker(LyricsThreadProc, L"Lyrics");
+    g_keyboardThread = spawnOptionalWorker(KeyboardThreadProc, L"Keyboard", &g_keyboardThreadId);
+    g_mouseThread = spawnOptionalWorker(MouseThreadProc, L"Mouse", &g_mouseThreadId);
 #if DYNAMIC_ISLAND_HAS_USER_NOTIFICATION_LISTENER
-    g_notificationThread = spawnThread(NotificationThreadProc, L"Notification");
+    g_notificationThread = spawnOptionalWorker(NotificationThreadProc, L"Notification");
 #endif
-    g_bluetoothThread = spawnThread(BluetoothThreadProc, L"Bluetooth");
+    g_bluetoothThread = spawnOptionalWorker(BluetoothThreadProc, L"Bluetooth");
     SubscribeDndNotification();
 
     return true;

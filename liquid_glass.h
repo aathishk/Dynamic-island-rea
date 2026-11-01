@@ -263,7 +263,13 @@ struct GlassEngine {
         } else {
             D2D1_RECT_U destRect = D2D1::RectU(0, 0, w, h);
             HRESULT hr = d2dBitmap_->CopyFromMemory(&destRect, refractedBits_.data(), w * sizeof(uint32_t));
-            if (FAILED(hr)) return nullptr;
+            if (FAILED(hr)) {
+                // Direct2D device-loss or bitmap invalidation recovery: reset and recreate
+                d2dBitmap_.Reset();
+                hr = target->CreateBitmap(D2D1::SizeU(w, h), refractedBits_.data(), w * sizeof(uint32_t),
+                                         props, d2dBitmap_.GetAddressOf());
+                if (FAILED(hr)) return nullptr;
+            }
         }
 
         lastCaptureOrigin_ = {screenX, screenY};

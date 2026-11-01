@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.3
+- **Settings GUI Fluent Dark Styling:**
+  - Integrated `uxtheme.dll` (`SetWindowTheme(..., L"DarkMode_Explorer", nullptr)`) across tab controls, combo boxes, checkboxes, and buttons.
+  - Added color handling for `WM_CTLCOLORLISTBOX` and `WM_CTLCOLOREDIT` so dropdown menus and text fields match the dark Fluent palette.
+  - Resolved `MONITORINFO` struct initialization warning.
+- **Direct2D Device Loss Recovery:**
+  - Enhanced `liquid_glass.h` to automatically reset and recreate Direct2D bitmaps upon `CopyFromMemory` failures or display mode changes, preventing stale textures or crashes during GPU device loss.
+- **Robust Worker Thread Lifecycle:**
+  - Categorized startup into critical core threads (`g_renderThread`, events) which fail startup safely on error, and auxiliary feature workers (media, weather, lyrics, input) which gracefully degrade with explicit diagnostics.
+- **Configurable Bluetooth Filtering & Full State Tracking:**
+  - Added `Modules.BluetoothAlertOnGenericBle` setting (default `false`) allowing users to optionally receive alerts for raw BLE sensors without default background polling spam.
+  - Track `isBle` property dynamically across runtime connection events as well as initial enumeration.
+- **Automated CI Test Execution:**
+  - Updated `ci/build.yml` to compile and execute the test suite in CI natively on Windows and via Wine on Linux.
+  - Expanded `tests/standalone_stub_check.cpp` with unit tests for launcher parsing, 16% opacity clamping, and Bluetooth filtering logic.
+
+
 ## 1.5.2
 - **Fixed Opacity Clamp:** Lowered minimum opacity clamp from 35% to 10% in `dynamic-island-ultra.cpp`, so selecting **16% (Crystal Clear Transparent)** in the Settings GUI now accurately renders at 16% opacity.
 - **Perfected Bluetooth State Machine:**

@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <dwmapi.h>
+#include <uxtheme.h>
 #include <string>
 #include <vector>
 #include <atomic>
@@ -256,6 +257,7 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                                    12, 12, 600, 420, hwnd, reinterpret_cast<HMENU>(ID_TAB),
                                    reinterpret_cast<LPCREATESTRUCT>(lParam)->hInstance, nullptr);
             SendMessageW(hTab, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(hTab, L"DarkMode_Explorer", nullptr);
 
             TCITEMW ti = {};
             ti.mask = TCIF_TEXT;
@@ -278,6 +280,7 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             auto makeCombo = [&](int x, int y, int w, int h, int id, const SettingOption* opts, size_t count, int page) -> HWND {
                 HWND cb = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, x, y, w, h, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
                 SendMessageW(cb, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+                SetWindowTheme(cb, L"DarkMode_Explorer", nullptr);
                 for (size_t i = 0; i < count; ++i) {
                     SendMessageW(cb, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(opts[i].label));
                 }
@@ -288,6 +291,7 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             auto makeCheck = [&](int x, int y, int w, int h, int id, const wchar_t* text, int page) -> HWND {
                 HWND chk = CreateWindowExW(0, L"BUTTON", text, WS_CHILD | BS_AUTOCHECKBOX, x, y, w, h, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
                 SendMessageW(chk, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+                SetWindowTheme(chk, L"DarkMode_Explorer", nullptr);
                 g_pageControls[page].push_back(chk);
                 return chk;
             };
@@ -349,6 +353,10 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             HWND btnCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                                              545, 442, 65, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_CANCEL), nullptr, nullptr);
             SendMessageW(btnCancel, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(btnOpenIni, L"DarkMode_Explorer", nullptr);
+            SetWindowTheme(btnApply, L"DarkMode_Explorer", nullptr);
+            SetWindowTheme(btnOk, L"DarkMode_Explorer", nullptr);
+            SetWindowTheme(btnCancel, L"DarkMode_Explorer", nullptr);
 
             LoadValuesIntoUi();
             ShowTab(0);
@@ -382,7 +390,9 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
         case WM_CTLCOLORDLG:
         case WM_CTLCOLORSTATIC:
-        case WM_CTLCOLORBTN: {
+        case WM_CTLCOLORBTN:
+        case WM_CTLCOLORLISTBOX:
+        case WM_CTLCOLOREDIT: {
             HDC hdc = reinterpret_cast<HDC>(wParam);
             SetTextColor(hdc, RGB(235, 235, 240));
             SetBkColor(hdc, RGB(28, 28, 32));
@@ -425,7 +435,7 @@ inline void ShowSettingsWindow(HWND hParent) {
     const int width = 640;
     const int height = 525;
     HMONITOR hMon = MonitorFromWindow(hParent ? hParent : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi = {sizeof(mi)};
+    MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
     GetMonitorInfoW(hMon, &mi);
     const int posX = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - width) / 2;
     const int posY = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - height) / 2;

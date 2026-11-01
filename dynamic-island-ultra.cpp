@@ -664,11 +664,25 @@ We love community contributions! To ensure high-quality updates, please follow t
 
 #include "launchers.h"
 #include "liquid_glass.h"
+#include "profile_policy.h"
+#include "profile_manager.h"
+#include "performance_policy.h"
+#include "context_policy.h"
+#include "notification_policy.h"
+#include "notification_history.h"
+#include "quick_controls.h"
+#include "clipboard_manager.h"
+#include "focus_timer.h"
+#include "gesture_manager.h"
+#include "island_layout.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace std::chrono_literals;
 
-namespace settings_ui { void ShowSettingsWindow(HWND hParent); }
+namespace settings_ui {
+    void ShowSettingsWindow(HWND hParent);
+    void ShowOnboardingDialog(HWND hParent);
+}
 
 namespace {
 
@@ -13681,7 +13695,12 @@ class Renderer {
         }
 
         // ── 0. Real Optical Liquid Glass (Backdrop Capture & Refraction) ──────
-        if (settings.realLiquidGlass) {
+        const island_performance::PowerStateInfo powerInfo = island_performance::ReadSystemPowerStatus();
+        const island_performance::EffectivePowerMode effMode = island_performance::DetermineEffectivePowerMode(
+            L"balanced", true, powerInfo);
+        const bool canCaptureLiveGlass = settings.realLiquidGlass &&
+            island_performance::IsLiveBackdropCaptureAllowed(effMode, settings.realLiquidGlass);
+        if (canCaptureLiveGlass) {
             ID2D1Bitmap* glassBmp = liquid_glass::g_glassEngine.UpdateAndGetBitmap(
                 target_.Get(), lastOrigin_, rect.left, rect.top, w, h, radius, NowSeconds());
             if (glassBmp) {
@@ -22897,7 +22916,7 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
 
         case WM_POWERBROADCAST: {
-            if (wParam == PBT_APMRESUMESUSPEND || wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMECRITICAL) {
+            if (wParam == PBT_APMRESUMESUSPEND || wParam == PBT_APMRESUMEAUTOMATIC || wParam == PBT_APMRESUMECRITICAL || wParam == PBT_APMPOWERSTATUSCHANGE) {
                 if (g_settingsChangedEvent) {
                     SetEvent(g_settingsChangedEvent);
                 }
@@ -22905,6 +22924,7 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     std::lock_guard lock(g_stateMutex);
                     g_state.weather.lastUpdated = 0.0;
                 }
+                g_layoutDirty = true;
                 TriggerNudge();
             }
             return TRUE;

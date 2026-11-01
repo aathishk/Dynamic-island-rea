@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.7.0 — Adaptive Desktop Companion
+- **Personalisation Studio & Profile Manager (`profile_policy.h`, `profile_manager.h`):**
+  - Six built-in personality profiles: `Obsidian` (minimal 16% crystal obsidian base, balanced battery efficiency), `Frost` (translucent frosted optical glass), `Midnight` (deep navy with electric blue accents), `Aurora` (dynamic album bloom & color gradients), `Minimal` (compact 0.8x, reduced motion, maximum battery saver), and `Studio` (information-dense workstation layout).
+  - Full profile management: Apply, Save Current as Custom, Duplicate, Rename, Delete, Reset, and Import/Export via `%APPDATA%\DynamicIsland\profiles\`.
+  - Atomic configuration writes with `.bak` safety backups and corrupt profile fallback.
+- **Context Engine & Application Rules (`context_policy.h`):**
+  - Adaptive Context Modes: `Normal`, `Focus`, `Gaming`, `Presentation`, and `Custom`.
+  - Application-aware rule matcher: maps foreground executables (e.g. `Code.exe` $\rightarrow$ Focus / Studio) with priority resolution and case-insensitivity.
+  - Windows presentation and fullscreen game detection via `SHQueryUserNotificationState`.
+  - Manual context locking with optional temporary duration timers.
+- **Central Notification Engine & Quiet Hours (`notification_policy.h`, `notification_history.h`):**
+  - Priority system: `Critical`, `Normal`, and `Quiet`.
+  - Quiet hours schedule with support for midnight wrap-around (e.g. 22:00 to 07:00).
+  - Fullscreen and gaming suppression for non-critical alert cards.
+  - Priority-arbitrated, de-duplicated notification queue.
+  - Opt-in, privacy-first local notification history with individual dismiss and clear-all actions.
+- **Battery-Conscious Performance Engine (`performance_policy.h`):**
+  - Live system power state monitoring (`GetSystemPowerStatus`, `WM_POWERBROADCAST`).
+  - Automatic Battery Saver adaptation on DC battery power / low battery (<20%), automatically throttling idle rendering and disabling expensive optical backdrop capture.
+  - Real measurable process diagnostics: process CPU percentage delta (`GetProcessTimes`), working-set memory (`GetProcessMemoryInfo`), and worker health metrics.
+- **Quick Control Centre (`quick_controls.h`):**
+  - Native companion control panel with master volume (`IAudioEndpointVolume`), display brightness, Wi-Fi, Bluetooth, power settings, Night Light, Task Manager, and screen snipping (`ms-screenclip:`).
+- **Pomodoro Focus Timer Improvements (`focus_timer.h`):**
+  - Pomodoro work sessions, short breaks, long breaks, and session counting using monotonic clocks (`GetTickCount64`).
+  - Automatic Focus context activation when a session starts.
+- **Privacy-First Local Text Clipboard Manager (`clipboard_manager.h`):**
+  - 100% local, opt-in (disabled by default) text clipboard panel with pin/delete and one-click clear.
+- **Adaptive Island Layout Model (`island_layout.h`):**
+  - Coherent priority arbitration between Collapsed, Compact Media, Compact Timer, Notification Card, Expanded Dashboard, and Quick Control states.
+- **Configurable Gestures & Safe Quick Actions (`gesture_manager.h`):**
+  - Configurable island clicks (single, double, middle) and safe execution of quick actions (disallowing command interpreters).
+- **Settings & Profile Studio Redesign (`settings_window.h`):**
+  - Upgraded to 6 comprehensive Fluent dark tabs: Overview & Profiles, Personalisation, Behaviour & Gestures, Notifications & History, Performance & Diagnostics, and Productivity & Modules.
+  - Integrated 30-second first-run onboarding setup dialog.
+- **Comprehensive 11-Group Unit & Regression Test Suite:**
+  - Expanded `tests/standalone_stub_check.cpp` from 5 to 11 test suites covering all policies with 100% test pass.
+
 ## 1.5.5
 - **Thread Shutdown Safety & Wait Classification:**
   - `StopThreads()` now strictly requires `WAIT_OBJECT_0` before closing worker thread handles.

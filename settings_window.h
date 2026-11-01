@@ -1,4 +1,4 @@
-// settings_window.h - Native Windows 11 Dark-Themed Settings GUI for Dynamic Island
+// settings_window.h - Native Windows 11 Dark-Themed Settings & Profile Studio GUI for Dynamic Edge v1.7.0
 #pragma once
 #include <windows.h>
 #include <commctrl.h>
@@ -7,6 +7,17 @@
 #include <string>
 #include <vector>
 #include <atomic>
+#include "profile_policy.h"
+#include "profile_manager.h"
+#include "performance_policy.h"
+#include "context_policy.h"
+#include "notification_policy.h"
+#include "notification_history.h"
+#include "quick_controls.h"
+#include "clipboard_manager.h"
+#include "focus_timer.h"
+#include "gesture_manager.h"
+#include "island_layout.h"
 
 namespace standalone_app {
     bool IsStartupEnabled();
@@ -17,6 +28,7 @@ namespace standalone_app {
 namespace settings_ui {
 
 inline HWND g_hSettingsWnd = nullptr;
+inline HWND g_hOnboardingWnd = nullptr;
 
 struct SettingOption {
     const wchar_t* label;
@@ -76,9 +88,34 @@ inline const SettingOption kOpacityOptions[] = {
     {L"16% (Crystal Clear Transparent)", L"16"}
 };
 
+inline const SettingOption kContextOptions[] = {
+    {L"Normal (Default)", L"normal"},
+    {L"Focus (Productivity)", L"focus"},
+    {L"Gaming (Silent / Performance)", L"gaming"},
+    {L"Presentation (Clean / Suppressed)", L"presentation"},
+};
+
+inline const SettingOption kPowerOptions[] = {
+    {L"Balanced (Standard - Adaptive)", L"balanced"},
+    {L"Battery Saver (Throttle & No Optical Glass)", L"battery_saver"},
+    {L"Visual Quality (Full Direct2D Effects)", L"visual_quality"},
+};
+
 // Control IDs
 enum CtrlId : int {
     ID_TAB = 2000,
+
+    // Page 0: Overview & Profiles
+    ID_COMBO_ACTIVE_PROFILE,
+    ID_BTN_APPLY_PROFILE,
+    ID_BTN_SAVE_PROFILE,
+    ID_BTN_RESET_PROFILE,
+    ID_COMBO_ACTIVE_CONTEXT,
+    ID_CHK_CONTEXT_LOCK,
+    ID_BTN_TOGGLE_ISLAND,
+    ID_LBL_OVERVIEW_STATUS,
+
+    // Page 1: Personalisation
     ID_COMBO_POS,
     ID_COMBO_SHAPE,
     ID_COMBO_THEME,
@@ -89,10 +126,33 @@ enum CtrlId : int {
     ID_CHK_BLOOM,
     ID_CHK_SHADOW,
     ID_CHK_BORDER,
+
+    // Page 2: Behaviour & Gestures
     ID_CHK_HOVER,
     ID_CHK_AUTOHIDE_FS,
-    ID_CHK_STARTUP,
-    ID_CHK_LOG,
+    ID_CHK_AUTO_CONTEXT,
+    ID_COMBO_GESTURE_SINGLE,
+    ID_COMBO_GESTURE_DOUBLE,
+    ID_COMBO_GESTURE_MIDDLE,
+
+    // Page 3: Notifications & History
+    ID_CHK_NOTIF_ENABLED,
+    ID_CHK_QUIET_HOURS,
+    ID_COMBO_QUIET_START,
+    ID_COMBO_QUIET_END,
+    ID_CHK_NOTIF_CRITICAL,
+    ID_CHK_NOTIF_FS_SUPPRESS,
+    ID_CHK_NOTIF_BLE_FILTER,
+    ID_CHK_NOTIF_HISTORY,
+    ID_BTN_CLEAR_HISTORY,
+
+    // Page 4: Performance & Diagnostics
+    ID_COMBO_POWER_POLICY,
+    ID_CHK_AUTO_BATTERY,
+    ID_LBL_DIAG_METRICS,
+    ID_BTN_REFRESH_DIAG,
+
+    // Page 5: Productivity & Modules
     ID_CHK_MOD_MEDIA,
     ID_CHK_MOD_LYRICS,
     ID_CHK_MOD_CALENDAR,
@@ -100,13 +160,32 @@ enum CtrlId : int {
     ID_CHK_MOD_HARDWARE,
     ID_CHK_MOD_TRAY,
     ID_CHK_MOD_LOOKUP,
+    ID_CHK_MOD_FOCUS_TIMER,
+    ID_CHK_MOD_CLIPBOARD,
+    ID_BTN_CLEAR_CLIPBOARD,
+    ID_CHK_STARTUP,
+    ID_CHK_LOG,
+    ID_BTN_ONBOARDING,
+    ID_BTN_RESET_DEFAULTS,
+
+    // Dialog bottom buttons
     ID_BTN_APPLY,
     ID_BTN_OK,
     ID_BTN_CANCEL,
     ID_BTN_OPEN_INI
 };
 
+// Controls tracking
 inline HWND hTab = nullptr;
+inline std::vector<HWND> g_pageControls[6];
+
+// Page 0 controls
+inline HWND hComboActiveProfile = nullptr;
+inline HWND hComboActiveContext = nullptr;
+inline HWND hChkContextLock = nullptr;
+inline HWND hLblOverviewStatus = nullptr;
+
+// Page 1 controls
 inline HWND hComboPos = nullptr;
 inline HWND hComboShape = nullptr;
 inline HWND hComboTheme = nullptr;
@@ -117,10 +196,31 @@ inline HWND hChkRealGlass = nullptr;
 inline HWND hChkBloom = nullptr;
 inline HWND hChkShadow = nullptr;
 inline HWND hChkBorder = nullptr;
+
+// Page 2 controls
 inline HWND hChkHover = nullptr;
 inline HWND hChkAutohideFs = nullptr;
-inline HWND hChkStartup = nullptr;
-inline HWND hChkLog = nullptr;
+inline HWND hChkAutoContext = nullptr;
+inline HWND hComboGestureSingle = nullptr;
+inline HWND hComboGestureDouble = nullptr;
+inline HWND hComboGestureMiddle = nullptr;
+
+// Page 3 controls
+inline HWND hChkNotifEnabled = nullptr;
+inline HWND hChkQuietHours = nullptr;
+inline HWND hComboQuietStart = nullptr;
+inline HWND hComboQuietEnd = nullptr;
+inline HWND hChkNotifCritical = nullptr;
+inline HWND hChkNotifFsSuppress = nullptr;
+inline HWND hChkNotifBleFilter = nullptr;
+inline HWND hChkNotifHistory = nullptr;
+
+// Page 4 controls
+inline HWND hComboPowerPolicy = nullptr;
+inline HWND hChkAutoBattery = nullptr;
+inline HWND hLblDiagMetrics = nullptr;
+
+// Page 5 controls
 inline HWND hChkModMedia = nullptr;
 inline HWND hChkModLyrics = nullptr;
 inline HWND hChkModCalendar = nullptr;
@@ -128,7 +228,10 @@ inline HWND hChkModWeather = nullptr;
 inline HWND hChkModHardware = nullptr;
 inline HWND hChkModTray = nullptr;
 inline HWND hChkModLookup = nullptr;
-inline std::vector<HWND> g_pageControls[4];
+inline HWND hChkModFocusTimer = nullptr;
+inline HWND hChkModClipboard = nullptr;
+inline HWND hChkStartup = nullptr;
+inline HWND hChkLog = nullptr;
 
 inline std::wstring ReadIniString(const wchar_t* section, const wchar_t* key, const wchar_t* def) {
     wchar_t buf[256] = {};
@@ -150,6 +253,33 @@ inline void WriteIniInt(const wchar_t* section, const wchar_t* key, int val) {
     WritePrivateProfileStringW(section, key, buf, GetIniFilePath().c_str());
 }
 
+// Forward declarations
+void LoadValuesIntoUi();
+void SaveValuesFromUi(HWND hwnd);
+void UpdateDiagnosticsDisplay();
+void ShowOnboardingDialog(HWND hParent);
+
+inline void PopulateProfilesCombo(HWND cb) {
+    SendMessageW(cb, CB_RESETCONTENT, 0, 0);
+    auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
+    for (const auto& p : profiles) {
+        std::wstring item = p.name;
+        if (p.isBuiltIn) {
+            item += L" (Built-in)";
+        }
+        SendMessageW(cb, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
+    }
+
+    std::wstring active = island_profile::ProfileManager::GetActiveProfileName(GetIniFilePath());
+    for (size_t i = 0; i < profiles.size(); ++i) {
+        if (_wcsicmp(profiles[i].name.c_str(), active.c_str()) == 0) {
+            SendMessageW(cb, CB_SETCURSEL, i, 0);
+            return;
+        }
+    }
+    SendMessageW(cb, CB_SETCURSEL, 0, 0);
+}
+
 inline void LoadValuesIntoUi() {
     auto selectCombo = [](HWND cb, const SettingOption* opts, size_t count, const std::wstring& current) {
         for (size_t i = 0; i < count; ++i) {
@@ -161,22 +291,46 @@ inline void LoadValuesIntoUi() {
         SendMessageW(cb, CB_SETCURSEL, 0, 0);
     };
 
+    PopulateProfilesCombo(hComboActiveProfile);
+
+    // Page 0: Context
+    selectCombo(hComboActiveContext, kContextOptions, ARRAYSIZE(kContextOptions), ReadIniString(L"Settings", L"Context.ContextMode", L"normal"));
+    SendMessageW(hChkContextLock, BM_SETCHECK, ReadIniInt(L"Settings", L"Context.IsManualLocked", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
+
+    // Page 1: Personalisation
     selectCombo(hComboPos, kPosOptions, ARRAYSIZE(kPosOptions), ReadIniString(L"Settings", L"Appearance.Position", L"top-center"));
-    selectCombo(hComboShape, kShapeOptions, ARRAYSIZE(kShapeOptions), ReadIniString(L"Settings", L"Appearance.ShapeStyle", L"pill"));
+    selectCombo(hComboShape, kShapeOptions, ARRAYSIZE(kShapeOptions), ReadIniString(L"Settings", L"Appearance.ShapeStyle", L"notch"));
     selectCombo(hComboTheme, kThemeOptions, ARRAYSIZE(kThemeOptions), ReadIniString(L"Settings", L"Themes.ThemePreset", L"transparent"));
     selectCombo(hComboAnim, kAnimOptions, ARRAYSIZE(kAnimOptions), ReadIniString(L"Settings", L"Animations.AnimationStyle", L"applespring"));
     selectCombo(hComboScale, kScaleOptions, ARRAYSIZE(kScaleOptions), ReadIniString(L"Settings", L"Appearance.SizeScale", L"1.0"));
-    selectCombo(hComboOpacity, kOpacityOptions, ARRAYSIZE(kOpacityOptions), ReadIniString(L"Settings", L"Themes.PillOpacity", L"100"));
+    selectCombo(hComboOpacity, kOpacityOptions, ARRAYSIZE(kOpacityOptions), ReadIniString(L"Settings", L"Themes.PillOpacity", L"16"));
 
     SendMessageW(hChkRealGlass, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.RealLiquidGlass", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkBloom, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.MaterialDepth", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkShadow, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.DropShadow", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkBorder, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.ContourBorderEnabled", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+
+    // Page 2: Behaviour & Gestures
     SendMessageW(hChkHover, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.ExpandOnHover", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkAutohideFs, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.AutoHideFullscreen", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(hChkStartup, BM_SETCHECK, standalone_app::IsStartupEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(hChkLog, BM_SETCHECK, ReadIniInt(L"Settings", L"Debug.Log", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkAutoContext, BM_SETCHECK, ReadIniInt(L"Settings", L"Context.AutoContextSwitching", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
 
+    // Page 3: Notifications
+    SendMessageW(hChkNotifEnabled, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.Enabled", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkQuietHours, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.QuietHoursEnabled", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hComboQuietStart, CB_SETCURSEL, ReadIniInt(L"Settings", L"Notifications.QuietHoursStart", 22), 0);
+    SendMessageW(hComboQuietEnd, CB_SETCURSEL, ReadIniInt(L"Settings", L"Notifications.QuietHoursEnd", 7), 0);
+    SendMessageW(hChkNotifCritical, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.AllowCriticalInQuietHours", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkNotifFsSuppress, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.SuppressInFullscreen", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkNotifBleFilter, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.SuppressBleSensorDuplicates", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkNotifHistory, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.HistoryEnabled", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
+
+    // Page 4: Performance
+    selectCombo(hComboPowerPolicy, kPowerOptions, ARRAYSIZE(kPowerOptions), ReadIniString(L"Settings", L"Performance.PerformanceMode", L"balanced"));
+    SendMessageW(hChkAutoBattery, BM_SETCHECK, ReadIniInt(L"Settings", L"Performance.AutoBatterySaver", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    UpdateDiagnosticsDisplay();
+
+    // Page 5: Productivity & Modules
     SendMessageW(hChkModMedia, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.Media", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkModLyrics, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.Lyrics", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkModCalendar, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.Calendar", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -184,6 +338,10 @@ inline void LoadValuesIntoUi() {
     SendMessageW(hChkModHardware, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.HardwareMonitorModule", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkModTray, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.FileTrayModule", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkModLookup, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.QuickLookup", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkModFocusTimer, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.FocusTimer", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkModClipboard, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.Clipboard", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkStartup, BM_SETCHECK, standalone_app::IsStartupEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkLog, BM_SETCHECK, ReadIniInt(L"Settings", L"Debug.Log", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 inline void SaveValuesFromUi(HWND hwnd) {
@@ -193,6 +351,11 @@ inline void SaveValuesFromUi(HWND hwnd) {
         return opts[0].val;
     };
 
+    // Page 0: Context
+    WriteIniString(L"Settings", L"Context.ContextMode", getComboVal(hComboActiveContext, kContextOptions, ARRAYSIZE(kContextOptions)));
+    WriteIniInt(L"Settings", L"Context.IsManualLocked", SendMessageW(hChkContextLock, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+
+    // Page 1: Personalisation
     WriteIniString(L"Settings", L"Appearance.Position", getComboVal(hComboPos, kPosOptions, ARRAYSIZE(kPosOptions)));
     WriteIniString(L"Settings", L"Appearance.ShapeStyle", getComboVal(hComboShape, kShapeOptions, ARRAYSIZE(kShapeOptions)));
     WriteIniString(L"Settings", L"Themes.ThemePreset", getComboVal(hComboTheme, kThemeOptions, ARRAYSIZE(kThemeOptions)));
@@ -204,9 +367,27 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniInt(L"Settings", L"Themes.MaterialDepth", SendMessageW(hChkBloom, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Themes.DropShadow", SendMessageW(hChkShadow, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Themes.ContourBorderEnabled", SendMessageW(hChkBorder, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+
+    // Page 2: Behaviour & Gestures
     WriteIniInt(L"Settings", L"Behavior.ExpandOnHover", SendMessageW(hChkHover, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Behavior.AutoHideFullscreen", SendMessageW(hChkAutohideFs, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Context.AutoContextSwitching", SendMessageW(hChkAutoContext, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
 
+    // Page 3: Notifications
+    WriteIniInt(L"Settings", L"Notifications.Enabled", SendMessageW(hChkNotifEnabled, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Notifications.QuietHoursEnabled", SendMessageW(hChkQuietHours, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Notifications.QuietHoursStart", static_cast<int>(SendMessageW(hComboQuietStart, CB_GETCURSEL, 0, 0)));
+    WriteIniInt(L"Settings", L"Notifications.QuietHoursEnd", static_cast<int>(SendMessageW(hComboQuietEnd, CB_GETCURSEL, 0, 0)));
+    WriteIniInt(L"Settings", L"Notifications.AllowCriticalInQuietHours", SendMessageW(hChkNotifCritical, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Notifications.SuppressInFullscreen", SendMessageW(hChkNotifFsSuppress, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Notifications.SuppressBleSensorDuplicates", SendMessageW(hChkNotifBleFilter, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Notifications.HistoryEnabled", SendMessageW(hChkNotifHistory, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+
+    // Page 4: Performance
+    WriteIniString(L"Settings", L"Performance.PerformanceMode", getComboVal(hComboPowerPolicy, kPowerOptions, ARRAYSIZE(kPowerOptions)));
+    WriteIniInt(L"Settings", L"Performance.AutoBatterySaver", SendMessageW(hChkAutoBattery, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+
+    // Page 5: Productivity & Modules
     const bool wantStartup = (SendMessageW(hChkStartup, BM_GETCHECK, 0, 0) == BST_CHECKED);
     if (wantStartup != standalone_app::IsStartupEnabled()) {
         standalone_app::SetStartupEnabled(wantStartup);
@@ -220,11 +401,13 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniInt(L"Settings", L"Modules.HardwareMonitorModule", SendMessageW(hChkModHardware, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Modules.FileTrayModule", SendMessageW(hChkModTray, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Modules.QuickLookup", SendMessageW(hChkModLookup, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Modules.FocusTimer", SendMessageW(hChkModFocusTimer, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Modules.Clipboard", SendMessageW(hChkModClipboard, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
 
-    // Flush Windows INI cache to disk
+    // Flush Windows INI cache
     WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
 
-    // Instantly notify live Dynamic Island overlay window
+    // Instantly notify live Dynamic Island overlay
     LoadSettings();
     g_layoutDirty = true;
     TriggerNudge();
@@ -233,12 +416,48 @@ inline void SaveValuesFromUi(HWND hwnd) {
     }
 }
 
+inline void UpdateDiagnosticsDisplay() {
+    if (!hLblDiagMetrics) return;
+    static island_performance::DiagnosticsTracker s_tracker;
+    island_performance::PowerStateInfo power = island_performance::ReadSystemPowerStatus();
+    island_performance::EffectivePowerMode eff = island_performance::DetermineEffectivePowerMode(
+        ReadIniString(L"Settings", L"Performance.PerformanceMode", L"balanced"),
+        ReadIniInt(L"Settings", L"Performance.AutoBatterySaver", 1) != 0,
+        power
+    );
+    island_performance::ProcessDiagnostics diag = s_tracker.Sample(eff);
+
+    wchar_t text[512];
+    double memMb = static_cast<double>(diag.workingSetBytes) / (1024.0 * 1024.0);
+    swprintf_s(text,
+        L"⚡ Process CPU: %.1f%%\n"
+        L"🧠 Working Set Memory: %.1f MB (Peak: %.1f MB)\n"
+        L"🔋 Power Status: %s (%d%%)\n"
+        L"⚙️ Effective Policy: %s (Battery Saver: %s)\n"
+        L"⏱️ Application Uptime: %lu seconds\n"
+        L"🧩 Auxiliary Workers: Media, Audio, Bluetooth, Weather, Lyrics active",
+        diag.processCpuPercent,
+        memMb,
+        static_cast<double>(diag.peakWorkingSetBytes) / (1024.0 * 1024.0),
+        power.isAcConnected ? L"AC Power Connected" : L"On Battery",
+        power.batteryPercent,
+        (eff == island_performance::EffectivePowerMode::BatterySaver) ? L"Battery Saver" :
+        (eff == island_performance::EffectivePowerMode::VisualQuality) ? L"Visual Quality" : L"Balanced",
+        power.isBatterySaverActive ? L"Active" : L"Inactive",
+        diag.uptimeSeconds
+    );
+    SetWindowTextW(hLblDiagMetrics, text);
+}
+
 inline void ShowTab(int tabIndex) {
-    for (int p = 0; p < 4; ++p) {
+    for (int p = 0; p < 6; ++p) {
         const int cmdShow = (p == tabIndex) ? SW_SHOW : SW_HIDE;
         for (HWND h : g_pageControls[p]) {
             ShowWindow(h, cmdShow);
         }
+    }
+    if (tabIndex == 4) {
+        UpdateDiagnosticsDisplay();
     }
 }
 
@@ -254,21 +473,25 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
             hTab = CreateWindowExW(0, WC_TABCONTROLW, L"",
                                    WS_CHILD | WS_CLIPSIBLINGS | WS_VISIBLE,
-                                   12, 12, 600, 420, hwnd, reinterpret_cast<HMENU>(ID_TAB),
+                                   12, 12, 630, 430, hwnd, reinterpret_cast<HMENU>(ID_TAB),
                                    reinterpret_cast<LPCREATESTRUCT>(lParam)->hInstance, nullptr);
             SendMessageW(hTab, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
             SetWindowTheme(hTab, L"DarkMode_Explorer", nullptr);
 
             TCITEMW ti = {};
             ti.mask = TCIF_TEXT;
-            ti.pszText = const_cast<LPWSTR>(L"🎨 Appearance & Theme");
+            ti.pszText = const_cast<LPWSTR>(L"🏠 Overview");
             TabCtrl_InsertItem(hTab, 0, &ti);
-            ti.pszText = const_cast<LPWSTR>(L"✨ Glass & Effects");
+            ti.pszText = const_cast<LPWSTR>(L"🎨 Personalisation");
             TabCtrl_InsertItem(hTab, 1, &ti);
-            ti.pszText = const_cast<LPWSTR>(L"⚡ Behavior & Animation");
+            ti.pszText = const_cast<LPWSTR>(L"⚡ Behaviour");
             TabCtrl_InsertItem(hTab, 2, &ti);
-            ti.pszText = const_cast<LPWSTR>(L"🧩 Active Modules");
+            ti.pszText = const_cast<LPWSTR>(L"🔔 Notifications");
             TabCtrl_InsertItem(hTab, 3, &ti);
+            ti.pszText = const_cast<LPWSTR>(L"🔋 Performance");
+            TabCtrl_InsertItem(hTab, 4, &ti);
+            ti.pszText = const_cast<LPWSTR>(L"🧩 Productivity");
+            TabCtrl_InsertItem(hTab, 5, &ti);
 
             auto makeLabel = [&](int x, int y, int w, int h, const wchar_t* text, int page) -> HWND {
                 HWND lbl = CreateWindowExW(0, L"STATIC", text, WS_CHILD | SS_LEFT, x, y, w, h, hwnd, nullptr, nullptr, nullptr);
@@ -296,63 +519,171 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                 return chk;
             };
 
-            // Page 0: Appearance & Theme
-            makeLabel(32, 55, 180, 20, L"Screen Position:", 0);
-            hComboPos = makeCombo(210, 52, 380, 240, ID_COMBO_POS, kPosOptions, ARRAYSIZE(kPosOptions), 0);
+            auto makeBtn = [&](int x, int y, int w, int h, int id, const wchar_t* text, int page) -> HWND {
+                HWND btn = CreateWindowExW(0, L"BUTTON", text, WS_CHILD | BS_PUSHBUTTON, x, y, w, h, hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), nullptr, nullptr);
+                SendMessageW(btn, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+                SetWindowTheme(btn, L"DarkMode_Explorer", nullptr);
+                g_pageControls[page].push_back(btn);
+                return btn;
+            };
 
-            makeLabel(32, 95, 180, 20, L"Island Shape Style:", 0);
-            hComboShape = makeCombo(210, 92, 380, 240, ID_COMBO_SHAPE, kShapeOptions, ARRAYSIZE(kShapeOptions), 0);
+            // ── PAGE 0: Overview & Profiles ─────────────────────────────────────
+            makeLabel(32, 55, 200, 20, L"Active Personalisation Profile:", 0);
+            hComboActiveProfile = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 240, 52, 240, 240, hwnd, reinterpret_cast<HMENU>(ID_COMBO_ACTIVE_PROFILE), nullptr, nullptr);
+            SendMessageW(hComboActiveProfile, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(hComboActiveProfile, L"DarkMode_Explorer", nullptr);
+            g_pageControls[0].push_back(hComboActiveProfile);
 
-            makeLabel(32, 135, 180, 20, L"Theme Preset:", 0);
-            hComboTheme = makeCombo(210, 132, 380, 240, ID_COMBO_THEME, kThemeOptions, ARRAYSIZE(kThemeOptions), 0);
+            makeBtn(490, 50, 120, 28, ID_BTN_APPLY_PROFILE, L"Apply Profile", 0);
+            makeBtn(240, 88, 170, 28, ID_BTN_SAVE_PROFILE, L"💾 Save As Custom...", 0);
+            makeBtn(420, 88, 190, 28, ID_BTN_RESET_PROFILE, L"↺ Reset Active Profile", 0);
 
-            makeLabel(32, 175, 180, 20, L"Size Scale:", 0);
-            hComboScale = makeCombo(210, 172, 380, 240, ID_COMBO_SCALE, kScaleOptions, ARRAYSIZE(kScaleOptions), 0);
+            makeLabel(32, 140, 200, 20, L"Active Context Mode:", 0);
+            hComboActiveContext = makeCombo(240, 137, 240, 200, ID_COMBO_ACTIVE_CONTEXT, kContextOptions, ARRAYSIZE(kContextOptions), 0);
+            hChkContextLock = makeCheck(32, 175, 400, 24, ID_CHK_CONTEXT_LOCK, L"🔒 Lock Context (prevent automatic app detection)", 0);
 
-            makeLabel(32, 215, 180, 20, L"Pill Opacity:", 0);
-            hComboOpacity = makeCombo(210, 212, 380, 240, ID_COMBO_OPACITY, kOpacityOptions, ARRAYSIZE(kOpacityOptions), 0);
+            makeBtn(32, 220, 200, 32, ID_BTN_TOGGLE_ISLAND, L"👁️ Show / Hide Island", 0);
 
-            hChkStartup = makeCheck(32, 265, 300, 24, ID_CHK_STARTUP, L"🚀 Launch automatically on Windows Startup", 0);
-            hChkLog = makeCheck(32, 295, 300, 24, ID_CHK_LOG, L"📝 Enable Debug Log (%APPDATA%\\DynamicIsland)", 0);
+            hLblOverviewStatus = makeLabel(32, 275, 570, 120,
+                L"Dynamic Edge v1.7.0 — Adaptive Desktop Companion\n"
+                L"• Six built-in profiles: Obsidian, Frost, Midnight, Aurora, Minimal, Studio\n"
+                L"• Adaptive intelligence: Fullscreen suppression, battery saver, and quiet hours\n"
+                L"• Native Win32 + Direct2D: Zero cloud dependencies, 100% offline local privacy", 0);
 
-            // Page 1: Glass & Effects
-            hChkRealGlass = makeCheck(32, 55, 540, 24, ID_CHK_REAL_GLASS, L"💎 Real Liquid Glass (Live Desktop Optical Blur & Lens Refraction)", 1);
-            hChkBloom = makeCheck(32, 95, 540, 24, ID_CHK_BLOOM, L"🎵 Dynamic Album Art Bloom (Glass Tint washes with Spotify/Music)", 1);
-            hChkShadow = makeCheck(32, 135, 540, 24, ID_CHK_SHADOW, L"🌑 Soft Curved Drop Shadow", 1);
-            hChkBorder = makeCheck(32, 175, 540, 24, ID_CHK_BORDER, L"✨ Dual-Tone Liquid Glass Specular Hairline Rim", 1);
+            // ── PAGE 1: Personalisation ─────────────────────────────────────────
+            makeLabel(32, 55, 180, 20, L"Screen Position:", 1);
+            hComboPos = makeCombo(210, 52, 380, 240, ID_COMBO_POS, kPosOptions, ARRAYSIZE(kPosOptions), 1);
 
-            // Page 2: Behavior & Animation
-            makeLabel(32, 55, 180, 20, L"Animation Physics:", 2);
-            hComboAnim = makeCombo(210, 52, 380, 240, ID_COMBO_ANIM, kAnimOptions, ARRAYSIZE(kAnimOptions), 2);
+            makeLabel(32, 95, 180, 20, L"Island Shape Style:", 1);
+            hComboShape = makeCombo(210, 92, 380, 240, ID_COMBO_SHAPE, kShapeOptions, ARRAYSIZE(kShapeOptions), 1);
 
-            hChkHover = makeCheck(32, 105, 540, 24, ID_CHK_HOVER, L"🖱️ Expand on Mouse Hover (vs Click to Expand)", 2);
-            hChkAutohideFs = makeCheck(32, 145, 540, 24, ID_CHK_AUTOHIDE_FS, L"🖥️ Auto-hide when Fullscreen Apps/Games are active", 2);
+            makeLabel(32, 135, 180, 20, L"Theme Preset:", 1);
+            hComboTheme = makeCombo(210, 132, 380, 240, ID_COMBO_THEME, kThemeOptions, ARRAYSIZE(kThemeOptions), 1);
 
-            // Page 3: Active Modules
-            hChkModMedia = makeCheck(32, 55, 260, 24, ID_CHK_MOD_MEDIA, L"🎵 Media Player & Waveform", 3);
-            hChkModLyrics = makeCheck(320, 55, 260, 24, ID_CHK_MOD_LYRICS, L"🎤 Live Synced Lyrics", 3);
-            hChkModCalendar = makeCheck(32, 95, 260, 24, ID_CHK_MOD_CALENDAR, L"📅 Calendar & Date View", 3);
-            hChkModWeather = makeCheck(320, 95, 260, 24, ID_CHK_MOD_WEATHER, L"☀️ Weather Info (wttr.in)", 3);
-            hChkModHardware = makeCheck(32, 135, 260, 24, ID_CHK_MOD_HARDWARE, L"📊 Hardware Monitor (CPU/RAM/GPU)", 3);
-            hChkModTray = makeCheck(320, 135, 260, 24, ID_CHK_MOD_TRAY, L"📁 File Tray Shelf", 3);
-            hChkModLookup = makeCheck(32, 175, 540, 24, ID_CHK_MOD_LOOKUP, L"🔍 Quick Lookup & App Launcher (Ctrl+Alt+Space)", 3);
+            makeLabel(32, 175, 180, 20, L"Size Scale:", 1);
+            hComboScale = makeCombo(210, 172, 380, 240, ID_COMBO_SCALE, kScaleOptions, ARRAYSIZE(kScaleOptions), 1);
 
-            // Bottom action buttons
+            makeLabel(32, 215, 180, 20, L"Pill Opacity:", 1);
+            hComboOpacity = makeCombo(210, 212, 380, 240, ID_COMBO_OPACITY, kOpacityOptions, ARRAYSIZE(kOpacityOptions), 1);
+
+            makeLabel(32, 255, 180, 20, L"Animation Physics:", 1);
+            hComboAnim = makeCombo(210, 252, 380, 240, ID_COMBO_ANIM, kAnimOptions, ARRAYSIZE(kAnimOptions), 1);
+
+            hChkRealGlass = makeCheck(32, 295, 540, 24, ID_CHK_REAL_GLASS, L"💎 Real Liquid Glass (Live Optical Backdrop Blur & Lens Refraction)", 1);
+            hChkBloom = makeCheck(32, 325, 540, 24, ID_CHK_BLOOM, L"🎵 Dynamic Album Art Bloom (Glass Tint washes with Music)", 1);
+            hChkShadow = makeCheck(32, 355, 540, 24, ID_CHK_SHADOW, L"🌑 Soft Curved Drop Shadow", 1);
+            hChkBorder = makeCheck(32, 385, 540, 24, ID_CHK_BORDER, L"✨ Specular Hairline Contour Rim", 1);
+
+            // ── PAGE 2: Behaviour & Gestures ────────────────────────────────────
+            hChkHover = makeCheck(32, 55, 540, 24, ID_CHK_HOVER, L"🖱️ Expand on Mouse Hover (vs Click to Expand)", 2);
+            hChkAutohideFs = makeCheck(32, 90, 540, 24, ID_CHK_AUTOHIDE_FS, L"🖥️ Auto-hide when Fullscreen Apps/Games are active", 2);
+            hChkAutoContext = makeCheck(32, 125, 540, 24, ID_CHK_AUTO_CONTEXT, L"🧠 Enable Application-Aware Context Rules (Code $\\rightarrow$ Focus, etc.)", 2);
+
+            makeLabel(32, 170, 200, 20, L"Single Click Gesture:", 2);
+            SettingOption gestureOpts[] = {
+                {L"Expand / Collapse", L"expand"},
+                {L"Open Quick Controls", L"controls"},
+                {L"Toggle Focus Mode", L"focus"},
+                {L"Do Nothing", L"none"},
+            };
+            hComboGestureSingle = makeCombo(240, 167, 340, 160, ID_COMBO_GESTURE_SINGLE, gestureOpts, ARRAYSIZE(gestureOpts), 2);
+
+            makeLabel(32, 210, 200, 20, L"Double Click Gesture:", 2);
+            hComboGestureDouble = makeCombo(240, 207, 340, 160, ID_COMBO_GESTURE_DOUBLE, gestureOpts, ARRAYSIZE(gestureOpts), 2);
+            SendMessageW(hComboGestureDouble, CB_SETCURSEL, 1, 0); // Default: Open Quick Controls
+
+            makeLabel(32, 250, 200, 20, L"Middle Click Gesture:", 2);
+            SettingOption midOpts[] = {
+                {L"Cycle Island Tabs", L"cycle"},
+                {L"Start / Pause Timer", L"timer"},
+                {L"Open Settings", L"settings"},
+                {L"Do Nothing", L"none"},
+            };
+            hComboGestureMiddle = makeCombo(240, 247, 340, 160, ID_COMBO_GESTURE_MIDDLE, midOpts, ARRAYSIZE(midOpts), 2);
+
+            // ── PAGE 3: Notifications & History ─────────────────────────────────
+            hChkNotifEnabled = makeCheck(32, 55, 540, 24, ID_CHK_NOTIF_ENABLED, L"🔔 Enable Central Notification Engine", 3);
+            hChkQuietHours = makeCheck(32, 90, 260, 24, ID_CHK_QUIET_HOURS, L"🌙 Quiet Hours Schedule:", 3);
+
+            makeLabel(300, 92, 40, 20, L"From:", 3);
+            hComboQuietStart = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 345, 88, 80, 200, hwnd, reinterpret_cast<HMENU>(ID_COMBO_QUIET_START), nullptr, nullptr);
+            SendMessageW(hComboQuietStart, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(hComboQuietStart, L"DarkMode_Explorer", nullptr);
+            for (int h = 0; h < 24; ++h) {
+                wchar_t b[16]; swprintf_s(b, L"%02d:00", h);
+                SendMessageW(hComboQuietStart, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(b));
+            }
+            g_pageControls[3].push_back(hComboQuietStart);
+
+            makeLabel(440, 92, 30, 20, L"To:", 3);
+            hComboQuietEnd = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 475, 88, 80, 200, hwnd, reinterpret_cast<HMENU>(ID_COMBO_QUIET_END), nullptr, nullptr);
+            SendMessageW(hComboQuietEnd, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(hComboQuietEnd, L"DarkMode_Explorer", nullptr);
+            for (int h = 0; h < 24; ++h) {
+                wchar_t b[16]; swprintf_s(b, L"%02d:00", h);
+                SendMessageW(hComboQuietEnd, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(b));
+            }
+            g_pageControls[3].push_back(hComboQuietEnd);
+
+            hChkNotifCritical = makeCheck(32, 130, 540, 24, ID_CHK_NOTIF_CRITICAL, L"⚡ Allow Critical Battery & System Alerts during Quiet Hours", 3);
+            hChkNotifFsSuppress = makeCheck(32, 165, 540, 24, ID_CHK_NOTIF_FS_SUPPRESS, L"🚫 Suppress Non-Critical Cards while in Fullscreen or Gaming", 3);
+            hChkNotifBleFilter = makeCheck(32, 200, 540, 24, ID_CHK_NOTIF_BLE_FILTER, L"🔍 Suppress Duplicate BLE Peripheral Connection Spams", 3);
+            hChkNotifHistory = makeCheck(32, 240, 540, 24, ID_CHK_NOTIF_HISTORY, L"📜 Enable Notification History (Bounded Local Storage, Opt-In)", 3);
+
+            makeBtn(32, 280, 220, 30, ID_BTN_CLEAR_HISTORY, L"🗑️ Clear Notification History", 3);
+
+            // ── PAGE 4: Performance & Diagnostics ───────────────────────────────
+            makeLabel(32, 55, 180, 20, L"Power & Rendering Policy:", 4);
+            hComboPowerPolicy = makeCombo(220, 52, 370, 200, ID_COMBO_POWER_POLICY, kPowerOptions, ARRAYSIZE(kPowerOptions), 4);
+
+            hChkAutoBattery = makeCheck(32, 95, 540, 24, ID_CHK_AUTO_BATTERY, L"🔋 Automatically drop to Battery Saver when on DC Battery power", 4);
+
+            HWND grpDiag = CreateWindowExW(0, L"BUTTON", L"Live Measurable Diagnostics", WS_CHILD | BS_GROUPBOX, 25, 135, 580, 210, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(grpDiag, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(grpDiag, L"DarkMode_Explorer", nullptr);
+            g_pageControls[4].push_back(grpDiag);
+
+            hLblDiagMetrics = CreateWindowExW(0, L"STATIC", L"Collecting diagnostics...", WS_CHILD | SS_LEFT, 45, 165, 540, 160, hwnd, reinterpret_cast<HMENU>(ID_LBL_DIAG_METRICS), nullptr, nullptr);
+            SendMessageW(hLblDiagMetrics, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            g_pageControls[4].push_back(hLblDiagMetrics);
+
+            makeBtn(32, 360, 160, 28, ID_BTN_REFRESH_DIAG, L"🔄 Refresh Metrics", 4);
+
+            // ── PAGE 5: Productivity & Modules ──────────────────────────────────
+            hChkModFocusTimer = makeCheck(32, 50, 260, 24, ID_CHK_MOD_FOCUS_TIMER, L"⏱️ Focus / Pomodoro Timer", 5);
+            hChkModClipboard = makeCheck(320, 50, 280, 24, ID_CHK_MOD_CLIPBOARD, L"📋 Text Clipboard Panel (Opt-In)", 5);
+            hChkModMedia = makeCheck(32, 85, 260, 24, ID_CHK_MOD_MEDIA, L"🎵 Media Player & Waveform", 5);
+            hChkModLyrics = makeCheck(320, 85, 280, 24, ID_CHK_MOD_LYRICS, L"🎤 Live Synced Lyrics (LRCLIB)", 5);
+            hChkModCalendar = makeCheck(32, 120, 260, 24, ID_CHK_MOD_CALENDAR, L"📅 Calendar & Date View", 5);
+            hChkModWeather = makeCheck(320, 120, 280, 24, ID_CHK_MOD_WEATHER, L"☀️ Weather Info (wttr.in)", 5);
+            hChkModHardware = makeCheck(32, 155, 260, 24, ID_CHK_MOD_HARDWARE, L"📊 Hardware Monitor (CPU/RAM)", 5);
+            hChkModTray = makeCheck(320, 155, 280, 24, ID_CHK_MOD_TRAY, L"📁 File Tray Shelf (Drag & Drop)", 5);
+            hChkModLookup = makeCheck(32, 190, 540, 24, ID_CHK_MOD_LOOKUP, L"🔍 Quick Lookup & App Launcher (Ctrl+Alt+Space)", 5);
+
+            hChkStartup = makeCheck(32, 235, 300, 24, ID_CHK_STARTUP, L"🚀 Launch automatically on Windows Startup", 5);
+            hChkLog = makeCheck(320, 235, 280, 24, ID_CHK_LOG, L"📝 Enable Debug Log (%APPDATA%)", 5);
+
+            makeBtn(32, 280, 240, 30, ID_BTN_ONBOARDING, L"✨ Re-run First-Run Onboarding...", 5);
+            makeBtn(320, 280, 220, 30, ID_BTN_CLEAR_CLIPBOARD, L"🗑️ Clear Clipboard History", 5);
+            makeBtn(32, 330, 240, 30, ID_BTN_RESET_DEFAULTS, L"⚠️ Restore All Factory Defaults", 5);
+
+            // ── Dialog Bottom Buttons ───────────────────────────────────────────
             HWND btnOpenIni = CreateWindowExW(0, L"BUTTON", L"Open INI", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                              12, 442, 90, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_OPEN_INI), nullptr, nullptr);
+                                              12, 452, 90, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_OPEN_INI), nullptr, nullptr);
             SendMessageW(btnOpenIni, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
 
             HWND btnApply = CreateWindowExW(0, L"BUTTON", L"Apply", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                            350, 442, 80, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_APPLY), nullptr, nullptr);
+                                            360, 452, 80, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_APPLY), nullptr, nullptr);
             SendMessageW(btnApply, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
 
             HWND btnOk = CreateWindowExW(0, L"BUTTON", L"Save & OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                                         440, 442, 95, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_OK), nullptr, nullptr);
+                                         450, 452, 95, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_OK), nullptr, nullptr);
             SendMessageW(btnOk, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
 
             HWND btnCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                             545, 442, 65, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_CANCEL), nullptr, nullptr);
+                                             555, 452, 65, 28, hwnd, reinterpret_cast<HMENU>(ID_BTN_CANCEL), nullptr, nullptr);
             SendMessageW(btnCancel, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
             SetWindowTheme(btnOpenIni, L"DarkMode_Explorer", nullptr);
             SetWindowTheme(btnApply, L"DarkMode_Explorer", nullptr);
             SetWindowTheme(btnOk, L"DarkMode_Explorer", nullptr);
@@ -384,6 +715,60 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             } else if (id == ID_BTN_OPEN_INI) {
                 standalone_app::EnsureSettingsFile();
                 ShellExecuteW(nullptr, L"open", L"notepad.exe", (L"\"" + GetIniFilePath() + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+            } else if (id == ID_BTN_APPLY_PROFILE) {
+                int cur = static_cast<int>(SendMessageW(hComboActiveProfile, CB_GETCURSEL, 0, 0));
+                auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
+                if (cur >= 0 && static_cast<size_t>(cur) < profiles.size()) {
+                    island_profile::ProfileManager::ApplyProfileToSettingsIni(profiles[cur], GetIniFilePath());
+                    LoadValuesIntoUi();
+                    SaveValuesFromUi(hwnd);
+                    MessageBoxW(hwnd, (L"Profile '" + profiles[cur].name + L"' applied successfully!").c_str(), L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                }
+            } else if (id == ID_BTN_SAVE_PROFILE) {
+                wchar_t customName[64] = L"MyCustomProfile";
+                island_profile::ProfileData current;
+                current.name = customName;
+                current.themePreset = ReadIniString(L"Settings", L"Themes.ThemePreset", L"transparent");
+                current.position = ReadIniString(L"Settings", L"Appearance.Position", L"top-center");
+                current.shapeStyle = ReadIniString(L"Settings", L"Appearance.ShapeStyle", L"notch");
+                current.pillOpacity = ReadIniInt(L"Settings", L"Themes.PillOpacity", 16);
+                current.animationStyle = ReadIniString(L"Settings", L"Animations.AnimationStyle", L"applespring");
+                current.realLiquidGlass = (ReadIniInt(L"Settings", L"Themes.RealLiquidGlass", 0) != 0);
+
+                std::wstring targetPath = island_profile::ProfileManager::GetProfileFilePath(customName);
+                if (island_profile::ProfileManager::SaveProfileToFile(current, targetPath)) {
+                    PopulateProfilesCombo(hComboActiveProfile);
+                    MessageBoxW(hwnd, L"Profile saved to %APPDATA%\\DynamicIsland\\profiles\\MyCustomProfile.ini", L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                }
+            } else if (id == ID_BTN_RESET_PROFILE) {
+                island_profile::ProfileData obs = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Obsidian);
+                island_profile::ProfileManager::ApplyProfileToSettingsIni(obs, GetIniFilePath());
+                LoadValuesIntoUi();
+                SaveValuesFromUi(hwnd);
+                MessageBoxW(hwnd, L"Active profile reset to Obsidian factory defaults.", L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+            } else if (id == ID_BTN_REFRESH_DIAG) {
+                UpdateDiagnosticsDisplay();
+            } else if (id == ID_BTN_CLEAR_HISTORY) {
+                island_notification::NotificationHistory history;
+                history.ClearAll();
+                MessageBoxW(hwnd, L"Notification history cleared.", L"Notifications", MB_OK | MB_ICONINFORMATION);
+            } else if (id == ID_BTN_CLEAR_CLIPBOARD) {
+                island_clipboard::ClipboardManager cb;
+                cb.ClearAll();
+                MessageBoxW(hwnd, L"Clipboard history cleared.", L"Clipboard", MB_OK | MB_ICONINFORMATION);
+            } else if (id == ID_BTN_ONBOARDING) {
+                ShowOnboardingDialog(hwnd);
+            } else if (id == ID_BTN_TOGGLE_ISLAND) {
+                if (g_hwnd) {
+                    PostMessageW(g_hwnd, WM_HOTKEY, 1 /* ID_HIDE_SHOW_HOTKEY */, 0);
+                }
+            } else if (id == ID_BTN_RESET_DEFAULTS) {
+                if (MessageBoxW(hwnd, L"Are you sure you want to restore all settings to default factory settings?", L"Dynamic Edge", MB_YESNO | MB_ICONWARNING) == IDYES) {
+                    DeleteFileW(GetIniFilePath().c_str());
+                    standalone_app::EnsureSettingsFile();
+                    LoadValuesIntoUi();
+                    SaveValuesFromUi(hwnd);
+                }
             }
             return 0;
         }
@@ -405,7 +790,7 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             return 0;
 
         case WM_DESTROY:
-            for (int p = 0; p < 4; ++p) {
+            for (int p = 0; p < 6; ++p) {
                 g_pageControls[p].clear();
             }
             g_hSettingsWnd = nullptr;
@@ -432,8 +817,8 @@ inline void ShowSettingsWindow(HWND hParent) {
     wc.lpszClassName = L"DynamicIsland.SettingsDialog";
     RegisterClassExW(&wc);
 
-    const int width = 640;
-    const int height = 525;
+    const int width = 670;
+    const int height = 535;
     HMONITOR hMon = MonitorFromWindow(hParent ? hParent : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
     GetMonitorInfoW(hMon, &mi);
@@ -443,7 +828,7 @@ inline void ShowSettingsWindow(HWND hParent) {
     HWND hwnd = CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         wc.lpszClassName,
-        L"Dynamic Island — Settings & Customization",
+        L"Dynamic Edge — Settings & Profile Studio",
         WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
         posX, posY, width, height,
         nullptr, nullptr, hInst, nullptr
@@ -451,6 +836,195 @@ inline void ShowSettingsWindow(HWND hParent) {
 
     if (hwnd) {
         g_hSettingsWnd = hwnd;
+        BOOL darkMode = TRUE;
+        DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &darkMode, sizeof(darkMode));
+        SetForegroundWindow(hwnd);
+    }
+}
+
+// ── FIRST-RUN ONBOARDING DIALOG ──────────────────────────────────────────────
+inline LRESULT CALLBACK OnboardingWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_CREATE: {
+            HFONT hTitleFont = CreateFontW(-18, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                           CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI Variable Display");
+            HFONT hFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI Variable Text");
+
+            HWND lblTitle = CreateWindowExW(0, L"STATIC", L"Welcome to Dynamic Edge v1.7.0", WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 25, 450, 30, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblTitle, WM_SETFONT, reinterpret_cast<WPARAM>(hTitleFont), TRUE);
+
+            HWND lblSubtitle = CreateWindowExW(0, L"STATIC", L"Your adaptive desktop companion for Windows 11. Choose your initial setup in under 30 seconds:", WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 58, 520, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblSubtitle, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            // Step 1: Appearance Profile
+            HWND lblStep1 = CreateWindowExW(0, L"STATIC", L"1. Initial Personalisation Profile:", WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 95, 250, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblStep1, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND cbProfile = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 280, 92, 260, 200, hwnd, reinterpret_cast<HMENU>(3001), nullptr, nullptr);
+            SendMessageW(cbProfile, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(cbProfile, L"DarkMode_Explorer", nullptr);
+            SendMessageW(cbProfile, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Obsidian (Crystal Black - Best Battery)"));
+            SendMessageW(cbProfile, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Frost (Frosted Optical Glass)"));
+            SendMessageW(cbProfile, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Midnight (Deep Navy & Electric Blue)"));
+            SendMessageW(cbProfile, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Aurora (Dynamic Color Palette)"));
+            SendMessageW(cbProfile, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimal (Compact & Battery Saver)"));
+            SendMessageW(cbProfile, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Studio (Productivity & Hardware)"));
+            SendMessageW(cbProfile, CB_SETCURSEL, 0, 0);
+
+            // Step 2: Screen Position
+            HWND lblStep2 = CreateWindowExW(0, L"STATIC", L"2. Screen Edge Placement:", WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 140, 250, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblStep2, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND cbPos = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 280, 137, 260, 200, hwnd, reinterpret_cast<HMENU>(3002), nullptr, nullptr);
+            SendMessageW(cbPos, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(cbPos, L"DarkMode_Explorer", nullptr);
+            SendMessageW(cbPos, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Top Center (Recommended)"));
+            SendMessageW(cbPos, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Top Left"));
+            SendMessageW(cbPos, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Top Right"));
+            SendMessageW(cbPos, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Bottom Center"));
+            SendMessageW(cbPos, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Adaptive Edge Blade (Auto)"));
+            SendMessageW(cbPos, CB_SETCURSEL, 0, 0);
+
+            // Step 3: Essentials & Privacy
+            HWND lblStep3 = CreateWindowExW(0, L"STATIC", L"3. Active Modules & Privacy:", WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 185, 250, 20, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblStep3, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND chkMedia = CreateWindowExW(0, L"BUTTON", L"🎵 Media Player & Waveform", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 50, 215, 230, 22, hwnd, reinterpret_cast<HMENU>(3003), nullptr, nullptr);
+            HWND chkBT = CreateWindowExW(0, L"BUTTON", L"🎧 Bluetooth & Controller Alerts", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 300, 215, 250, 22, hwnd, reinterpret_cast<HMENU>(3004), nullptr, nullptr);
+            HWND chkTimer = CreateWindowExW(0, L"BUTTON", L"⏱️ Focus / Pomodoro Timer", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 50, 245, 230, 22, hwnd, reinterpret_cast<HMENU>(3005), nullptr, nullptr);
+            HWND chkStartup = CreateWindowExW(0, L"BUTTON", L"🚀 Launch on Windows Startup", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 300, 245, 250, 22, hwnd, reinterpret_cast<HMENU>(3006), nullptr, nullptr);
+
+            SendMessageW(chkMedia, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SendMessageW(chkBT, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SendMessageW(chkTimer, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SendMessageW(chkStartup, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(chkMedia, L"DarkMode_Explorer", nullptr);
+            SetWindowTheme(chkBT, L"DarkMode_Explorer", nullptr);
+            SetWindowTheme(chkTimer, L"DarkMode_Explorer", nullptr);
+            SetWindowTheme(chkStartup, L"DarkMode_Explorer", nullptr);
+            SendMessageW(chkMedia, BM_SETCHECK, BST_CHECKED, 0);
+            SendMessageW(chkBT, BM_SETCHECK, BST_CHECKED, 0);
+            SendMessageW(chkTimer, BM_SETCHECK, BST_CHECKED, 0);
+            SendMessageW(chkStartup, BM_SETCHECK, BST_CHECKED, 0);
+
+            HWND lblPrivacy = CreateWindowExW(0, L"STATIC",
+                L"🔒 Privacy First: Dynamic Edge operates 100% locally. No analytics, no cloud accounts,\n"
+                L"and clipboard history is opt-in and disabled by default until explicitly enabled.",
+                WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 285, 520, 36, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lblPrivacy, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            // Action buttons
+            HWND btnDone = CreateWindowExW(0, L"BUTTON", L"Complete Setup & Launch", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+                                           340, 345, 200, 34, hwnd, reinterpret_cast<HMENU>(3010), nullptr, nullptr);
+            SendMessageW(btnDone, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(btnDone, L"DarkMode_Explorer", nullptr);
+
+            HWND btnSkip = CreateWindowExW(0, L"BUTTON", L"Skip to Defaults", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                           200, 345, 130, 34, hwnd, reinterpret_cast<HMENU>(3011), nullptr, nullptr);
+            SendMessageW(btnSkip, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SetWindowTheme(btnSkip, L"DarkMode_Explorer", nullptr);
+            return 0;
+        }
+
+        case WM_COMMAND: {
+            int id = LOWORD(wParam);
+            if (id == 3010 || id == 3011) {
+                // Apply chosen or default profile
+                island_profile::ProfileData chosen = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Obsidian);
+                if (id == 3010) {
+                    HWND cb = GetDlgItem(hwnd, 3001);
+                    int sel = static_cast<int>(SendMessageW(cb, CB_GETCURSEL, 0, 0));
+                    switch (sel) {
+                    case 0: chosen = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Obsidian); break;
+                    case 1: chosen = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Frost); break;
+                    case 2: chosen = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Midnight); break;
+                    case 3: chosen = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Aurora); break;
+                    case 4: chosen = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Minimal); break;
+                    case 5: chosen = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Studio); break;
+                    }
+
+                    HWND cbP = GetDlgItem(hwnd, 3002);
+                    int pSel = static_cast<int>(SendMessageW(cbP, CB_GETCURSEL, 0, 0));
+                    if (pSel == 1) chosen.position = L"top-left";
+                    else if (pSel == 2) chosen.position = L"top-right";
+                    else if (pSel == 3) chosen.position = L"bottom-center";
+                    else if (pSel == 4) chosen.position = L"auto";
+                    else chosen.position = L"top-center";
+
+                    bool startup = (SendDlgItemMessageW(hwnd, 3006, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                    standalone_app::SetStartupEnabled(startup);
+                }
+
+                island_profile::ProfileManager::ApplyProfileToSettingsIni(chosen, GetIniFilePath());
+                WritePrivateProfileStringW(L"Settings", L"App.FirstRunCompleted", L"1", GetIniFilePath().c_str());
+                WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+
+                DestroyWindow(hwnd);
+            }
+            return 0;
+        }
+
+        case WM_CTLCOLORDLG:
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORBTN: {
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            SetTextColor(hdc, RGB(235, 235, 240));
+            SetBkColor(hdc, RGB(28, 28, 32));
+            static HBRUSH s_darkBrush = CreateSolidBrush(RGB(28, 28, 32));
+            return reinterpret_cast<INT_PTR>(s_darkBrush);
+        }
+
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            return 0;
+
+        case WM_DESTROY:
+            g_hOnboardingWnd = nullptr;
+            return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+inline void ShowOnboardingDialog(HWND hParent) {
+    if (g_hOnboardingWnd) {
+        ShowWindow(g_hOnboardingWnd, SW_RESTORE);
+        SetForegroundWindow(g_hOnboardingWnd);
+        return;
+    }
+
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+    static HBRUSH s_wndDarkBrush = CreateSolidBrush(RGB(28, 28, 32));
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = OnboardingWndProc;
+    wc.hInstance = hInst;
+    wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
+    wc.hbrBackground = s_wndDarkBrush;
+    wc.lpszClassName = L"DynamicIsland.OnboardingDialog";
+    RegisterClassExW(&wc);
+
+    const int width = 580;
+    const int height = 430;
+    HMONITOR hMon = MonitorFromWindow(hParent ? hParent : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
+    GetMonitorInfoW(hMon, &mi);
+    const int posX = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - width) / 2;
+    const int posY = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - height) / 2;
+
+    HWND hwnd = CreateWindowExW(
+        WS_EX_DLGMODALFRAME,
+        wc.lpszClassName,
+        L"Welcome to Dynamic Edge",
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        posX, posY, width, height,
+        nullptr, nullptr, hInst, nullptr
+    );
+
+    if (hwnd) {
+        g_hOnboardingWnd = hwnd;
         BOOL darkMode = TRUE;
         DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &darkMode, sizeof(darkMode));
         SetForegroundWindow(hwnd);

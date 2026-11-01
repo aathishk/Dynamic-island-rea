@@ -279,6 +279,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
 
     standalone_app::CreateTrayWindow(hInstance);
 
+    const int firstRunDone = GetPrivateProfileIntW(L"Settings", L"App.FirstRunCompleted", 0, GetIniFilePath().c_str());
+    if (firstRunDone == 0) {
+        settings_ui::ShowOnboardingDialog(g_hwnd);
+    }
+
     // Pump messages for the tray icon until the render thread ends or the user picks Exit.
     for (bool running = true; running && g_renderThread;) {
         const DWORD r = MsgWaitForMultipleObjects(1, &g_renderThread, FALSE, INFINITE, QS_ALLINPUT);

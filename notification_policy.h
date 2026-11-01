@@ -5,6 +5,7 @@
 #include <vector>
 #include <algorithm>
 #include <deque>
+#include <memory>
 
 namespace island_notification {
 
@@ -36,6 +37,7 @@ struct NotificationItem {
     SYSTEMTIME timestampSystem = {};
     DWORD durationMs = 3500;
     bool dismissed = false;
+    std::shared_ptr<const void> iconRef;
 };
 
 inline NotificationCategory ClassifyNotification(const std::wstring& app, const std::wstring& title) {

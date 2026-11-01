@@ -111,6 +111,7 @@ enum CtrlId : int {
     ID_BTN_SAVE_PROFILE,
     ID_BTN_DUPLICATE_PROFILE,
     ID_BTN_DELETE_PROFILE,
+    ID_BTN_RENAME_PROFILE,
     ID_BTN_EXPORT_PROFILE,
     ID_BTN_IMPORT_PROFILE,
     ID_BTN_RESET_PROFILE,
@@ -184,6 +185,130 @@ inline HWND hTab = nullptr;
 inline std::vector<HWND> g_pageControls[6];
 
 // Page 0 controls
+inline bool PromptUserString(HWND hwndParent, const wchar_t* title, const wchar_t* prompt, const wchar_t* defaultText, wchar_t* outBuf, size_t maxChars) {
+    if (!outBuf || maxChars == 0) return false;
+    outBuf[0] = L'\0';
+
+    static bool s_classRegistered = false;
+    static wchar_t s_result[256] = {};
+    static bool s_confirmed = false;
+    static HWND s_hEdit = nullptr;
+
+    wcscpy_s(s_result, defaultText ? defaultText : L"");
+    s_confirmed = false;
+
+    auto InputWndProc = [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) -> LRESULT {
+        switch (msg) {
+        case WM_CREATE: {
+            CREATESTRUCTW* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+            const wchar_t* pPrompt = reinterpret_cast<const wchar_t*>(cs->lpCreateParams);
+            HFONT hFont = CreateFontW(-13, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            HWND lbl = CreateWindowExW(0, L"STATIC", pPrompt ? pPrompt : L"Enter value:", WS_CHILD | WS_VISIBLE,
+                                       20, 16, 320, 24, hwnd, nullptr, nullptr, nullptr);
+            SendMessageW(lbl, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            s_hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", s_result, WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                      20, 44, 320, 26, hwnd, reinterpret_cast<HMENU>(101), nullptr, nullptr);
+            SendMessageW(s_hEdit, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            SendMessageW(s_hEdit, EM_SETSEL, 0, -1);
+            SetFocus(s_hEdit);
+
+            HWND btnOk = CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                                        160, 84, 85, 28, hwnd, reinterpret_cast<HMENU>(IDOK), nullptr, nullptr);
+            SendMessageW(btnOk, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+
+            HWND btnCancel = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                                            255, 84, 85, 28, hwnd, reinterpret_cast<HMENU>(IDCANCEL), nullptr, nullptr);
+            SendMessageW(btnCancel, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
+            return 0;
+        }
+        case WM_COMMAND: {
+            int id = LOWORD(wParam);
+            if (id == IDOK) {
+                if (s_hEdit) {
+                    GetWindowTextW(s_hEdit, s_result, ARRAYSIZE(s_result));
+                    s_confirmed = true;
+                }
+                DestroyWindow(hwnd);
+                return 0;
+            } else if (id == IDCANCEL) {
+                s_confirmed = false;
+                DestroyWindow(hwnd);
+                return 0;
+            }
+            break;
+        }
+        case WM_CLOSE:
+            s_confirmed = false;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    };
+
+    HINSTANCE hInst = GetModuleHandleW(nullptr);
+    if (!s_classRegistered) {
+        WNDCLASSEXW wc = { sizeof(wc) };
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = InputWndProc;
+        wc.hInstance = hInst;
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        wc.lpszClassName = L"DynamicEdgeInputDialog";
+        RegisterClassExW(&wc);
+        s_classRegistered = true;
+    }
+
+    RECT rcParent = {};
+    if (hwndParent) GetWindowRect(hwndParent, &rcParent);
+    int px = rcParent.left + (rcParent.right - rcParent.left - 380) / 2;
+    int py = rcParent.top + (rcParent.bottom - rcParent.top - 160) / 2;
+
+    HWND hDlg = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
+        L"DynamicEdgeInputDialog",
+        title ? title : L"Input",
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        px, py, 380, 160,
+        hwndParent, nullptr, hInst, const_cast<wchar_t*>(prompt));
+
+    if (!hDlg) return false;
+
+    if (hwndParent) EnableWindow(hwndParent, FALSE);
+
+    MSG msg;
+    while (IsWindow(hDlg) && GetMessageW(&msg, nullptr, 0, 0)) {
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE) {
+            s_confirmed = false;
+            DestroyWindow(hDlg);
+            break;
+        }
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN) {
+            if (s_hEdit) {
+                GetWindowTextW(s_hEdit, s_result, ARRAYSIZE(s_result));
+                s_confirmed = true;
+            }
+            DestroyWindow(hDlg);
+            break;
+        }
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    if (hwndParent) {
+        EnableWindow(hwndParent, TRUE);
+        SetActiveWindow(hwndParent);
+    }
+
+    if (s_confirmed) {
+        wcsncpy_s(outBuf, maxChars, s_result, maxChars - 1);
+        return true;
+    }
+    return false;
+}
+
 inline HWND hComboActiveProfile = nullptr;
 inline HWND hComboActiveContext = nullptr;
 inline HWND hChkContextLock = nullptr;
@@ -574,12 +699,13 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             g_pageControls[0].push_back(hComboActiveProfile);
 
             makeBtn(490, 50, 120, 28, ID_BTN_APPLY_PROFILE, L"Apply Profile", 0);
-            makeBtn(240, 88, 110, 26, ID_BTN_SAVE_PROFILE, L"💾 Save As...", 0);
-            makeBtn(355, 88, 110, 26, ID_BTN_DUPLICATE_PROFILE, L"📋 Duplicate", 0);
-            makeBtn(470, 88, 110, 26, ID_BTN_DELETE_PROFILE, L"🗑️ Delete", 0);
-            makeBtn(240, 118, 110, 26, ID_BTN_EXPORT_PROFILE, L"📤 Export...", 0);
-            makeBtn(355, 118, 110, 26, ID_BTN_IMPORT_PROFILE, L"📥 Import...", 0);
-            makeBtn(470, 118, 140, 26, ID_BTN_RESET_PROFILE, L"↺ Reset to Defaults", 0);
+            makeBtn(240, 88, 95, 26, ID_BTN_SAVE_PROFILE, L"💾 Save As...", 0);
+            makeBtn(340, 88, 95, 26, ID_BTN_RENAME_PROFILE, L"✏️ Rename", 0);
+            makeBtn(440, 88, 95, 26, ID_BTN_DUPLICATE_PROFILE, L"📋 Duplicate", 0);
+            makeBtn(540, 88, 80, 26, ID_BTN_DELETE_PROFILE, L"🗑️ Delete", 0);
+            makeBtn(240, 118, 95, 26, ID_BTN_EXPORT_PROFILE, L"📤 Export...", 0);
+            makeBtn(340, 118, 95, 26, ID_BTN_IMPORT_PROFILE, L"📥 Import...", 0);
+            makeBtn(440, 118, 140, 26, ID_BTN_RESET_PROFILE, L"↺ Reset Defaults", 0);
 
             makeLabel(32, 155, 200, 20, L"Active Context Mode:", 0);
             hComboActiveContext = makeCombo(240, 152, 240, 200, ID_COMBO_ACTIVE_CONTEXT, kContextOptions, ARRAYSIZE(kContextOptions), 0);
@@ -788,6 +914,26 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                         PopulateProfilesCombo(hComboActiveProfile);
                     }
                 }
+            } else if (id == ID_BTN_RENAME_PROFILE) {
+                int cur = static_cast<int>(SendMessageW(hComboActiveProfile, CB_GETCURSEL, 0, 0));
+                auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
+                if (cur >= 0 && static_cast<size_t>(cur) < profiles.size()) {
+                    if (profiles[cur].isBuiltIn) {
+                        MessageBoxW(hwnd, L"Built-in profiles cannot be renamed.", L"Profile Studio", MB_OK | MB_ICONWARNING);
+                    } else {
+                        wchar_t newName[64] = {};
+                        if (PromptUserString(hwnd, L"Rename Profile", L"Enter new profile name:", profiles[cur].name.c_str(), newName, ARRAYSIZE(newName))) {
+                            if (newName[0] != L'\0') {
+                                if (island_profile::ProfileManager::RenameProfile(profiles[cur].name, newName)) {
+                                    PopulateProfilesCombo(hComboActiveProfile);
+                                    MessageBoxW(hwnd, (L"Profile renamed to '" + std::wstring(newName) + L"' successfully!").c_str(), L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                                } else {
+                                    MessageBoxW(hwnd, L"Failed to rename profile.", L"Profile Studio", MB_OK | MB_ICONERROR);
+                                }
+                            }
+                        }
+                    }
+                }
             } else if (id == ID_BTN_EXPORT_PROFILE) {
                 int cur = static_cast<int>(SendMessageW(hComboActiveProfile, CB_GETCURSEL, 0, 0));
                 auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
@@ -801,8 +947,11 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     ofn.Flags = OFN_OVERWRITEPROMPT;
                     wcscpy_s(path, (profiles[cur].name + L".ini").c_str());
                     if (GetSaveFileNameW(&ofn)) {
-                        island_profile::ProfileManager::ExportProfile(profiles[cur].name, path);
-                        MessageBoxW(hwnd, L"Profile exported successfully!", L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                        if (island_profile::ProfileManager::ExportProfile(profiles[cur].name, path)) {
+                            MessageBoxW(hwnd, L"Profile exported successfully!", L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                        } else {
+                            MessageBoxW(hwnd, L"Failed to export profile file.", L"Profile Studio", MB_OK | MB_ICONERROR);
+                        }
                     }
                 }
             } else if (id == ID_BTN_IMPORT_PROFILE) {
@@ -821,20 +970,63 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     }
                 }
             } else if (id == ID_BTN_SAVE_PROFILE) {
-                wchar_t customName[64] = L"MyCustomProfile";
-                island_profile::ProfileData current;
-                current.name = customName;
-                current.themePreset = ReadIniString(L"Settings", L"Themes.ThemePreset", L"transparent");
-                current.position = ReadIniString(L"Settings", L"Appearance.Position", L"top-center");
-                current.shapeStyle = ReadIniString(L"Settings", L"Appearance.ShapeStyle", L"notch");
-                current.pillOpacity = ReadIniInt(L"Settings", L"Themes.PillOpacity", 16);
-                current.animationStyle = ReadIniString(L"Settings", L"Animations.AnimationStyle", L"applespring");
-                current.realLiquidGlass = (ReadIniInt(L"Settings", L"Themes.RealLiquidGlass", 0) != 0);
+                int cur = static_cast<int>(SendMessageW(hComboActiveProfile, CB_GETCURSEL, 0, 0));
+                auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
+                std::wstring defName = (cur >= 0 && static_cast<size_t>(cur) < profiles.size()) ? (profiles[cur].name + L"_Custom") : L"MyCustomProfile";
+                wchar_t customName[64] = {};
+                if (PromptUserString(hwnd, L"Save Profile As", L"Enter profile name:", defName.c_str(), customName, ARRAYSIZE(customName)) && customName[0] != L'\0') {
+                    island_profile::ProfileData current;
+                    current.name = island_profile::SanitizeProfileName(customName);
+                    current.description = L"Custom User Profile";
+                    current.isBuiltIn = false;
 
-                std::wstring targetPath = island_profile::ProfileManager::GetProfileFilePath(customName);
-                if (island_profile::ProfileManager::SaveProfileToFile(current, targetPath)) {
-                    PopulateProfilesCombo(hComboActiveProfile);
-                    MessageBoxW(hwnd, L"Profile saved to %APPDATA%\\DynamicIsland\\profiles\\MyCustomProfile.ini", L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                    // Full state capture across all settings
+                    current.themePreset = ReadIniString(L"Settings", L"Themes.ThemePreset", L"transparent");
+                    current.position = ReadIniString(L"Settings", L"Appearance.Position", L"top-center");
+                    current.shapeStyle = ReadIniString(L"Settings", L"Appearance.ShapeStyle", L"notch");
+                    std::wstring scStr = ReadIniString(L"Settings", L"Appearance.SizeScale", L"1.0");
+                    try { current.sizeScale = std::stof(scStr); } catch (...) { current.sizeScale = 1.0f; }
+                    current.pillOpacity = ReadIniInt(L"Settings", L"Themes.PillOpacity", 16);
+                    current.monitorIndex = ReadIniInt(L"Settings", L"Appearance.MonitorIndex", 0);
+
+                    current.animationStyle = ReadIniString(L"Settings", L"Animations.AnimationStyle", L"applespring");
+                    current.animationSpeed = ReadIniString(L"Settings", L"Animations.AnimationSpeed", L"normal");
+                    current.reducedMotion = (ReadIniInt(L"Settings", L"Animations.ReducedMotion", 0) != 0);
+
+                    current.realLiquidGlass = (ReadIniInt(L"Settings", L"Themes.RealLiquidGlass", 0) != 0);
+                    current.dynamicAlbumBloom = (ReadIniInt(L"Settings", L"Themes.DynamicAlbumBloom", 1) != 0);
+                    current.tintIntensity = ReadIniInt(L"Settings", L"Themes.TintIntensity", 0);
+
+                    current.performanceMode = ReadIniString(L"Settings", L"Performance.PerformanceMode", L"balanced");
+                    current.autoBatterySaver = (ReadIniInt(L"Settings", L"Performance.AutoBatterySaver", 1) != 0);
+                    current.contextMode = ReadIniString(L"Settings", L"Context.ContextMode", L"normal");
+                    current.autoContextSwitching = (ReadIniInt(L"Settings", L"Context.AutoContextSwitching", 1) != 0);
+                    current.autoHideFullscreen = (ReadIniInt(L"Settings", L"Behavior.AutoHideFullscreen", 1) != 0);
+
+                    current.quietHoursEnabled = (ReadIniInt(L"Settings", L"Notifications.QuietHoursEnabled", 0) != 0);
+                    current.quietHoursStart = ReadIniInt(L"Settings", L"Notifications.QuietHoursStart", 22);
+                    current.quietHoursEnd = ReadIniInt(L"Settings", L"Notifications.QuietHoursEnd", 7);
+                    current.suppressBleSensorDuplicates = (ReadIniInt(L"Settings", L"Notifications.SuppressBleSensorDuplicates", 1) != 0);
+                    current.notificationDurationMs = 3500;
+
+                    current.moduleMedia = (ReadIniInt(L"Settings", L"Modules.Media", 1) != 0);
+                    current.moduleVolume = (ReadIniInt(L"Settings", L"Modules.Volume", 1) != 0);
+                    current.moduleBrightness = (ReadIniInt(L"Settings", L"Modules.Brightness", 1) != 0);
+                    current.moduleBluetooth = (ReadIniInt(L"Settings", L"Modules.Bluetooth", 1) != 0);
+                    current.moduleWeather = (ReadIniInt(L"Settings", L"Modules.Weather", 1) != 0);
+                    current.moduleCalendar = (ReadIniInt(L"Settings", L"Modules.Calendar", 1) != 0);
+                    current.moduleHardware = (ReadIniInt(L"Settings", L"Modules.Hardware", 1) != 0);
+                    current.moduleFileTray = (ReadIniInt(L"Settings", L"Modules.FileTray", 1) != 0);
+                    current.moduleFocusTimer = (ReadIniInt(L"Settings", L"Modules.FocusTimer", 1) != 0);
+                    current.moduleClipboard = (ReadIniInt(L"Settings", L"Modules.Clipboard", 0) != 0);
+
+                    std::wstring targetPath = island_profile::ProfileManager::GetProfileFilePath(current.name);
+                    if (island_profile::ProfileManager::SaveProfileToFile(current, targetPath)) {
+                        PopulateProfilesCombo(hComboActiveProfile);
+                        MessageBoxW(hwnd, (L"Profile saved successfully as '" + current.name + L"'!").c_str(), L"Profile Studio", MB_OK | MB_ICONINFORMATION);
+                    } else {
+                        MessageBoxW(hwnd, L"Failed to save profile to disk.", L"Profile Studio", MB_OK | MB_ICONERROR);
+                    }
                 }
             } else if (id == ID_BTN_RESET_PROFILE) {
                 island_profile::ProfileData obs = island_profile::CreateBuiltInProfile(island_profile::BuiltInProfileType::Obsidian);

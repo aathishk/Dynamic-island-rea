@@ -37,6 +37,7 @@ public:
         if (!enabled_) {
             entries_.clear();
             lastCapturedText_.clear();
+            DeleteFileW(GetHistoryFilePath().c_str());
         }
     }
 
@@ -178,6 +179,7 @@ public:
         for (auto& e : entries_) {
             if (e.id == id) {
                 e.pinned = !e.pinned;
+                SaveToFileLocked();
                 break;
             }
         }
@@ -188,6 +190,7 @@ public:
         for (auto it = entries_.begin(); it != entries_.end(); ++it) {
             if (it->id == id) {
                 entries_.erase(it);
+                SaveToFileLocked();
                 return true;
             }
         }
@@ -207,13 +210,55 @@ public:
     }
 
 private:
+    static std::wstring EscapeText(const std::wstring& s) {
+        std::wstring out;
+        out.reserve(s.size() + 16);
+        for (wchar_t c : s) {
+            if (c == L'\\') {
+                out += L"\\\\";
+            } else if (c == L'\r') {
+                out += L"\\r";
+            } else if (c == L'\n') {
+                out += L"\\n";
+            } else {
+                out += c;
+            }
+        }
+        return out;
+    }
+
+    static std::wstring UnescapeText(const std::wstring& s) {
+        std::wstring out;
+        out.reserve(s.size());
+        for (size_t i = 0; i < s.size(); ++i) {
+            if (s[i] == L'\\' && i + 1 < s.size()) {
+                wchar_t next = s[i + 1];
+                if (next == L'r') {
+                    out += L'\r';
+                    ++i;
+                } else if (next == L'n') {
+                    out += L'\n';
+                    ++i;
+                } else if (next == L'\\') {
+                    out += L'\\';
+                    ++i;
+                } else {
+                    out += s[i];
+                }
+            } else {
+                out += s[i];
+            }
+        }
+        return out;
+    }
+
     bool SaveToFileLocked(const std::wstring& targetPath = L"") const {
         std::wstring path = targetPath.empty() ? GetHistoryFilePath() : targetPath;
         HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (hFile == INVALID_HANDLE_VALUE) return false;
 
         for (const auto& e : entries_) {
-            std::wstring line = (e.pinned ? L"PINNED|" : L"ENTRY|") + e.preview + L"\r\n";
+            std::wstring line = (e.pinned ? L"PINNED|" : L"ENTRY|") + EscapeText(e.text) + L"\r\n";
             DWORD written = 0;
             WriteFile(hFile, line.c_str(), static_cast<DWORD>(line.size() * sizeof(wchar_t)), &written, nullptr);
         }
@@ -256,10 +301,17 @@ public:
             }
             if (content.empty()) continue;
 
+            std::wstring fullText = UnescapeText(content);
+            if (fullText.size() > maxTextLength_) {
+                fullText.resize(maxTextLength_);
+            }
+
             ClipboardEntry e;
             e.id = nextId_++;
-            e.text = content;
-            e.preview = content.substr(0, std::min<size_t>(content.size(), 60));
+            e.text = fullText;
+            e.preview = fullText.substr(0, std::min<size_t>(fullText.size(), 60));
+            std::replace(e.preview.begin(), e.preview.end(), L'\r', L' ');
+            std::replace(e.preview.begin(), e.preview.end(), L'\n', L' ');
             e.pinned = pinned;
             e.timestampTick = GetTickCount64();
             entries_.push_back(e);

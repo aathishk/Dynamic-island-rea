@@ -83,7 +83,23 @@ inline int Wh_GetIntSetting(PCWSTR name) {
     if (wcscmp(name, L"Themes.RealLiquidGlass") == 0) return 0;
     if (wcscmp(name, L"Debug.Log") == 0) return 0;
 
-    // All enable toggles default to 1 (enabled)
+    // Strict privacy-first defaults (opt-in modules):
+    if (wcscmp(name, L"Modules.Clipboard") == 0) return 0;
+    if (wcscmp(name, L"Notifications.HistoryEnabled") == 0) return 0;
+    if (wcscmp(name, L"Notifications.QuietHoursEnabled") == 0) return 0;
+    if (wcscmp(name, L"Modules.StatusCountdownProgress") == 0) return 0;
+    if (wcscmp(name, L"Modules.GameOverlay") == 0) return 0;
+    if (wcscmp(name, L"Modules.ShowMetricText") == 0) return 0;
+
+    // Notification policy defaults:
+    if (wcscmp(name, L"Notifications.QuietHoursStart") == 0) return 22;
+    if (wcscmp(name, L"Notifications.QuietHoursEnd") == 0) return 7;
+    if (wcscmp(name, L"Notifications.AllowCriticalInQuietHours") == 0) return 1;
+    if (wcscmp(name, L"Notifications.SuppressInFullscreen") == 0) return 1;
+    if (wcscmp(name, L"Notifications.SuppressBleSensorDuplicates") == 0) return 1;
+    if (wcscmp(name, L"Notifications.Enabled") == 0) return 1;
+
+    // All other standard enable toggles default to 1 (enabled)
     return 1;
 }
 

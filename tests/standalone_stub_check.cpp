@@ -247,28 +247,65 @@ int RunNotificationPolicyTest() {
     settings.quietHoursEnd = 7;
     settings.allowCriticalInQuietHours = true;
     settings.suppressInFullscreen = true;
+    settings.suppressInPresentation = true;
 
     NotificationItem normItem;
     normItem.priority = NotificationPriority::Normal;
     normItem.title = L"Email";
+    normItem.message = L"You've got mail";
 
     NotificationItem critItem;
     critItem.priority = NotificationPriority::Critical;
     critItem.title = L"Low Battery";
+    critItem.message = L"10% remaining";
+
+    NotificationItem quietItem;
+    quietItem.priority = NotificationPriority::Quiet;
+    quietItem.title = L"Background Sync";
+
+    // Global disable check
+    NotificationPolicySettings disabledSettings = settings;
+    disabledSettings.enabled = false;
+    if (ShouldPresentNotification(normItem, disabledSettings, false, false, 12)) return 707;
+    if (ShouldPresentNotification(critItem, disabledSettings, false, false, 12)) return 708;
+
+    // Quiet priority never presents
+    if (ShouldPresentNotification(quietItem, settings, false, false, 12)) return 709;
 
     // Normal item suppressed during quiet hours (23:00)
-    if (ShouldPresentNotification(normItem, settings, false, false, 23)) return 707;
-    // Critical item allowed during quiet hours
-    if (!ShouldPresentNotification(critItem, settings, false, false, 23)) return 708;
+    if (ShouldPresentNotification(normItem, settings, false, false, 23)) return 710;
+
+    // Critical item allowed during quiet hours when allowCriticalInQuietHours = true
+    if (!ShouldPresentNotification(critItem, settings, false, false, 23)) return 711;
+
+    // Critical item suppressed during quiet hours when allowCriticalInQuietHours = false
+    NotificationPolicySettings strictQuiet = settings;
+    strictQuiet.allowCriticalInQuietHours = false;
+    if (ShouldPresentNotification(critItem, strictQuiet, false, false, 23)) return 712;
 
     // Normal item suppressed during fullscreen
-    if (ShouldPresentNotification(normItem, settings, true, false, 14)) return 709;
+    if (ShouldPresentNotification(normItem, settings, true, false, 14)) return 713;
 
-    // 5. Arbitration queue de-duplication
+    // Normal item suppressed during presentation
+    if (ShouldPresentNotification(normItem, settings, false, true, 14)) return 714;
+
+    // Critical item allowed during fullscreen and presentation
+    if (!ShouldPresentNotification(critItem, settings, true, false, 14)) return 715;
+    if (!ShouldPresentNotification(critItem, settings, false, true, 14)) return 716;
+
+    // 5. Arbitration queue de-duplication & priority
     NotificationQueue q;
     q.Enqueue(normItem, settings);
     bool dupeAdded = q.Enqueue(normItem, settings); // same item immediately
-    if (dupeAdded) return 710; // Duplicate should be suppressed!
+    if (dupeAdded) return 717; // Duplicate must be suppressed!
+
+    // Critical items placed at front of queue
+    NotificationItem popped;
+    q.Clear();
+    q.Enqueue(normItem, settings); // Enqueue normal
+    q.Enqueue(critItem, settings); // Enqueue critical
+    if (!q.PopNext(popped)) return 718;
+    if (popped.priority != NotificationPriority::Critical) return 719; // Critical MUST be popped first!
 
     return 0;
 }
@@ -309,8 +346,17 @@ int RunClipboardAndFocusTimerPolicyTest() {
     island_clipboard::ClipboardManager cb;
     if (cb.IsEnabled()) return 901; // MUST be disabled by default for privacy
     cb.SetEnabled(true);
-    cb.SetMaxItems(3);
+    cb.SetMaxItems(5);
     if (cb.Count() != 0) return 902;
+
+    // Test file persistence with multi-line text & backslashes
+    wchar_t tempPath[MAX_PATH];
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring testFile = std::wstring(tempPath) + L"test_di_clipboard.txt";
+    DeleteFileW(testFile.c_str());
+
+    cb.SaveToFile(testFile);
+    cb.LoadFromFile(testFile);
 
     // 2. Focus Timer
     island_focus::FocusConfig cfg;
@@ -344,6 +390,10 @@ int RunClipboardAndFocusTimerPolicyTest() {
 
     // Safe clipboard CopyToSystemClipboard check: non-existent id returns false without wiping clipboard
     if (cb.CopyToSystemClipboard(999999)) return 912;
+
+    // SetEnabled(false) purges entries & deletes history file
+    cb.SetEnabled(false);
+    if (cb.Count() != 0) return 913;
 
     return 0;
 }
@@ -444,4 +494,9 @@ int wmain(int argc, wchar_t** argv) {
 
     printf("SUCCESS: All 11 production unit & regression test suites passed (launchers, opacity, bluetooth, classification, shutdown, profiles, context, notifications, performance, clipboard/timer, gestures/layout)!\n");
     return 0;
+}
+
+int main(int argc, char** argv) {
+    (void)argc; (void)argv;
+    return wmain(0, nullptr);
 }

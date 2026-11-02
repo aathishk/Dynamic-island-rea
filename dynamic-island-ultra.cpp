@@ -22900,6 +22900,43 @@ void StartFileTrayDrag(const std::wstring& path) {
     }
 }
 
+inline void ToggleIslandVisibility(HWND hwnd) {
+    if (g_isFullscreen.load(std::memory_order_relaxed)) {
+        g_fullscreenOverrideVisible = !g_fullscreenOverrideVisible.load();
+        g_autoHiddenParked = false;
+        g_layoutDirty = true;
+        if (g_fullscreenOverrideVisible.load()) {
+            g_manuallyHidden = false;
+            Wh_SetIntValue(L"ManuallyHidden", 0);
+            g_hotkeyUnhideUntil.store(NowSeconds() + (g_settings.autoHideIdleSeconds > 0 ? g_settings.autoHideIdleSeconds : 6.0));
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
+        }
+    } else {
+        bool isCurrentlyHidden = g_manuallyHidden.load() || g_autoHiddenParked.load();
+        if (hwnd && !IsWindowVisible(hwnd)) {
+            isCurrentlyHidden = true;
+        }
+        if (isCurrentlyHidden) {
+            g_manuallyHidden = false;
+            Wh_SetIntValue(L"ManuallyHidden", 0);
+            g_autoHiddenParked = false;
+            g_fullscreenOverrideVisible = true;
+            g_hotkeyUnhideUntil.store(NowSeconds() + (g_settings.autoHideIdleSeconds > 0 ? g_settings.autoHideIdleSeconds : 6.0));
+            g_layoutDirty = true;
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
+        } else {
+            g_manuallyHidden = true;
+            Wh_SetIntValue(L"ManuallyHidden", 1);
+            g_hotkeyUnhideUntil.store(0.0);
+            g_fullscreenOverrideVisible = false;
+            g_layoutDirty = true;
+            PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
+        }
+    }
+}
+
 LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static POINT s_touchStart = {0, 0};
     static ULONGLONG s_touchStartTime = 0;
@@ -23840,16 +23877,13 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 TriggerNudge();
                 break;
             }
+            case GestureAction::ToggleVisibility:
+                ToggleIslandVisibility(hwnd);
+                break;
             case GestureAction::None:
+            default:
+                // Safe explicit no-op: unknown or unmapped gesture actions must NOT toggle expansion
                 break;
-            default: {
-                const bool nextVal = !g_pinnedExpanded.load();
-                g_pinnedExpanded.store(nextVal);
-                Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
-                g_layoutDirty = true;
-                TriggerNudge();
-                break;
-            }
             }
             return 0;
         }
@@ -24017,42 +24051,8 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 return 0;
             }
             if (wParam == ID_HIDE_SHOW_HOTKEY) {
-                if (g_isFullscreen.load(std::memory_order_relaxed)) {
-                    g_fullscreenOverrideVisible = !g_fullscreenOverrideVisible.load();
-                    g_autoHiddenParked = false;
-                    g_layoutDirty = true;
-                    if (g_fullscreenOverrideVisible.load()) {
-                        g_manuallyHidden = false;
-                        Wh_SetIntValue(L"ManuallyHidden", 0);
-                        g_hotkeyUnhideUntil.store(NowSeconds() + (g_settings.autoHideIdleSeconds > 0 ? g_settings.autoHideIdleSeconds : 6.0));
-                        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                        PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
-                    }
-                } else {
-                    bool isCurrentlyHidden = g_manuallyHidden.load() || g_autoHiddenParked.load();
-                    if (hwnd && !IsWindowVisible(hwnd)) {
-                        isCurrentlyHidden = true;
-                    }
-                    if (isCurrentlyHidden) {
-                        // User wants to reveal / unhide
-                        g_manuallyHidden = false;
-                        Wh_SetIntValue(L"ManuallyHidden", 0);
-                        g_autoHiddenParked = false;
-                        g_fullscreenOverrideVisible = true;
-                        g_hotkeyUnhideUntil.store(NowSeconds() + (g_settings.autoHideIdleSeconds > 0 ? g_settings.autoHideIdleSeconds : 6.0));
-                        g_layoutDirty = true;
-                        ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                        PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
-                    } else {
-                        // User wants to manually hide
-                        g_manuallyHidden = true;
-                        Wh_SetIntValue(L"ManuallyHidden", 1);
-                        g_hotkeyUnhideUntil.store(0.0);
-                        g_fullscreenOverrideVisible = false;
-                        g_layoutDirty = true;
-                        PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
-                    }
-                }
+                ToggleIslandVisibility(hwnd);
+                return 0;
             }
             return 0;
         }

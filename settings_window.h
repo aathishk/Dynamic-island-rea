@@ -49,7 +49,8 @@ inline const SettingOption kPosOptions[] = {
 inline const SettingOption kShapeOptions[] = {
     {L"iPhone Pill Capsule", L"pill"},
     {L"Windows 11 Flyout", L"w11"},
-    {L"macOS Notch", L"notch"}
+    {L"macOS Notch", L"notch"},
+    {L"Edge Blade", L"blade"}
 };
 
 inline const SettingOption kThemeOptions[] = {
@@ -61,7 +62,12 @@ inline const SettingOption kThemeOptions[] = {
     {L"Evergreen (Forest)", L"evergreen"},
     {L"Espresso (Warm Bronze)", L"espresso"},
     {L"Plum (Deep Purple)", L"plum"},
-    {L"Porcelain (Clean Light)", L"porcelain"}
+    {L"Porcelain (Clean Light)", L"porcelain"},
+    {L"Acrylic Glass (Legacy)", L"acrylic"},
+    {L"Fluent Mica (Legacy)", L"fluent"},
+    {L"Colorful Vibrant (Legacy)", L"colorful"},
+    {L"Classic Dark (Legacy)", L"classic"},
+    {L"Minimal Monochrome (Legacy)", L"minimal"}
 };
 
 inline const SettingOption kAnimOptions[] = {

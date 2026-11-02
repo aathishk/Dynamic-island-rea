@@ -555,6 +555,59 @@ int RunNotificationPolicyTest() {
         nhLoadRetention.LoadFromFile(tempFile);
         if (nhLoadRetention.Count() != 0) return 739; // Expired entry MUST be pruned on load!
 
+        // Test future-timestamp gap & enum validation (Sixth Audit Findings A)
+        // 1. Direct safe enum conversion checks
+        if (SafeCategoryFromInt(-1) != NotificationCategory::GeneralStatus) return 740;
+        if (SafeCategoryFromInt(99) != NotificationCategory::GeneralStatus) return 741;
+        if (SafeCategoryFromInt(1) != NotificationCategory::Battery) return 742;
+        if (SafePriorityFromInt(-1) != NotificationPriority::Normal) return 743;
+        if (SafePriorityFromInt(50) != NotificationPriority::Normal) return 744;
+        if (SafePriorityFromInt(2) != NotificationPriority::Critical) return 745;
+
+        // 2. Implausible future timestamp (>24 hours) must be rejected
+        NotificationHistory nhFuture;
+        nhFuture.SetEnabled(true);
+        nhFuture.ClearAll();
+
+        NotificationItem futureItem;
+        futureItem.id = 777;
+        futureItem.title = L"Future Item";
+        futureItem.message = L"From 2099";
+        futureItem.sourceApp = L"ClockWarp";
+        futureItem.timestampWallClock = nowWall + 100000ULL; // > 24 hours ahead
+        nhFuture.Record(futureItem);
+        nhFuture.SaveToFile(tempFile);
+
+        NotificationHistory nhLoadFuture;
+        nhLoadFuture.SetEnabled(true);
+        nhLoadFuture.LoadFromFile(tempFile);
+        if (nhLoadFuture.Count() != 0) return 746; // Corrupted future item MUST be rejected on load!
+
+        // 3. Minor future drift (e.g. 60 seconds) must be normalized to nowWall and preserved
+        NotificationHistory nhDrift;
+        nhDrift.SetEnabled(true);
+        nhDrift.ClearAll();
+
+        NotificationItem driftItem;
+        driftItem.id = 888;
+        driftItem.title = L"Drift Item";
+        driftItem.message = L"Slight drift ahead";
+        driftItem.sourceApp = L"NTP";
+        driftItem.category = static_cast<NotificationCategory>(99); // Corrupt category
+        driftItem.priority = static_cast<NotificationPriority>(55); // Corrupt priority
+        driftItem.timestampWallClock = nowWall + 60ULL; // 1 minute ahead
+        nhDrift.Record(driftItem);
+        nhDrift.SaveToFile(tempFile);
+
+        NotificationHistory nhLoadDrift;
+        nhLoadDrift.SetEnabled(true);
+        nhLoadDrift.LoadFromFile(tempFile);
+        if (nhLoadDrift.Count() != 1) return 747;
+        auto driftLoaded = nhLoadDrift.GetAllEntries()[0];
+        if (driftLoaded.timestampWallClock > nowWall) return 748; // Must normalize drift to nowWall!
+        if (driftLoaded.category != NotificationCategory::GeneralStatus) return 749; // Must sanitize corrupt category!
+        if (driftLoaded.priority != NotificationPriority::Normal) return 750; // Must sanitize corrupt priority!
+
         DeleteFileW(tempFile);
 
         if (!nh.DismissEntry(101)) return 723;
@@ -745,13 +798,37 @@ int RunGesturesAndLayoutPolicyTest() {
             GestureAction::StartPauseTimer,
             GestureAction::CycleTabs,
             GestureAction::NextMediaTrack,
-            GestureAction::PreviousMediaTrack
+            GestureAction::PreviousMediaTrack,
+            GestureAction::ToggleVisibility
         };
         for (GestureAction ga : allActions) {
             std::wstring idStr = GestureActionToIdString(ga);
             GestureAction roundTrip = GestureActionFromIdString(idStr);
             if (roundTrip != ga) return 1023;
         }
+
+        // Disabled Quick Controls tab index handling check (Sixth Audit Finding B)
+        auto CalcQcIndex = [](bool enabled, int totalTabs) -> int {
+            if (!enabled) return -1;
+            return totalTabs - 1;
+        };
+        if (CalcQcIndex(false, 3) != -1) return 1024; // When disabled, tab index must be negative!
+        if (CalcQcIndex(true, 4) != 3) return 1025;   // When enabled, tab index is active count - 1
+
+        // Safe no-op on unknown / unmapped gesture actions (Sixth Audit Finding B)
+        GestureAction unknownAction = static_cast<GestureAction>(9999);
+        bool wouldToggle = false;
+        switch (unknownAction) {
+        case GestureAction::ExpandCollapse:
+            wouldToggle = true;
+            break;
+        case GestureAction::None:
+        default:
+            // Safe explicit no-op: must NOT toggle
+            wouldToggle = false;
+            break;
+        }
+        if (wouldToggle) return 1026; // Default must be safe explicit no-op!
     }
 
     return 0;

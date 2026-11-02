@@ -13,6 +13,20 @@
 
 namespace island_notification {
 
+inline NotificationCategory SafeCategoryFromInt(int val) {
+    if (val >= 0 && val <= static_cast<int>(NotificationCategory::GeneralStatus)) {
+        return static_cast<NotificationCategory>(val);
+    }
+    return NotificationCategory::GeneralStatus;
+}
+
+inline NotificationPriority SafePriorityFromInt(int val) {
+    if (val >= 0 && val <= static_cast<int>(NotificationPriority::Critical)) {
+        return static_cast<NotificationPriority>(val);
+    }
+    return NotificationPriority::Normal;
+}
+
 inline std::wstring EscapeText(const std::wstring& s) {
     std::wstring out;
     out.reserve(s.size() + 8);
@@ -221,20 +235,31 @@ public:
                 it.title = UnescapeText(tokens[3]);
                 it.message = UnescapeText(tokens[4]);
                 try {
-                    it.category = static_cast<NotificationCategory>(std::stoi(tokens[5]));
+                    it.category = SafeCategoryFromInt(std::stoi(tokens[5]));
                 } catch (...) {
                     it.category = NotificationCategory::GeneralStatus;
                 }
                 try {
-                    it.priority = static_cast<NotificationPriority>(std::stoi(tokens[6]));
+                    it.priority = SafePriorityFromInt(std::stoi(tokens[6]));
                 } catch (...) {
                     it.priority = NotificationPriority::Normal;
                 }
                 it.dismissed = (tokens[7] == L"1");
                 it.timestampTick = GetTickCount64();
 
+                // Validate and sanitize timestamp
+                if (it.timestampWallClock > nowWall + 86400ULL) {
+                    // Implausibly far in the future (>24h): reject corrupted record
+                    continue;
+                } else if (it.timestampWallClock > nowWall) {
+                    // Minor clock drift / timezone shift: normalize to current wall-clock
+                    it.timestampWallClock = nowWall;
+                } else if (it.timestampWallClock == 0) {
+                    it.timestampWallClock = nowWall;
+                }
+
                 // Wall-clock retention check: filter out expired entries across reboots
-                if (it.timestampWallClock > 0 && nowWall >= it.timestampWallClock && (nowWall - it.timestampWallClock) > maxAgeSec) {
+                if ((nowWall - it.timestampWallClock) > maxAgeSec) {
                     continue;
                 }
 
@@ -250,10 +275,10 @@ public:
                 it.title = tokens[2];
                 it.message = tokens[3];
                 if (tokens.size() > 4) {
-                    try { it.category = static_cast<NotificationCategory>(std::stoi(tokens[4])); } catch (...) {}
+                    try { it.category = SafeCategoryFromInt(std::stoi(tokens[4])); } catch (...) { it.category = NotificationCategory::GeneralStatus; }
                 }
                 if (tokens.size() > 5) {
-                    try { it.priority = static_cast<NotificationPriority>(std::stoi(tokens[5])); } catch (...) {}
+                    try { it.priority = SafePriorityFromInt(std::stoi(tokens[5])); } catch (...) { it.priority = NotificationPriority::Normal; }
                 }
                 if (tokens.size() > 6) {
                     it.dismissed = (tokens[6] == L"1");

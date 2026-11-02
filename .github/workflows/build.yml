@@ -3,7 +3,7 @@ name: build
 
 on:
   push:
-    branches: [main, improvements]
+    branches: [main, improvements, 'feature/**']
     tags: ['v*']
   pull_request:
   workflow_dispatch:

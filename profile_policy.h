@@ -115,9 +115,12 @@ inline void ValidateProfile(ProfileData& p) {
         return def;
     };
 
-    p.themePreset = validOr(p.themePreset, {L"transparent", L"acrylic", L"fluent", L"colorful", L"classic", L"minimal", L"obsidian"}, L"transparent");
+    p.themePreset = validOr(p.themePreset, {
+        L"transparent", L"acrylic", L"fluent", L"colorful", L"classic", L"minimal", L"obsidian",
+        L"graphite", L"slate", L"nord", L"evergreen", L"espresso", L"plum", L"porcelain"
+    }, L"transparent");
     p.position = validOr(p.position, {L"top-center", L"top-left", L"top-right", L"bottom-center", L"bottom-left", L"bottom-right", L"auto"}, L"top-center");
-    p.shapeStyle = validOr(p.shapeStyle, {L"notch", L"pill", L"blade"}, L"notch");
+    p.shapeStyle = validOr(p.shapeStyle, {L"notch", L"pill", L"w11", L"blade"}, L"notch");
     p.animationStyle = validOr(p.animationStyle, {L"applespring", L"smooth", L"snappy", L"bouncy"}, L"applespring");
     p.animationSpeed = validOr(p.animationSpeed, {L"normal", L"fast", L"relaxed"}, L"normal");
     p.performanceMode = validOr(p.performanceMode, {L"battery_saver", L"balanced", L"visual_quality", L"custom"}, L"balanced");

@@ -272,6 +272,60 @@ int RunProfilePolicyTest() {
         if (hw != 1 || ft != 1 || ql != 1 || ly != 1) return 510;
     }
 
+    // 7. Extended theme & shape validation (Finding 1)
+    {
+        ProfileData ext;
+        ext.name = L"CustomAppearance";
+        ext.themePreset = L"graphite";
+        ext.shapeStyle = L"w11";
+        ext.autoHideFullscreen = true;
+        ValidateProfile(ext);
+        if (ext.themePreset != L"graphite") return 511; // Must NOT revert graphite to fallback!
+        if (ext.shapeStyle != L"w11") return 512;       // Must NOT revert w11 to fallback!
+
+        // Test all 14 themes
+        const wchar_t* allThemes[] = {
+            L"transparent", L"acrylic", L"fluent", L"colorful", L"classic",
+            L"minimal", L"obsidian", L"graphite", L"slate", L"nord",
+            L"evergreen", L"espresso", L"plum", L"porcelain"
+        };
+        for (const wchar_t* th : allThemes) {
+            ProfileData pTh;
+            pTh.themePreset = th;
+            ValidateProfile(pTh);
+            if (pTh.themePreset != th) return 513;
+        }
+
+        // Test all 4 shapes
+        const wchar_t* allShapes[] = { L"notch", L"pill", L"w11", L"blade" };
+        for (const wchar_t* sh : allShapes) {
+            ProfileData pSh;
+            pSh.shapeStyle = sh;
+            ValidateProfile(pSh);
+            if (pSh.shapeStyle != sh) return 514;
+        }
+
+        // Test AutoHideFullscreen persistence across Behavior and Context keys
+        std::wstring tempIni = ProfileManager::GetProfilesDirectory() + L"\\test_fullscreen.ini";
+        ext.autoHideFullscreen = true;
+        ProfileManager::SaveProfileToFile(ext, tempIni);
+
+        ProfileData reloaded;
+        if (!ProfileManager::LoadProfileFromFile(tempIni, reloaded)) return 515;
+        if (!reloaded.autoHideFullscreen) return 516;
+
+        std::wstring targetIni = ProfileManager::GetProfilesDirectory() + L"\\test_target_fullscreen.ini";
+        ProfileManager::ApplyProfileToSettingsIni(reloaded, targetIni);
+        int behaviorFull = GetPrivateProfileIntW(L"Settings", L"Behavior.AutoHideFullscreen", 0, targetIni.c_str());
+        int contextFull = GetPrivateProfileIntW(L"Settings", L"Context.AutoHideFullscreen", 0, targetIni.c_str());
+
+        DeleteFileW(tempIni.c_str());
+        DeleteFileW(targetIni.c_str());
+        DeleteFileW((targetIni + L".bak").c_str());
+
+        if (behaviorFull != 1 || contextFull != 1) return 517;
+    }
+
     return 0;
 }
 
@@ -422,18 +476,26 @@ int RunNotificationPolicyTest() {
         if (totalPushed.load() <= 0) return 720;
     }
 
-    // 7. NotificationHistory methods test
+    // 7. NotificationHistory methods, escaping, persistence, reload, and wall-clock retention
     {
         NotificationHistory nh;
         nh.SetEnabled(true);
         nh.ClearAll();
         if (nh.Count() != 0) return 721;
 
+        // Verify escaping with pipe, newline, backslash
+        std::wstring testRaw = L"Pipe|test\\slash\r\nnewline";
+        std::wstring escaped = EscapeText(testRaw);
+        std::wstring unescaped = UnescapeText(escaped);
+        if (unescaped != testRaw) return 727;
+
         NotificationItem it1;
         it1.id = 101;
-        it1.title = L"Test 1";
-        it1.message = L"Message 1";
-        it1.sourceApp = L"App 1";
+        it1.title = L"Test|Pipe 1";
+        it1.message = L"Message\r\nLine 1";
+        it1.sourceApp = L"App\\1";
+        it1.category = NotificationCategory::Bluetooth;
+        it1.priority = NotificationPriority::Critical;
         nh.Record(it1);
 
         NotificationItem it2;
@@ -441,10 +503,59 @@ int RunNotificationPolicyTest() {
         it2.title = L"Test 2";
         it2.message = L"Message 2";
         it2.sourceApp = L"App 2";
+        it2.category = NotificationCategory::Battery;
+        it2.priority = NotificationPriority::Normal;
         nh.Record(it2);
 
         auto all = nh.GetAllEntries();
         if (all.size() != 2) return 722;
+
+        // Test saving to custom file
+        wchar_t tempFile[MAX_PATH];
+        GetTempPathW(MAX_PATH, tempFile);
+        wcscat_s(tempFile, L"test_notif_hist.txt");
+        if (!nh.SaveToFile(tempFile)) return 728;
+
+        // Test loading from file into new instance
+        NotificationHistory nhReload;
+        nhReload.SetEnabled(true);
+        if (!nhReload.LoadFromFile(tempFile)) return 729;
+        if (nhReload.Count() != 2) return 730;
+
+        auto reloaded = nhReload.GetAllEntries();
+        if (reloaded[0].id != 101) return 731; // Must restore ID!
+        if (reloaded[0].category != NotificationCategory::Bluetooth) return 732; // Must restore category!
+        if (reloaded[0].priority != NotificationPriority::Critical) return 733; // Must restore priority!
+        if (reloaded[0].title != L"Test|Pipe 1") return 734; // Must unescape pipe!
+        if (reloaded[0].message != L"Message\r\nLine 1") return 735; // Must unescape newline!
+        if (reloaded[0].sourceApp != L"App\\1") return 736; // Must unescape backslash!
+
+        // Test DismissEntry on reloaded instance
+        if (!nhReload.DismissEntry(101)) return 737; // Dismiss must succeed with loaded id!
+        if (!nhReload.GetAllEntries()[0].dismissed) return 738;
+
+        // Test wall-clock retention pruning
+        NotificationHistory nhRetention;
+        nhRetention.SetEnabled(true);
+        nhRetention.ClearAll();
+
+        NotificationItem oldItem;
+        oldItem.id = 555;
+        oldItem.title = L"Old Item";
+        oldItem.message = L"Expired 8 days ago";
+        oldItem.sourceApp = L"OldApp";
+        uint64_t nowWall = static_cast<uint64_t>(time(nullptr));
+        oldItem.timestampWallClock = nowWall - (8 * 86400); // 8 days old
+        nhRetention.Record(oldItem);
+        // Overwrite file with exact 8-day-old timestamp
+        nhRetention.SaveToFile(tempFile);
+
+        NotificationHistory nhLoadRetention;
+        nhLoadRetention.SetEnabled(true);
+        nhLoadRetention.LoadFromFile(tempFile);
+        if (nhLoadRetention.Count() != 0) return 739; // Expired entry MUST be pruned on load!
+
+        DeleteFileW(tempFile);
 
         if (!nh.DismissEntry(101)) return 723;
         auto allDismissed = nh.GetAllEntries();
@@ -621,6 +732,27 @@ int RunGesturesAndLayoutPolicyTest() {
 
     IslandContentDimensions dCol = CalculateAdaptiveDimensions(IslandPresentationState::Collapsed, 1.0f, 1.0f);
     if (std::abs(dCol.width - 160.0f) > 0.1f || std::abs(dCol.height - 36.0f) > 0.1f) return 1022;
+
+    // 8. Complete gesture action string serialization & click options parity (Finding 2)
+    {
+        const GestureAction allActions[] = {
+            GestureAction::None,
+            GestureAction::ExpandCollapse,
+            GestureAction::OpenQuickControls,
+            GestureAction::ToggleFocusMode,
+            GestureAction::OpenSettings,
+            GestureAction::OpenProfileStudio,
+            GestureAction::StartPauseTimer,
+            GestureAction::CycleTabs,
+            GestureAction::NextMediaTrack,
+            GestureAction::PreviousMediaTrack
+        };
+        for (GestureAction ga : allActions) {
+            std::wstring idStr = GestureActionToIdString(ga);
+            GestureAction roundTrip = GestureActionFromIdString(idStr);
+            if (roundTrip != ga) return 1023;
+        }
+    }
 
     return 0;
 }

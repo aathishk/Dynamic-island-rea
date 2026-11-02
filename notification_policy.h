@@ -7,6 +7,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <ctime>
 
 namespace island_notification {
 
@@ -35,6 +36,7 @@ struct NotificationItem {
     std::wstring message;
     std::wstring sourceApp;
     ULONGLONG timestampTick = 0;
+    uint64_t timestampWallClock = 0;
     SYSTEMTIME timestampSystem = {};
     DWORD durationMs = 3500;
     bool dismissed = false;
@@ -166,6 +168,9 @@ public:
         NotificationItem item = incoming;
         item.id = nextId_++;
         item.timestampTick = now;
+        if (item.timestampWallClock == 0) {
+            item.timestampWallClock = static_cast<uint64_t>(time(nullptr));
+        }
         GetLocalTime(&item.timestampSystem);
 
         // Priority insertion: Critical items go to front

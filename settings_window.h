@@ -1378,7 +1378,7 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     current.autoBatterySaver = (ReadIniInt(L"Settings", L"Performance.AutoBatterySaver", 1) != 0);
                     current.contextMode = ReadIniString(L"Settings", L"Context.ContextMode", L"normal");
                     current.autoContextSwitching = (ReadIniInt(L"Settings", L"Context.AutoContextSwitching", 1) != 0);
-                    current.autoHideFullscreen = (ReadIniInt(L"Settings", L"Behavior.AutoHideFullscreen", 1) != 0);
+                    current.autoHideFullscreen = (ReadIniInt(L"Settings", L"Behavior.AutoHideFullscreen", ReadIniInt(L"Settings", L"Context.AutoHideFullscreen", 1)) != 0);
 
                     current.quietHoursEnabled = (ReadIniInt(L"Settings", L"Notifications.QuietHoursEnabled", 0) != 0);
                     current.quietHoursStart = ReadIniInt(L"Settings", L"Notifications.QuietHoursStart", 22);

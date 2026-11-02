@@ -7,9 +7,59 @@
 #include <mutex>
 #include <fstream>
 #include <sstream>
+#include <ctime>
+#include <algorithm>
 #include "notification_policy.h"
 
 namespace island_notification {
+
+inline std::wstring EscapeText(const std::wstring& s) {
+    std::wstring out;
+    out.reserve(s.size() + 8);
+    for (wchar_t ch : s) {
+        if (ch == L'\\') {
+            out += L"\\\\";
+        } else if (ch == L'|') {
+            out += L"\\p";
+        } else if (ch == L'\r') {
+            out += L"\\r";
+        } else if (ch == L'\n') {
+            out += L"\\n";
+        } else {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+inline std::wstring UnescapeText(const std::wstring& s) {
+    std::wstring out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == L'\\' && i + 1 < s.size()) {
+            wchar_t next = s[i + 1];
+            if (next == L'\\') {
+                out += L'\\';
+                ++i;
+            } else if (next == L'p') {
+                out += L'|';
+                ++i;
+            } else if (next == L'r') {
+                out += L'\r';
+                ++i;
+            } else if (next == L'n') {
+                out += L'\n';
+                ++i;
+            } else {
+                out += next;
+                ++i;
+            }
+        } else {
+            out += s[i];
+        }
+    }
+    return out;
+}
 
 class NotificationHistory {
 private:
@@ -19,6 +69,7 @@ private:
     bool paused_ = false;        // Temporary pause
     size_t maxEntries_ = 100;
     DWORD maxRetentionDays_ = 7;
+    uint64_t nextId_ = 1;
 
     static std::wstring GetHistoryFilePath() {
         wchar_t path[MAX_PATH];
@@ -26,6 +77,27 @@ private:
             return std::wstring(path) + L"\\DynamicIsland\\notification_history.txt";
         }
         return L"notification_history.txt";
+    }
+
+    bool SaveToFileLocked(const std::wstring& targetPath = L"") const {
+        std::wstring path = targetPath.empty() ? GetHistoryFilePath() : targetPath;
+        HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile == INVALID_HANDLE_VALUE) return false;
+
+        for (const auto& it : history_) {
+            std::wstring line = std::to_wstring(it.id) + L"|" +
+                                std::to_wstring(it.timestampWallClock) + L"|" +
+                                EscapeText(it.sourceApp) + L"|" +
+                                EscapeText(it.title) + L"|" +
+                                EscapeText(it.message) + L"|" +
+                                std::to_wstring(static_cast<int>(it.category)) + L"|" +
+                                std::to_wstring(static_cast<int>(it.priority)) + L"|" +
+                                (it.dismissed ? L"1" : L"0") + L"\r\n";
+            DWORD written = 0;
+            WriteFile(hFile, line.c_str(), static_cast<DWORD>(line.size() * sizeof(wchar_t)), &written, nullptr);
+        }
+        CloseHandle(hFile);
+        return true;
     }
 
 public:
@@ -44,6 +116,7 @@ public:
         enabled_ = enable;
         if (!enabled_) {
             history_.clear();
+            nextId_ = 1;
             DeleteFileW(GetHistoryFilePath().c_str());
         }
     }
@@ -75,7 +148,20 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         if (!enabled_ || paused_) return;
 
-        history_.push_back(item);
+        NotificationItem it = item;
+        if (it.id == 0) {
+            it.id = nextId_++;
+        } else {
+            nextId_ = std::max(nextId_, it.id + 1);
+        }
+        if (it.timestampWallClock == 0) {
+            it.timestampWallClock = static_cast<uint64_t>(time(nullptr));
+        }
+        if (it.timestampTick == 0) {
+            it.timestampTick = GetTickCount64();
+        }
+
+        history_.push_back(it);
         while (history_.size() > maxEntries_) {
             history_.erase(history_.begin());
         }
@@ -108,12 +194,16 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         history_.clear();
 
-        ULONGLONG now = GetTickCount64();
-        ULONGLONG maxAgeMs = static_cast<ULONGLONG>(maxRetentionDays_) * 86400ULL * 1000ULL;
+        uint64_t nowWall = static_cast<uint64_t>(time(nullptr));
+        uint64_t maxAgeSec = static_cast<uint64_t>(maxRetentionDays_) * 86400ULL;
 
         while (std::getline(ss, line)) {
+            if (!line.empty() && line.back() == L'\r') {
+                line.pop_back();
+            }
             if (line.empty()) continue;
-            // Parse: timestamp|source|title|msg|cat|pri|dismissed
+
+            // Parse: id|timestampWallClock|source|title|msg|cat|pri|dismissed
             std::vector<std::wstring> tokens;
             size_t start = 0, end = 0;
             while ((end = line.find(L'|', start)) != std::wstring::npos) {
@@ -121,52 +211,60 @@ public:
                 start = end + 1;
             }
             tokens.push_back(line.substr(start));
-            if (tokens.size() < 4) continue;
 
-            ULONGLONG tick = 0;
-            try { tick = std::stoull(tokens[0]); } catch (...) { tick = now; }
+            if (tokens.size() >= 8) {
+                // New format: id|timestampWallClock|sourceApp|title|message|category|priority|dismissed
+                NotificationItem it;
+                try { it.id = std::stoull(tokens[0]); } catch (...) { it.id = nextId_++; }
+                try { it.timestampWallClock = std::stoull(tokens[1]); } catch (...) { it.timestampWallClock = nowWall; }
+                it.sourceApp = UnescapeText(tokens[2]);
+                it.title = UnescapeText(tokens[3]);
+                it.message = UnescapeText(tokens[4]);
+                try {
+                    it.category = static_cast<NotificationCategory>(std::stoi(tokens[5]));
+                } catch (...) {
+                    it.category = NotificationCategory::GeneralStatus;
+                }
+                try {
+                    it.priority = static_cast<NotificationPriority>(std::stoi(tokens[6]));
+                } catch (...) {
+                    it.priority = NotificationPriority::Normal;
+                }
+                it.dismissed = (tokens[7] == L"1");
+                it.timestampTick = GetTickCount64();
 
-            // Enforce max retention days: filter out items older than maxRetentionDays_
-            if (now >= tick && (now - tick) > maxAgeMs) {
-                continue;
+                // Wall-clock retention check: filter out expired entries across reboots
+                if (it.timestampWallClock > 0 && nowWall >= it.timestampWallClock && (nowWall - it.timestampWallClock) > maxAgeSec) {
+                    continue;
+                }
+
+                nextId_ = std::max(nextId_, it.id + 1);
+                history_.push_back(it);
+            } else if (tokens.size() >= 4) {
+                // Legacy format: timestampTick|sourceApp|title|message[|cat|pri|dismissed]
+                NotificationItem it;
+                it.id = nextId_++;
+                it.timestampWallClock = nowWall;
+                try { it.timestampTick = std::stoull(tokens[0]); } catch (...) { it.timestampTick = GetTickCount64(); }
+                it.sourceApp = tokens[1];
+                it.title = tokens[2];
+                it.message = tokens[3];
+                if (tokens.size() > 4) {
+                    try { it.category = static_cast<NotificationCategory>(std::stoi(tokens[4])); } catch (...) {}
+                }
+                if (tokens.size() > 5) {
+                    try { it.priority = static_cast<NotificationPriority>(std::stoi(tokens[5])); } catch (...) {}
+                }
+                if (tokens.size() > 6) {
+                    it.dismissed = (tokens[6] == L"1");
+                }
+                history_.push_back(it);
             }
 
-            NotificationItem it;
-            it.timestampTick = tick;
-            it.sourceApp = tokens[1];
-            it.title = tokens[2];
-            it.message = tokens[3];
-            if (tokens.size() > 6) {
-                it.dismissed = (tokens[6] == L"1");
-            }
-            history_.push_back(it);
             if (history_.size() >= maxEntries_) break;
         }
         return true;
     }
-
-private:
-    bool SaveToFileLocked(const std::wstring& targetPath = L"") const {
-        std::wstring path = targetPath.empty() ? GetHistoryFilePath() : targetPath;
-        HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (hFile == INVALID_HANDLE_VALUE) return false;
-
-        for (const auto& it : history_) {
-            std::wstring line = std::to_wstring(it.timestampTick) + L"|" +
-                                it.sourceApp + L"|" +
-                                it.title + L"|" +
-                                it.message + L"|" +
-                                std::to_wstring(static_cast<int>(it.category)) + L"|" +
-                                std::to_wstring(static_cast<int>(it.priority)) + L"|" +
-                                (it.dismissed ? L"1" : L"0") + L"\r\n";
-            DWORD written = 0;
-            WriteFile(hFile, line.c_str(), static_cast<DWORD>(line.size() * sizeof(wchar_t)), &written, nullptr);
-        }
-        CloseHandle(hFile);
-        return true;
-    }
-
-public:
 
     std::vector<NotificationItem> GetAllEntries() const {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -218,6 +316,7 @@ public:
     void ClearAll() {
         std::lock_guard<std::mutex> lock(mutex_);
         history_.clear();
+        nextId_ = 1;
         DeleteFileW(GetHistoryFilePath().c_str());
     }
 

@@ -23204,27 +23204,30 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 const int qcTab = QuickControlsTabIndex(g_settings);
                 if (g_settings.quickControlsModule && qcTab >= 0 && NormalizedTabIndex(g_settings) == qcTab) {
                     if (g_pillClientRect.valid) {
+                        const float scale = (g_settings.sizeScale > 0.01f) ? g_settings.sizeScale : 1.0f;
+                        const float padX = 24.0f * scale;
                         float left = static_cast<float>(g_pillClientRect.left);
                         float top = static_cast<float>(g_pillClientRect.top);
                         float right = static_cast<float>(g_pillClientRect.right);
-                        float barY = top + 40.0f;
-                        float barLeft = left + 24.0f;
-                        float barRight = right - 24.0f;
-                        if (yPos >= barY - 8.0f && yPos <= barY + 22.0f && xPos >= barLeft && xPos <= barRight) {
+                        float barY = top + 40.0f * scale;
+                        float barLeft = left + padX;
+                        float barRight = right - padX;
+                        float barH = 14.0f * scale;
+                        if (yPos >= barY - 8.0f * scale && yPos <= barY + barH + 8.0f * scale && xPos >= barLeft && xPos <= barRight) {
                             float pctF = std::clamp((static_cast<float>(xPos) - barLeft) / (barRight - barLeft), 0.0f, 1.0f);
                             island_controls::SetMasterVolumePercent(static_cast<int>(pctF * 100.0f));
                             TriggerNudge();
                             return 0;
                         }
-                        float gridY = barY + 20.0f;
-                        float tileW = (barRight - barLeft - 16.0f) / 3.0f;
-                        float tileH = 26.0f;
+                        float gridY = barY + 20.0f * scale;
+                        float tileW = (barRight - barLeft - 16.0f * scale) / 3.0f;
+                        float tileH = 26.0f * scale;
                         const auto tiles = island_controls::GetStandardControlTiles();
                         for (int i = 0; i < 12 && i < static_cast<int>(tiles.size()); ++i) {
                             int r = i / 3;
                             int c = i % 3;
-                            float tx = barLeft + c * (tileW + 8.0f);
-                            float ty = gridY + r * (tileH + 6.0f);
+                            float tx = barLeft + c * (tileW + 8.0f * scale);
+                            float ty = gridY + r * (tileH + 6.0f * scale);
                             if (xPos >= tx && xPos <= tx + tileW && yPos >= ty && yPos <= ty + tileH) {
                                 if (tiles[i].action == island_controls::ControlAction::OpenDynamicEdgeSettings) {
                                     settings_ui::ShowSettingsWindow(hwnd);
@@ -23795,7 +23798,8 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_LBUTTONDBLCLK: {
             using namespace island_gestures;
             GestureAction act = island_globals::g_gestureManager.GetAction(GestureType::DoubleClick);
-            if (act == GestureAction::OpenQuickControls) {
+            switch (act) {
+            case GestureAction::OpenQuickControls: {
                 const int qc = QuickControlsTabIndex(g_settings);
                 if (qc >= 0) {
                     g_idleTab = qc;
@@ -23803,18 +23807,49 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     g_layoutDirty = true;
                     TriggerNudge();
                 }
-            } else if (act == GestureAction::ToggleFocusMode) {
+                break;
+            }
+            case GestureAction::ToggleFocusMode:
                 if (island_globals::g_focusTimer.IsActive()) {
                     StopFocusTimer();
                 } else {
                     StartFocusTimer(25, false);
                 }
-            } else if (act == GestureAction::OpenSettings) {
+                break;
+            case GestureAction::OpenSettings:
+            case GestureAction::OpenProfileStudio:
                 settings_ui::ShowSettingsWindow(hwnd);
-            } else {
+                break;
+            case GestureAction::StartPauseTimer:
+                ToggleTimerPause();
+                break;
+            case GestureAction::CycleTabs:
+                StepIdleTab(1);
+                break;
+            case GestureAction::NextMediaTrack:
+                SendMediaTransportCommand(2);
+                break;
+            case GestureAction::PreviousMediaTrack:
+                SendMediaTransportCommand(0);
+                break;
+            case GestureAction::ExpandCollapse: {
                 const bool nextVal = !g_pinnedExpanded.load();
                 g_pinnedExpanded.store(nextVal);
                 Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
+                g_layoutDirty = true;
+                TriggerNudge();
+                break;
+            }
+            case GestureAction::None:
+                break;
+            default: {
+                const bool nextVal = !g_pinnedExpanded.load();
+                g_pinnedExpanded.store(nextVal);
+                Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
+                g_layoutDirty = true;
+                TriggerNudge();
+                break;
+            }
             }
             return 0;
         }

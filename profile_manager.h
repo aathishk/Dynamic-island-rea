@@ -78,6 +78,7 @@ public:
         writeKey(L"Context", L"ContextMode", p.contextMode);
         writeInt(L"Context", L"AutoContextSwitching", p.autoContextSwitching ? 1 : 0);
         writeInt(L"Context", L"AutoHideFullscreen", p.autoHideFullscreen ? 1 : 0);
+        writeInt(L"Behavior", L"AutoHideFullscreen", p.autoHideFullscreen ? 1 : 0);
 
         // Notifications
         writeInt(L"Notifications", L"QuietHoursEnabled", p.quietHoursEnabled ? 1 : 0);
@@ -161,7 +162,7 @@ public:
         outProfile.autoBatterySaver = (readInt(L"Performance", L"AutoBatterySaver", 1) != 0);
         outProfile.contextMode = readStr(L"Context", L"ContextMode", L"normal");
         outProfile.autoContextSwitching = (readInt(L"Context", L"AutoContextSwitching", 1) != 0);
-        outProfile.autoHideFullscreen = (readInt(L"Context", L"AutoHideFullscreen", 1) != 0);
+        outProfile.autoHideFullscreen = (readInt(L"Behavior", L"AutoHideFullscreen", readInt(L"Context", L"AutoHideFullscreen", 1)) != 0);
 
         // Notifications
         outProfile.quietHoursEnabled = (readInt(L"Notifications", L"QuietHoursEnabled", 0) != 0);
@@ -269,6 +270,7 @@ public:
         setStr(L"Context.ContextMode", p.contextMode);
         setInt(L"Context.AutoContextSwitching", p.autoContextSwitching ? 1 : 0);
         setInt(L"Context.AutoHideFullscreen", p.autoHideFullscreen ? 1 : 0);
+        setInt(L"Behavior.AutoHideFullscreen", p.autoHideFullscreen ? 1 : 0);
 
         // Notifications
         setInt(L"Notifications.QuietHoursEnabled", p.quietHoursEnabled ? 1 : 0);

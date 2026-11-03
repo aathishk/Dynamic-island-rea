@@ -22,27 +22,60 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 VERSION = "1.7.0"
 
-# Ensure deterministic, reproducible PE builds across local and CI environments
-os.environ.setdefault("SOURCE_DATE_EPOCH", "1700000000")
+# Pinned epoch for reproducible release builds
+PINNED_SOURCE_DATE_EPOCH = "1700000000"
+os.environ["SOURCE_DATE_EPOCH"] = os.environ.get("SOURCE_DATE_EPOCH", PINNED_SOURCE_DATE_EPOCH)
 
 
-def find_clang(toolchain):
+def find_clang(toolchain, require_ucrt=True):
     names = ["x86_64-w64-mingw32-clang++", "clang++"]
+    candidate = None
     if toolchain:
         for n in names:
             for ext in ("", ".exe"):
                 p = os.path.join(toolchain, "bin", n + ext)
                 if os.path.exists(p):
-                    return p
-        sys.exit(f"error: no clang++ found in {toolchain}\\bin")
-    default_tc = os.path.expanduser(r"~\toolchain\llvm-mingw-20261020-ucrt-x86_64")
-    if os.path.exists(os.path.join(default_tc, "bin", "clang++.exe")):
-        return os.path.join(default_tc, "bin", "clang++.exe")
-    for n in names:
-        p = shutil.which(n)
-        if p:
-            return p
-    sys.exit("error: clang++ not found. Pass --toolchain or set DI_TOOLCHAIN.")
+                    candidate = p
+                    break
+            if candidate:
+                break
+        if not candidate:
+            sys.exit(f"error: no clang++ found in {toolchain}\\bin")
+    else:
+        env_tc = os.environ.get("DI_TOOLCHAIN")
+        if env_tc:
+            for n in names:
+                for ext in ("", ".exe"):
+                    p = os.path.join(env_tc, "bin", n + ext)
+                    if os.path.exists(p):
+                        candidate = p
+                        break
+                if candidate:
+                    break
+        if not candidate:
+            default_tc = os.path.expanduser(r"~\toolchain\llvm-mingw-20261020-ucrt-x86_64")
+            if os.path.exists(os.path.join(default_tc, "bin", "clang++.exe")):
+                candidate = os.path.join(default_tc, "bin", "clang++.exe")
+        if not candidate:
+            for n in names:
+                p = shutil.which(n)
+                if p:
+                    candidate = p
+                    break
+
+    if not candidate:
+        sys.exit("error: clang++ not found. Pinned LLVM-MinGW UCRT toolchain is required.")
+
+    if require_ucrt:
+        try:
+            r = subprocess.run([candidate, "-dumpmachine"], capture_output=True, text=True)
+            triple = r.stdout.strip()
+            if "x86_64" not in triple or ("mingw" not in triple and "windows" not in triple):
+                sys.exit(f"error: {candidate} target ({triple}) is not a supported 64-bit Windows MinGW-UCRT compiler.")
+        except Exception as e:
+            sys.exit(f"error: failed to verify compiler target for {candidate}: {e}")
+
+    return candidate
 
 
 def compile_resources(clang, out_dir):
@@ -103,9 +136,12 @@ def main():
     ap.add_argument("--cppwinrt", default=os.environ.get("DI_CPPWINRT"))
     ap.add_argument("--out", default=os.path.join(HERE, "DynamicIsland.exe"))
     ap.add_argument("--opt", default="O2")
+    ap.add_argument("--epoch", default=PINNED_SOURCE_DATE_EPOCH, help="Explicit epoch timestamp for reproducible builds")
+    ap.add_argument("--require-ucrt", action="store_true", default=True, help="Require verified 64-bit MinGW-UCRT toolchain")
     args = ap.parse_args()
 
-    clang = find_clang(args.toolchain)
+    os.environ["SOURCE_DATE_EPOCH"] = args.epoch
+    clang = find_clang(args.toolchain, require_ucrt=args.require_ucrt)
     cppwinrt = find_cppwinrt(args.cppwinrt, args.toolchain)
 
     res_obj = compile_resources(clang, os.path.dirname(os.path.abspath(args.out)))

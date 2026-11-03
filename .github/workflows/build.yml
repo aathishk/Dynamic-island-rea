@@ -104,18 +104,28 @@ jobs:
       - name: Validate release checksum parity
         shell: pwsh
         run: |
-          $expectedLine = Get-Content Dynamic-Edge-v1.7.0-SHA256SUMS.txt | Where-Object { $_ -match "DynamicIsland\.exe" } | Select-Object -First 1
-          if ($expectedLine) {
-            $expected = ($expectedLine -split '\s+')[0].Trim().ToLower()
-            $actual = (Get-FileHash DynamicIsland.exe -Algorithm SHA256).Hash.ToLower()
-            Write-Host "Expected SHA256: $expected"
-            Write-Host "Actual SHA256:   $actual"
-            if ($actual -ne $expected) {
-              Write-Host "::error title=Checksum Mismatch::Parity failed. Expected: $expected, Actual: $actual"
-              throw "Checksum parity verification failed! Expected: $expected, Actual: $actual"
-            }
-            Write-Host "Checksum parity verified: $actual"
+          if (-not (Test-Path Dynamic-Edge-v1.7.0-SHA256SUMS.txt)) {
+            Write-Host "::error title=Missing Checksum File::Dynamic-Edge-v1.7.0-SHA256SUMS.txt is missing"
+            throw "Dynamic-Edge-v1.7.0-SHA256SUMS.txt is missing"
           }
+          $expectedLine = Get-Content Dynamic-Edge-v1.7.0-SHA256SUMS.txt | Where-Object { $_ -match "DynamicIsland\.exe" } | Select-Object -First 1
+          if (-not $expectedLine) {
+            Write-Host "::error title=Missing Checksum Entry::DynamicIsland.exe checksum entry is missing from Dynamic-Edge-v1.7.0-SHA256SUMS.txt"
+            throw "DynamicIsland.exe checksum entry is missing from Dynamic-Edge-v1.7.0-SHA256SUMS.txt"
+          }
+          $expected = ($expectedLine -split '\s+')[0].Trim().ToLower()
+          if ($expected -notmatch '^[0-9a-fA-F]{64}$') {
+            Write-Host "::error title=Invalid Checksum Format::Checksum '$expected' is not a valid 64-character hexadecimal SHA-256 hash"
+            throw "Checksum '$expected' is not a valid 64-character hexadecimal SHA-256 hash"
+          }
+          $actual = (Get-FileHash DynamicIsland.exe -Algorithm SHA256).Hash.ToLower()
+          Write-Host "Expected SHA256: $expected"
+          Write-Host "Actual SHA256:   $actual"
+          if ($actual -ne $expected) {
+            Write-Host "::error title=Checksum Mismatch::Parity failed. Expected: $expected, Actual: $actual"
+            throw "Checksum parity verification failed! Expected: $expected, Actual: $actual"
+          }
+          Write-Host "Checksum parity verified: $actual"
 
   release:
     # Release gating: published only after stub-check and native exe pass

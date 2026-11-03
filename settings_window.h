@@ -617,8 +617,12 @@ namespace dynamic_notif_dlg {
                 }
             } else if (id == 405) { // Clear All
                 if (MessageBoxW(hwnd, L"Clear all notification history?", L"Confirm Clear", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-                    island_globals::g_notificationHistory.ClearAll();
-                    RefreshList();
+                    if (island_globals::g_notificationHistory.ClearAll()) {
+                        RefreshList();
+                    } else {
+                        MessageBoxW(hwnd, L"Failed to completely remove notification history files from disk.", L"Notification History Error", MB_OK | MB_ICONERROR);
+                        RefreshList();
+                    }
                 }
             } else if (id == IDCANCEL) {
                 DestroyWindow(hwnd);
@@ -1428,8 +1432,11 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             } else if (id == ID_BTN_BROWSE_CLIPBOARD) {
                 ShowClipboardHistoryDialog(hwnd);
             } else if (id == ID_BTN_CLEAR_HISTORY) {
-                island_globals::g_notificationHistory.ClearAll();
-                MessageBoxW(hwnd, L"Shared notification history cleared.", L"Notifications", MB_OK | MB_ICONINFORMATION);
+                if (island_globals::g_notificationHistory.ClearAll()) {
+                    MessageBoxW(hwnd, L"Shared notification history cleared.", L"Notifications", MB_OK | MB_ICONINFORMATION);
+                } else {
+                    MessageBoxW(hwnd, L"Failed to completely remove notification history files from disk.", L"Notification History Error", MB_OK | MB_ICONERROR);
+                }
             } else if (id == ID_BTN_CLEAR_CLIPBOARD) {
                 island_globals::g_clipboardManager.ClearAll();
                 MessageBoxW(hwnd, L"Shared clipboard history cleared.", L"Clipboard", MB_OK | MB_ICONINFORMATION);

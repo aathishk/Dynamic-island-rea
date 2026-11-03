@@ -645,6 +645,55 @@ int RunNotificationPolicyTest() {
         nhDis.SetPaused(true);
         if (nhDis.Record(it2)) return 757; // Recording while paused must return false!
 
+        // 9. Regression check: ClearAll and SetEnabled(false) remove stale .tmp files (Finding 1)
+        {
+            wchar_t cleanMain[MAX_PATH];
+            wchar_t cleanTmp[MAX_PATH];
+            GetTempPathW(MAX_PATH, cleanMain);
+            wcscat_s(cleanMain, L"test_cleanup_stale.txt");
+            wcscpy_s(cleanTmp, cleanMain);
+            wcscat_s(cleanTmp, L".tmp");
+
+            // Part A: ClearAll removes both main file and stale .tmp companion
+            FILE* fMain = nullptr;
+            FILE* fTmp = nullptr;
+            _wfopen_s(&fMain, cleanMain, L"w");
+            if (fMain) { fputws(L"dummy", fMain); fclose(fMain); }
+            _wfopen_s(&fTmp, cleanTmp, L"w");
+            if (fTmp) { fputws(L"stale_tmp_content", fTmp); fclose(fTmp); }
+
+            NotificationHistory nhCleanup;
+            nhCleanup.SetEnabled(true);
+            if (!nhCleanup.ClearAll(cleanMain)) return 758; // ClearAll must succeed and return true
+            if (GetFileAttributesW(cleanMain) != INVALID_FILE_ATTRIBUTES) return 759; // Main file must be removed!
+            if (GetFileAttributesW(cleanTmp) != INVALID_FILE_ATTRIBUTES) return 760; // Stale .tmp file MUST be removed!
+
+            // Part B: SetEnabled(false) removes both main file and stale .tmp companion
+            _wfopen_s(&fMain, cleanMain, L"w");
+            if (fMain) { fputws(L"dummy", fMain); fclose(fMain); }
+            _wfopen_s(&fTmp, cleanTmp, L"w");
+            if (fTmp) { fputws(L"stale_tmp_content", fTmp); fclose(fTmp); }
+
+            NotificationHistory nhDisableCleanup;
+            nhDisableCleanup.SetEnabled(true);
+            if (!nhDisableCleanup.SetEnabled(false, cleanMain)) return 761; // SetEnabled(false) must return true
+            if (GetFileAttributesW(cleanMain) != INVALID_FILE_ATTRIBUTES) return 762; // Main file must be removed!
+            if (GetFileAttributesW(cleanTmp) != INVALID_FILE_ATTRIBUTES) return 763; // Stale .tmp file MUST be removed!
+
+            // Part C: Cleanup failure propagation when a file is exclusively locked
+            _wfopen_s(&fMain, cleanMain, L"w");
+            if (fMain) { fputws(L"dummy", fMain); fclose(fMain); }
+            HANDLE hLock = CreateFileW(cleanMain, GENERIC_READ, 0 /* NO SHARE = EXCLUSIVE LOCK */, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (hLock != INVALID_HANDLE_VALUE) {
+                NotificationHistory nhLockTest;
+                nhLockTest.SetEnabled(true);
+                bool clearRes = nhLockTest.ClearAll(cleanMain);
+                CloseHandle(hLock);
+                DeleteFileW(cleanMain);
+                if (clearRes) return 764; // ClearAll MUST return false when file cannot be deleted!
+            }
+        }
+
         DeleteFileW(tempFile);
 
         if (!nh.DismissEntry(101)) return 723;

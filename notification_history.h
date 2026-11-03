@@ -147,16 +147,31 @@ public:
         return maxRetentionDays_;
     }
 
-    bool SetEnabled(bool enable) {
+    static bool DeleteHistoryFilesLocked(const std::wstring& targetPath = L"") {
+        std::wstring path = targetPath.empty() ? GetHistoryFilePath() : targetPath;
+        std::wstring tempPath = path + L".tmp";
+        bool allOk = true;
+
+        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            if (!DeleteFileW(path.c_str())) {
+                allOk = false;
+            }
+        }
+        if (GetFileAttributesW(tempPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            if (!DeleteFileW(tempPath.c_str())) {
+                allOk = false;
+            }
+        }
+        return allOk;
+    }
+
+    bool SetEnabled(bool enable, const std::wstring& targetPath = L"") {
         std::lock_guard<std::mutex> lock(mutex_);
         enabled_ = enable;
         if (!enabled_) {
             history_.clear();
             nextId_ = 1;
-            std::wstring path = GetHistoryFilePath();
-            if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                return DeleteFileW(path.c_str()) != 0;
-            }
+            return DeleteHistoryFilesLocked(targetPath);
         }
         return true;
     }
@@ -384,15 +399,11 @@ public:
         return false;
     }
 
-    bool ClearAll() {
+    bool ClearAll(const std::wstring& targetPath = L"") {
         std::lock_guard<std::mutex> lock(mutex_);
         history_.clear();
         nextId_ = 1;
-        std::wstring path = GetHistoryFilePath();
-        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            return DeleteFileW(path.c_str()) != 0;
-        }
-        return true;
+        return DeleteHistoryFilesLocked(targetPath);
     }
 
     size_t Count() const {

@@ -3177,7 +3177,9 @@ void LoadSettings() {
         s_historyLoaded = true;
     }
     island_globals::g_clipboardManager.SetEnabled(next.clipboard);
-    island_globals::g_notificationHistory.SetEnabled(Wh_GetIntSetting(L"Notifications.HistoryEnabled") != 0);
+    if (!island_globals::g_notificationHistory.SetEnabled(Wh_GetIntSetting(L"Notifications.HistoryEnabled") != 0)) {
+        Wh_Log(L"Warning: NotificationHistory::SetEnabled failed to clean up history files");
+    }
 
     next.hideShowHotkeyEnabled = Wh_GetIntSetting(L"Shortcuts.HideShowHotkeyEnabled") != 0;
 

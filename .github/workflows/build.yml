@@ -14,7 +14,7 @@ env:
 jobs:
   stub-check:
     # Cross-platform compilation & wine unit testing on Linux
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Install llvm-mingw
@@ -25,9 +25,10 @@ jobs:
 
       - name: Install Wine runner
         run: |
+          export DEBIAN_FRONTEND=noninteractive
           sudo dpkg --add-architecture i386 || true
           sudo apt-get update -qq
-          sudo apt-get install -y -qq wine wine64 || true
+          sudo apt-get install -y --no-install-recommends wine64 wine || true
 
       - name: Compile and run test suite
         run: |
@@ -47,7 +48,6 @@ jobs:
   exe:
     # Native Windows release build & test execution
     runs-on: windows-latest
-    needs: stub-check
     permissions:
       contents: write
     steps:

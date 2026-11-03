@@ -108,7 +108,11 @@ private:
                                 std::to_wstring(static_cast<int>(it.priority)) + L"|" +
                                 (it.dismissed ? L"1" : L"0") + L"\r\n";
             DWORD written = 0;
-            WriteFile(hFile, line.c_str(), static_cast<DWORD>(line.size() * sizeof(wchar_t)), &written, nullptr);
+            DWORD toWrite = static_cast<DWORD>(line.size() * sizeof(wchar_t));
+            if (!WriteFile(hFile, line.c_str(), toWrite, &written, nullptr) || written != toWrite) {
+                CloseHandle(hFile);
+                return false;
+            }
         }
         CloseHandle(hFile);
         return true;
@@ -187,7 +191,7 @@ public:
         return SaveToFileLocked(targetPath);
     }
 
-    bool LoadFromFile(const std::wstring& targetPath = L"") {
+    bool LoadFromFile(const std::wstring& targetPath = L"", uint64_t nowWallOverride = 0) {
         std::wstring path = targetPath.empty() ? GetHistoryFilePath() : targetPath;
         HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (hFile == INVALID_HANDLE_VALUE) return false;
@@ -208,7 +212,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         history_.clear();
 
-        uint64_t nowWall = static_cast<uint64_t>(time(nullptr));
+        uint64_t nowWall = (nowWallOverride != 0) ? nowWallOverride : static_cast<uint64_t>(time(nullptr));
         uint64_t maxAgeSec = static_cast<uint64_t>(maxRetentionDays_) * 86400ULL;
 
         while (std::getline(ss, line)) {
@@ -226,8 +230,8 @@ public:
             }
             tokens.push_back(line.substr(start));
 
-            if (tokens.size() >= 8) {
-                // New format: id|timestampWallClock|sourceApp|title|message|category|priority|dismissed
+            if (tokens.size() == 8) {
+                // Exact modern format: id|timestampWallClock|sourceApp|title|message|category|priority|dismissed
                 NotificationItem it;
                 try { it.id = std::stoull(tokens[0]); } catch (...) { it.id = nextId_++; }
                 try { it.timestampWallClock = std::stoull(tokens[1]); } catch (...) { it.timestampWallClock = nowWall; }
@@ -265,7 +269,7 @@ public:
 
                 nextId_ = std::max(nextId_, it.id + 1);
                 history_.push_back(it);
-            } else if (tokens.size() >= 4) {
+            } else if (tokens.size() >= 4 && tokens.size() < 8) {
                 // Legacy format: timestampTick|sourceApp|title|message[|cat|pri|dismissed]
                 NotificationItem it;
                 it.id = nextId_++;

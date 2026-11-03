@@ -23835,56 +23835,44 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_LBUTTONDBLCLK: {
             using namespace island_gestures;
             GestureAction act = island_globals::g_gestureManager.GetAction(GestureType::DoubleClick);
-            switch (act) {
-            case GestureAction::OpenQuickControls: {
-                const int qc = QuickControlsTabIndex(g_settings);
-                if (qc >= 0) {
-                    g_idleTab = qc;
-                    g_pinnedExpanded.store(true);
-                    g_layoutDirty = true;
-                    TriggerNudge();
-                }
-                break;
-            }
-            case GestureAction::ToggleFocusMode:
-                if (island_globals::g_focusTimer.IsActive()) {
-                    StopFocusTimer();
-                } else {
-                    StartFocusTimer(25, false);
-                }
-                break;
-            case GestureAction::OpenSettings:
-            case GestureAction::OpenProfileStudio:
-                settings_ui::ShowSettingsWindow(hwnd);
-                break;
-            case GestureAction::StartPauseTimer:
+            GestureExecutionContext ctx;
+            ctx.quickControlsTabIndex = QuickControlsTabIndex(g_settings);
+            ctx.isFocusTimerActive = island_globals::g_focusTimer.IsActive();
+            ctx.isPinnedExpanded = g_pinnedExpanded.load();
+            ctx.userData = hwnd;
+            ctx.onOpenQuickControls = [](int tab, void*) {
+                g_idleTab = tab;
+                g_pinnedExpanded.store(true);
+                g_layoutDirty = true;
+                TriggerNudge();
+            };
+            ctx.onToggleFocusMode = [](bool active, void*) {
+                if (active) StopFocusTimer();
+                else StartFocusTimer(25, false);
+            };
+            ctx.onOpenSettings = [](void* h) {
+                settings_ui::ShowSettingsWindow(reinterpret_cast<HWND>(h));
+            };
+            ctx.onStartPauseTimer = [](void*) {
                 ToggleTimerPause();
-                break;
-            case GestureAction::CycleTabs:
+            };
+            ctx.onCycleTabs = [](void*) {
                 StepIdleTab(1);
-                break;
-            case GestureAction::NextMediaTrack:
-                SendMediaTransportCommand(2);
-                break;
-            case GestureAction::PreviousMediaTrack:
-                SendMediaTransportCommand(0);
-                break;
-            case GestureAction::ExpandCollapse: {
-                const bool nextVal = !g_pinnedExpanded.load();
+            };
+            ctx.onMediaCommand = [](int cmd, void*) {
+                SendMediaTransportCommand(cmd);
+            };
+            ctx.onToggleExpand = [](bool nextVal, void*) {
                 g_pinnedExpanded.store(nextVal);
                 Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
                 g_layoutDirty = true;
                 TriggerNudge();
-                break;
-            }
-            case GestureAction::ToggleVisibility:
-                ToggleIslandVisibility(hwnd);
-                break;
-            case GestureAction::None:
-            default:
-                // Safe explicit no-op: unknown or unmapped gesture actions must NOT toggle expansion
-                break;
-            }
+            };
+            ctx.onToggleVisibility = [](void* h) {
+                ToggleIslandVisibility(reinterpret_cast<HWND>(h));
+            };
+
+            ExecuteGestureAction(act, ctx);
             return 0;
         }
 

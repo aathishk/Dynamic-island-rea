@@ -162,4 +162,74 @@ public:
     }
 };
 
+struct GestureExecutionContext {
+    int quickControlsTabIndex = -1;
+    bool isFocusTimerActive = false;
+    bool isPinnedExpanded = false;
+    void* userData = nullptr;
+    void (*onOpenQuickControls)(int tabIndex, void* user) = nullptr;
+    void (*onToggleFocusMode)(bool currentlyActive, void* user) = nullptr;
+    void (*onOpenSettings)(void* user) = nullptr;
+    void (*onStartPauseTimer)(void* user) = nullptr;
+    void (*onCycleTabs)(void* user) = nullptr;
+    void (*onMediaCommand)(int cmd, void* user) = nullptr; // 0 = prev, 2 = next
+    void (*onToggleExpand)(bool newState, void* user) = nullptr;
+    void (*onToggleVisibility)(void* user) = nullptr;
+};
+
+enum class GestureDispatchResult {
+    Handled,
+    IgnoredDisabled,
+    NoOp
+};
+
+inline GestureDispatchResult ExecuteGestureAction(GestureAction action, const GestureExecutionContext& ctx) {
+    switch (action) {
+    case GestureAction::OpenQuickControls:
+        if (ctx.quickControlsTabIndex >= 0) {
+            if (ctx.onOpenQuickControls) ctx.onOpenQuickControls(ctx.quickControlsTabIndex, ctx.userData);
+            return GestureDispatchResult::Handled;
+        }
+        return GestureDispatchResult::IgnoredDisabled;
+
+    case GestureAction::ToggleFocusMode:
+        if (ctx.onToggleFocusMode) ctx.onToggleFocusMode(ctx.isFocusTimerActive, ctx.userData);
+        return GestureDispatchResult::Handled;
+
+    case GestureAction::OpenSettings:
+    case GestureAction::OpenProfileStudio:
+        if (ctx.onOpenSettings) ctx.onOpenSettings(ctx.userData);
+        return GestureDispatchResult::Handled;
+
+    case GestureAction::StartPauseTimer:
+        if (ctx.onStartPauseTimer) ctx.onStartPauseTimer(ctx.userData);
+        return GestureDispatchResult::Handled;
+
+    case GestureAction::CycleTabs:
+        if (ctx.onCycleTabs) ctx.onCycleTabs(ctx.userData);
+        return GestureDispatchResult::Handled;
+
+    case GestureAction::NextMediaTrack:
+        if (ctx.onMediaCommand) ctx.onMediaCommand(2, ctx.userData);
+        return GestureDispatchResult::Handled;
+
+    case GestureAction::PreviousMediaTrack:
+        if (ctx.onMediaCommand) ctx.onMediaCommand(0, ctx.userData);
+        return GestureDispatchResult::Handled;
+
+    case GestureAction::ExpandCollapse:
+        if (ctx.onToggleExpand) ctx.onToggleExpand(!ctx.isPinnedExpanded, ctx.userData);
+        return GestureDispatchResult::Handled;
+
+    case GestureAction::ToggleVisibility:
+        if (ctx.onToggleVisibility) ctx.onToggleVisibility(ctx.userData);
+        return GestureDispatchResult::Handled;
+
+    case GestureAction::None:
+    default:
+        // Explicit safe no-op: unknown or unmapped actions must never execute side-effects
+        return GestureDispatchResult::NoOp;
+    }
+}
+
 } // namespace island_gestures

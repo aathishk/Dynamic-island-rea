@@ -297,7 +297,7 @@ inline bool PromptUserString(HWND hwndParent, const wchar_t* title, const wchar_
 
     HINSTANCE hInst = GetModuleHandleW(nullptr);
     if (!s_classRegistered) {
-        WNDCLASSEXW wc = { sizeof(wc) };
+        WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = dynamic_input_dlg::InputWndProc;
         wc.hInstance = hInst;
@@ -475,7 +475,7 @@ inline void ShowClipboardHistoryDialog(HWND hwndParent) {
     static bool s_classRegistered = false;
     HINSTANCE hInst = GetModuleHandleW(nullptr);
     if (!s_classRegistered) {
-        WNDCLASSEXW wc = { sizeof(wc) };
+        WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = dynamic_clipboard_dlg::ClipboardWndProc;
         wc.hInstance = hInst;
@@ -638,7 +638,7 @@ inline void ShowNotificationHistoryDialog(HWND hwndParent) {
     static bool s_classRegistered = false;
     HINSTANCE hInst = GetModuleHandleW(nullptr);
     if (!s_classRegistered) {
-        WNDCLASSEXW wc = { sizeof(wc) };
+        WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = dynamic_notif_dlg::NotifWndProc;
         wc.hInstance = hInst;
@@ -1322,7 +1322,8 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                 auto profiles = island_profile::ProfileManager::EnumerateAllProfiles();
                 if (cur >= 0 && static_cast<size_t>(cur) < profiles.size()) {
                     wchar_t path[MAX_PATH] = {};
-                    OPENFILENAMEW ofn = { sizeof(ofn) };
+                    OPENFILENAMEW ofn{};
+                    ofn.lStructSize = sizeof(ofn);
                     ofn.hwndOwner = hwnd;
                     ofn.lpstrFilter = L"Profile INI (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
                     ofn.lpstrFile = path;
@@ -1339,7 +1340,8 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                 }
             } else if (id == ID_BTN_IMPORT_PROFILE) {
                 wchar_t path[MAX_PATH] = {};
-                OPENFILENAMEW ofn = { sizeof(ofn) };
+                OPENFILENAMEW ofn{};
+                ofn.lStructSize = sizeof(ofn);
                 ofn.hwndOwner = hwnd;
                 ofn.lpstrFilter = L"Profile INI (*.ini)\0*.ini\0All Files (*.*)\0*.*\0";
                 ofn.lpstrFile = path;

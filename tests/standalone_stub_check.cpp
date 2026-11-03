@@ -583,11 +583,12 @@ int RunNotificationPolicyTest() {
         nhLoadFuture.LoadFromFile(tempFile);
         if (nhLoadFuture.Count() != 0) return 746; // Corrupted future item MUST be rejected on load!
 
-        // 3. Minor future drift (e.g. 60 seconds) must be normalized to nowWall and preserved
+        // 3. Minor future drift (e.g. 60 seconds) must be normalized exactly to nowWall and preserved
         NotificationHistory nhDrift;
         nhDrift.SetEnabled(true);
         nhDrift.ClearAll();
 
+        const uint64_t fixedTestTime = 1762100000ULL;
         NotificationItem driftItem;
         driftItem.id = 888;
         driftItem.title = L"Drift Item";
@@ -595,18 +596,33 @@ int RunNotificationPolicyTest() {
         driftItem.sourceApp = L"NTP";
         driftItem.category = static_cast<NotificationCategory>(99); // Corrupt category
         driftItem.priority = static_cast<NotificationPriority>(55); // Corrupt priority
-        driftItem.timestampWallClock = nowWall + 60ULL; // 1 minute ahead
+        driftItem.timestampWallClock = fixedTestTime + 60ULL; // 1 minute ahead
         nhDrift.Record(driftItem);
         nhDrift.SaveToFile(tempFile);
 
         NotificationHistory nhLoadDrift;
         nhLoadDrift.SetEnabled(true);
-        nhLoadDrift.LoadFromFile(tempFile);
+        nhLoadDrift.LoadFromFile(tempFile, fixedTestTime);
         if (nhLoadDrift.Count() != 1) return 747;
         auto driftLoaded = nhLoadDrift.GetAllEntries()[0];
-        if (driftLoaded.timestampWallClock > nowWall) return 748; // Must normalize drift to nowWall!
+        if (driftLoaded.timestampWallClock != fixedTestTime) return 748; // Exact normalization assertion!
         if (driftLoaded.category != NotificationCategory::GeneralStatus) return 749; // Must sanitize corrupt category!
         if (driftLoaded.priority != NotificationPriority::Normal) return 750; // Must sanitize corrupt priority!
+
+        // 4. Robustness: Reject records with malformed extra fields (> 8 tokens)
+        FILE* fp = nullptr;
+        _wfopen_s(&fp, tempFile, L"w, ccs=UNICODE");
+        if (fp) {
+            fwprintf(fp, L"999|1762100000|App|Title|Msg|1|1|0|ExtraTrailingField|SpuriousData\r\n");
+            fclose(fp);
+            NotificationHistory nhMalformed;
+            nhMalformed.SetEnabled(true);
+            nhMalformed.LoadFromFile(tempFile, fixedTestTime);
+            if (nhMalformed.Count() != 0) return 751; // Malformed records with > 8 tokens must be rejected!
+        }
+
+        // 5. Robustness: SaveToFile write failure on invalid path returns false
+        if (nh.SaveToFile(L"\\\\invalid\\null_device\\no_path\\hist.txt")) return 752;
 
         DeleteFileW(tempFile);
 
@@ -807,28 +823,57 @@ int RunGesturesAndLayoutPolicyTest() {
             if (roundTrip != ga) return 1023;
         }
 
-        // Disabled Quick Controls tab index handling check (Sixth Audit Finding B)
-        auto CalcQcIndex = [](bool enabled, int totalTabs) -> int {
-            if (!enabled) return -1;
-            return totalTabs - 1;
-        };
-        if (CalcQcIndex(false, 3) != -1) return 1024; // When disabled, tab index must be negative!
-        if (CalcQcIndex(true, 4) != 3) return 1025;   // When enabled, tab index is active count - 1
+        // 8. Test production gesture dispatcher (island_gestures::ExecuteGestureAction)
+        struct GestureTestSpy {
+            int qcTabOpened = -1;
+            bool focusModeToggled = false;
+            bool settingsOpened = false;
+            bool timerToggled = false;
+            bool tabsCycled = false;
+            int mediaCommandSent = -1;
+            bool expandToggled = false;
+            bool visibilityToggled = false;
+        } spy;
 
-        // Safe no-op on unknown / unmapped gesture actions (Sixth Audit Finding B)
-        GestureAction unknownAction = static_cast<GestureAction>(9999);
-        bool wouldToggle = false;
-        switch (unknownAction) {
-        case GestureAction::ExpandCollapse:
-            wouldToggle = true;
-            break;
-        case GestureAction::None:
-        default:
-            // Safe explicit no-op: must NOT toggle
-            wouldToggle = false;
-            break;
-        }
-        if (wouldToggle) return 1026; // Default must be safe explicit no-op!
+        island_gestures::GestureExecutionContext testCtx;
+        testCtx.quickControlsTabIndex = -1; // Disabled by default
+        testCtx.isFocusTimerActive = false;
+        testCtx.isPinnedExpanded = false;
+        testCtx.userData = &spy;
+        testCtx.onOpenQuickControls = [](int tab, void* u) { static_cast<GestureTestSpy*>(u)->qcTabOpened = tab; };
+        testCtx.onToggleFocusMode = [](bool, void* u) { static_cast<GestureTestSpy*>(u)->focusModeToggled = true; };
+        testCtx.onOpenSettings = [](void* u) { static_cast<GestureTestSpy*>(u)->settingsOpened = true; };
+        testCtx.onStartPauseTimer = [](void* u) { static_cast<GestureTestSpy*>(u)->timerToggled = true; };
+        testCtx.onCycleTabs = [](void* u) { static_cast<GestureTestSpy*>(u)->tabsCycled = true; };
+        testCtx.onMediaCommand = [](int cmd, void* u) { static_cast<GestureTestSpy*>(u)->mediaCommandSent = cmd; };
+        testCtx.onToggleExpand = [](bool, void* u) { static_cast<GestureTestSpy*>(u)->expandToggled = true; };
+        testCtx.onToggleVisibility = [](void* u) { static_cast<GestureTestSpy*>(u)->visibilityToggled = true; };
+
+        // Test disabled Quick Controls tab: returns IgnoredDisabled, triggers NO callback
+        auto resQcDisabled = island_gestures::ExecuteGestureAction(island_gestures::GestureAction::OpenQuickControls, testCtx);
+        if (resQcDisabled != island_gestures::GestureDispatchResult::IgnoredDisabled || spy.qcTabOpened != -1) return 1024;
+
+        // Test enabled Quick Controls tab (index 3): returns Handled, triggers callback with tab 3
+        testCtx.quickControlsTabIndex = 3;
+        auto resQcEnabled = island_gestures::ExecuteGestureAction(island_gestures::GestureAction::OpenQuickControls, testCtx);
+        if (resQcEnabled != island_gestures::GestureDispatchResult::Handled || spy.qcTabOpened != 3) return 1025;
+
+        // Test unknown / invalid action: returns NoOp, does NOT trigger toggle expand or anything else!
+        island_gestures::GestureAction unknownAct = static_cast<island_gestures::GestureAction>(9999);
+        auto resUnknown = island_gestures::ExecuteGestureAction(unknownAct, testCtx);
+        if (resUnknown != island_gestures::GestureDispatchResult::NoOp || spy.expandToggled) return 1026;
+
+        // Test None action: returns NoOp
+        auto resNone = island_gestures::ExecuteGestureAction(island_gestures::GestureAction::None, testCtx);
+        if (resNone != island_gestures::GestureDispatchResult::NoOp) return 1027;
+
+        // Test ToggleVisibility: returns Handled and triggers callback
+        auto resVis = island_gestures::ExecuteGestureAction(island_gestures::GestureAction::ToggleVisibility, testCtx);
+        if (resVis != island_gestures::GestureDispatchResult::Handled || !spy.visibilityToggled) return 1028;
+
+        // Test ExpandCollapse: returns Handled and triggers callback
+        auto resExp = island_gestures::ExecuteGestureAction(island_gestures::GestureAction::ExpandCollapse, testCtx);
+        if (resExp != island_gestures::GestureDispatchResult::Handled || !spy.expandToggled) return 1029;
     }
 
     return 0;

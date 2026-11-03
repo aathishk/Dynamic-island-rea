@@ -94,6 +94,13 @@ jobs:
         shell: pwsh
         run: (Get-FileHash DynamicIsland.exe -Algorithm SHA256).Hash.ToLower() + "  DynamicIsland.exe" | Out-File DynamicIsland.exe.sha256 -Encoding ascii
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DynamicIsland
+          path: |
+            DynamicIsland.exe
+            DynamicIsland.exe.sha256
+
       - name: Validate release checksum parity
         shell: pwsh
         run: |
@@ -104,17 +111,11 @@ jobs:
             Write-Host "Expected SHA256: $expected"
             Write-Host "Actual SHA256:   $actual"
             if ($actual -ne $expected) {
+              Write-Host "::error title=Checksum Mismatch::Parity failed. Expected: $expected, Actual: $actual"
               throw "Checksum parity verification failed! Expected: $expected, Actual: $actual"
             }
             Write-Host "Checksum parity verified: $actual"
           }
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: DynamicIsland
-          path: |
-            DynamicIsland.exe
-            DynamicIsland.exe.sha256
 
   release:
     # Release gating: published only after stub-check and native exe pass

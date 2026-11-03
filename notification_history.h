@@ -95,9 +95,17 @@ private:
 
     bool SaveToFileLocked(const std::wstring& targetPath = L"") const {
         std::wstring path = targetPath.empty() ? GetHistoryFilePath() : targetPath;
-        HANDLE hFile = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        size_t slash = path.find_last_of(L"\\/");
+        if (slash != std::wstring::npos) {
+            std::wstring dir = path.substr(0, slash);
+            CreateDirectoryW(dir.c_str(), nullptr);
+        }
+
+        std::wstring tempPath = path + L".tmp";
+        HANDLE hFile = CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (hFile == INVALID_HANDLE_VALUE) return false;
 
+        bool writeOk = true;
         for (const auto& it : history_) {
             std::wstring line = std::to_wstring(it.id) + L"|" +
                                 std::to_wstring(it.timestampWallClock) + L"|" +
@@ -110,11 +118,21 @@ private:
             DWORD written = 0;
             DWORD toWrite = static_cast<DWORD>(line.size() * sizeof(wchar_t));
             if (!WriteFile(hFile, line.c_str(), toWrite, &written, nullptr) || written != toWrite) {
-                CloseHandle(hFile);
-                return false;
+                writeOk = false;
+                break;
             }
         }
         CloseHandle(hFile);
+
+        if (!writeOk) {
+            DeleteFileW(tempPath.c_str());
+            return false;
+        }
+
+        if (!MoveFileExW(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            DeleteFileW(tempPath.c_str());
+            return false;
+        }
         return true;
     }
 
@@ -129,14 +147,18 @@ public:
         return maxRetentionDays_;
     }
 
-    void SetEnabled(bool enable) {
+    bool SetEnabled(bool enable) {
         std::lock_guard<std::mutex> lock(mutex_);
         enabled_ = enable;
         if (!enabled_) {
             history_.clear();
             nextId_ = 1;
-            DeleteFileW(GetHistoryFilePath().c_str());
+            std::wstring path = GetHistoryFilePath();
+            if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                return DeleteFileW(path.c_str()) != 0;
+            }
         }
+        return true;
     }
 
     bool IsEnabled() const {
@@ -162,9 +184,9 @@ public:
         }
     }
 
-    void Record(const NotificationItem& item) {
+    bool Record(const NotificationItem& item) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!enabled_ || paused_) return;
+        if (!enabled_ || paused_) return false;
 
         NotificationItem it = item;
         if (it.id == 0) {
@@ -179,11 +201,19 @@ public:
             it.timestampTick = GetTickCount64();
         }
 
+        std::vector<NotificationItem> backup = history_;
+        uint64_t nextIdBackup = nextId_;
+
         history_.push_back(it);
         while (history_.size() > maxEntries_) {
             history_.erase(history_.begin());
         }
-        SaveToFileLocked();
+        if (!SaveToFileLocked()) {
+            history_ = std::move(backup);
+            nextId_ = nextIdBackup;
+            return false;
+        }
+        return true;
     }
 
     bool SaveToFile(const std::wstring& targetPath = L"") const {
@@ -204,8 +234,12 @@ public:
 
         std::vector<wchar_t> buf(fileSize / sizeof(wchar_t) + 1, 0);
         DWORD readBytes = 0;
-        ReadFile(hFile, buf.data(), fileSize, &readBytes, nullptr);
+        if (!ReadFile(hFile, buf.data(), fileSize, &readBytes, nullptr) || readBytes != fileSize) {
+            CloseHandle(hFile);
+            return false;
+        }
         CloseHandle(hFile);
+        buf[readBytes / sizeof(wchar_t)] = L'\0';
 
         std::wstringstream ss(buf.data());
         std::wstring line;
@@ -320,8 +354,12 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto& item : history_) {
             if (item.id == id) {
+                bool oldDismissed = item.dismissed;
                 item.dismissed = true;
-                SaveToFileLocked();
+                if (!SaveToFileLocked()) {
+                    item.dismissed = oldDismissed;
+                    return false;
+                }
                 return true;
             }
         }
@@ -335,18 +373,26 @@ public:
     bool DeleteEntry(size_t index) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (index < history_.size()) {
+            NotificationItem backup = history_[index];
             history_.erase(history_.begin() + index);
-            SaveToFileLocked();
+            if (!SaveToFileLocked()) {
+                history_.insert(history_.begin() + index, backup);
+                return false;
+            }
             return true;
         }
         return false;
     }
 
-    void ClearAll() {
+    bool ClearAll() {
         std::lock_guard<std::mutex> lock(mutex_);
         history_.clear();
         nextId_ = 1;
-        DeleteFileW(GetHistoryFilePath().c_str());
+        std::wstring path = GetHistoryFilePath();
+        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            return DeleteFileW(path.c_str()) != 0;
+        }
+        return true;
     }
 
     size_t Count() const {

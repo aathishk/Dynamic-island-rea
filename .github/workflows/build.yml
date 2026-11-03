@@ -94,6 +94,21 @@ jobs:
         shell: pwsh
         run: (Get-FileHash DynamicIsland.exe -Algorithm SHA256).Hash.ToLower() + "  DynamicIsland.exe" | Out-File DynamicIsland.exe.sha256 -Encoding ascii
 
+      - name: Validate release checksum parity
+        shell: pwsh
+        run: |
+          $expectedLine = Get-Content Dynamic-Edge-v1.7.0-SHA256SUMS.txt | Where-Object { $_ -match "DynamicIsland\.exe" } | Select-Object -First 1
+          if ($expectedLine) {
+            $expected = ($expectedLine -split '\s+')[0].Trim().ToLower()
+            $actual = (Get-FileHash DynamicIsland.exe -Algorithm SHA256).Hash.ToLower()
+            Write-Host "Expected SHA256: $expected"
+            Write-Host "Actual SHA256:   $actual"
+            if ($actual -ne $expected) {
+              throw "Checksum parity verification failed! Expected: $expected, Actual: $actual"
+            }
+            Write-Host "Checksum parity verified: $actual"
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: DynamicIsland
@@ -101,8 +116,20 @@ jobs:
             DynamicIsland.exe
             DynamicIsland.exe.sha256
 
+  release:
+    # Release gating: published only after stub-check and native exe pass
+    needs: [stub-check, exe]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: DynamicIsland
+          path: ./
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

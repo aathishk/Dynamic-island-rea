@@ -22,6 +22,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 VERSION = "1.7.0"
 
+# Ensure deterministic, reproducible PE builds across local and CI environments
+os.environ.setdefault("SOURCE_DATE_EPOCH", "1700000000")
+
 
 def find_clang(toolchain):
     names = ["x86_64-w64-mingw32-clang++", "clang++"]
@@ -32,6 +35,9 @@ def find_clang(toolchain):
                 if os.path.exists(p):
                     return p
         sys.exit(f"error: no clang++ found in {toolchain}\\bin")
+    default_tc = os.path.expanduser(r"~\toolchain\llvm-mingw-20261020-ucrt-x86_64")
+    if os.path.exists(os.path.join(default_tc, "bin", "clang++.exe")):
+        return os.path.join(default_tc, "bin", "clang++.exe")
     for n in names:
         p = shutil.which(n)
         if p:
@@ -83,7 +89,12 @@ def find_cppwinrt(explicit, toolchain):
     kits = os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
                         "Windows Kits", "10", "Include")
     found = sorted(glob.glob(os.path.join(kits, "*", "cppwinrt")))
-    return found[-1] if found else None
+    if found:
+        return found[-1]
+    local_headers = os.path.expanduser(r"~\toolchain\winrt_headers")
+    if os.path.exists(os.path.join(local_headers, "winrt", "base.h")):
+        return local_headers
+    return None
 
 
 def main():

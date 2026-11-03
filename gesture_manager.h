@@ -66,8 +66,9 @@ inline const wchar_t* GestureActionToIdString(GestureAction action) {
     case GestureAction::PreviousMediaTrack: return L"prev_track";
     case GestureAction::CycleTabs: return L"tabs";
     case GestureAction::None: return L"none";
+    default: break;
     }
-    return L"expand";
+    return L"none";
 }
 
 inline GestureAction GestureActionFromIdString(const std::wstring& id) {
@@ -82,7 +83,7 @@ inline GestureAction GestureActionFromIdString(const std::wstring& id) {
     if (_wcsicmp(id.c_str(), L"prev_track") == 0) return GestureAction::PreviousMediaTrack;
     if (_wcsicmp(id.c_str(), L"tabs") == 0) return GestureAction::CycleTabs;
     if (_wcsicmp(id.c_str(), L"none") == 0) return GestureAction::None;
-    return GestureAction::ExpandCollapse;
+    return GestureAction::None;
 }
 
 struct CustomQuickAction {

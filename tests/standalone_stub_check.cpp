@@ -624,6 +624,27 @@ int RunNotificationPolicyTest() {
         // 5. Robustness: SaveToFile write failure on invalid path returns false
         if (nh.SaveToFile(L"\\\\invalid\\null_device\\no_path\\hist.txt")) return 752;
 
+        // 6. Robustness: 0-byte file returns false on LoadFromFile
+        FILE* fpZero = nullptr;
+        _wfopen_s(&fpZero, tempFile, L"wb");
+        if (fpZero) { fclose(fpZero); }
+        NotificationHistory nhZero;
+        nhZero.SetEnabled(true);
+        if (nhZero.LoadFromFile(tempFile)) return 753; // Empty file must return false!
+
+        // 7. Atomic persistence: verify .tmp is not left behind after successful save
+        if (!nh.SaveToFile(tempFile)) return 754;
+        std::wstring tempTmp = std::wstring(tempFile) + L".tmp";
+        if (GetFileAttributesW(tempTmp.c_str()) != INVALID_FILE_ATTRIBUTES) return 755; // Temp swap file must be cleaned up!
+
+        // 8. Opt-in privacy and pause checks for Record()
+        NotificationHistory nhDis;
+        nhDis.SetEnabled(false);
+        if (nhDis.Record(it2)) return 756; // Recording while disabled must return false!
+        nhDis.SetEnabled(true);
+        nhDis.SetPaused(true);
+        if (nhDis.Record(it2)) return 757; // Recording while paused must return false!
+
         DeleteFileW(tempFile);
 
         if (!nh.DismissEntry(101)) return 723;
@@ -822,6 +843,11 @@ int RunGesturesAndLayoutPolicyTest() {
             GestureAction roundTrip = GestureActionFromIdString(idStr);
             if (roundTrip != ga) return 1023;
         }
+
+        // Unrecognized or corrupted action string fallback must return GestureAction::None
+        if (GestureActionFromIdString(L"unknown_action_xyz") != GestureAction::None) return 1030;
+        if (GestureActionFromIdString(L"") != GestureAction::None) return 1031;
+        if (std::wstring(GestureActionToIdString(static_cast<GestureAction>(8888))) != L"none") return 1032;
 
         // 8. Test production gesture dispatcher (island_gestures::ExecuteGestureAction)
         struct GestureTestSpy {

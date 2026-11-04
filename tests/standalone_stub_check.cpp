@@ -1339,6 +1339,32 @@ int RunNavigationMatrixAndThemeResolutionTest() {
             if (mLong.chipY <= mLong.midY + mLong.midH) return 1284;
         }
 
+        // Surface Material and Opacity Policy Tests
+        {
+            // Case 1: Collapsed pill retains crystal-clear 16% liquid glass base
+            auto mCollapsed = island_layout::CalculateSurfaceMaterial(false, island_layout::DashboardPageId::Overview, 1.0f);
+            if (mCollapsed.alpha > 0.17f || mCollapsed.alpha < 0.15f) return 1270;
+            if (mCollapsed.isOpaqueBackdrop) return 1271;
+
+            // Case 2: Expanded Media Player maintains reactive 35% translucent glass
+            auto mMedia = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::Media, 1.0f);
+            if (mMedia.alpha > 0.36f || mMedia.alpha < 0.34f) return 1272;
+            if (mMedia.isOpaqueBackdrop) return 1273;
+
+            // Case 3: Expanded Hardware Monitor commands deep opaque obsidian backdrop (>= 0.96)
+            auto mHw = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::HardwareMonitor, 1.0f);
+            if (mHw.alpha < 0.96f) return 1274;
+            if (!mHw.isOpaqueBackdrop) return 1275;
+
+            // Case 4: Expanded Overview, Calendar, Weather, FileTray all command deep opaque obsidian backdrop
+            auto mOverview = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::Overview, 1.0f);
+            if (mOverview.alpha < 0.96f || !mOverview.isOpaqueBackdrop) return 1276;
+            auto mCalendar = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::Calendar, 1.0f);
+            if (mCalendar.alpha < 0.96f || !mCalendar.isOpaqueBackdrop) return 1277;
+            auto mFileTray = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::FileTray, 1.0f);
+            if (mFileTray.alpha < 0.96f || !mFileTray.isOpaqueBackdrop) return 1278;
+        }
+
         // Status Chip width constraints and proportional scaling
         {
             const float maxRowW = 400.0f;

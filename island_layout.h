@@ -342,6 +342,40 @@ inline DashboardPageId ParseDashboardPageId(std::wstring_view name) {
     return DashboardPageId::Overview;
 }
 
+struct SurfaceMaterialProperties {
+    float alpha;
+    float r;
+    float g;
+    float b;
+    bool isOpaqueBackdrop;
+};
+
+inline SurfaceMaterialProperties CalculateSurfaceMaterial(
+    bool isExpanded,
+    DashboardPageId activePageId,
+    float settingsOpacity
+) {
+    SurfaceMaterialProperties p = {};
+    if (!isExpanded) {
+        // Collapsed compact pill retains crystal-clear 16% liquid glass
+        p.alpha = 0.16f * settingsOpacity;
+        p.r = 0.04f; p.g = 0.04f; p.b = 0.06f;
+        p.isOpaqueBackdrop = false;
+    } else if (activePageId == DashboardPageId::Media) {
+        // Expanded Media Player maintains reactive 35% translucent glass
+        p.alpha = 0.35f * settingsOpacity;
+        p.r = 0.04f; p.g = 0.04f; p.b = 0.06f;
+        p.isOpaqueBackdrop = false;
+    } else {
+        // Expanded Data Dashboards (Hardware Monitor, Overview, Calendar, Weather, File Tray, Quick Controls, Game Overlay)
+        // command deep opaque obsidian backdrop (>= 0.96-1.0 alpha) preventing text bleed-through
+        p.alpha = std::clamp(std::max(0.96f, settingsOpacity), 0.94f, 1.0f);
+        p.r = 0.04f; p.g = 0.05f; p.b = 0.07f;
+        p.isOpaqueBackdrop = true;
+    }
+    return p;
+}
+
 struct OverviewLayoutMetrics {
     float topY;
     float topH;

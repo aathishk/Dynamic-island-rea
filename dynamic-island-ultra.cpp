@@ -13543,7 +13543,19 @@ class Renderer {
             settingsOpacity_ = savedOpacity;
         }
 
-        DrawPillSurface(rect, radius, activity.kind, settings);
+        island_layout::DashboardPageId activePageId = island_layout::DashboardPageId::Overview;
+        {
+            auto pages = GetCurrentActivePages(settings);
+            const int maxTabs = static_cast<int>(pages.size());
+            if (maxTabs > 0) {
+                const int tabIdx = island_layout::NormalizePageIndex(g_idleTab.load(std::memory_order_relaxed), maxTabs);
+                if (tabIdx >= 0 && tabIdx < maxTabs) {
+                    activePageId = pages[tabIdx].id;
+                }
+            }
+        }
+
+        DrawPillSurface(rect, radius, activity.kind, settings, activePageId);
 
         if (activity.kind == IslandKind::Progress) {
             DrawProgressRing(rect, state.progress.percent);
@@ -13769,12 +13781,12 @@ class Renderer {
     // was raised to carry the separation on its own.
     void DrawCard(D2D1_RECT_F rect, float radius, bool active = false) {
         const D2D1_COLOR_F cardBg = active
-            ? D2D1::ColorF(0.18f, 0.20f, 0.24f, 0.88f * settingsOpacity_)
-            : D2D1::ColorF(0.12f, 0.13f, 0.16f, 0.76f * settingsOpacity_);
+            ? D2D1::ColorF(0.18f, 0.20f, 0.24f, 0.96f * settingsOpacity_)
+            : D2D1::ColorF(0.10f, 0.11f, 0.14f, 0.94f * settingsOpacity_);
         if (ID2D1SolidColorBrush* cardBrush = AcquireBrush(cardBg)) {
             target_->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), cardBrush);
         }
-        const D2D1_COLOR_F strokeColor = WithAlpha(material_.stroke, 0.28f * settingsOpacity_);
+        const D2D1_COLOR_F strokeColor = WithAlpha(material_.stroke, 0.35f * settingsOpacity_);
         if (ID2D1SolidColorBrush* strokeBrush = AcquireBrush(strokeColor)) {
             target_->DrawRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), strokeBrush, 0.75f);
         }
@@ -13938,7 +13950,8 @@ class Renderer {
     // Each layer is individually subtle; together they give the pill depth
     // instead of the flat single-fill look it had before. Deliberately absent:
     // any bright rim, hairline or sheen tracing the island's edge.
-    void DrawPillSurface(D2D1_RECT_F rect, float radius, IslandKind kind, const Settings& settings) {
+    void DrawPillSurface(D2D1_RECT_F rect, float radius, IslandKind kind, const Settings& settings,
+                         island_layout::DashboardPageId activePageId = island_layout::DashboardPageId::Overview) {
         const float w = rect.right - rect.left;
         const float h = rect.bottom - rect.top;
         if (w <= 2.0f || h <= 2.0f) return;
@@ -13978,21 +13991,14 @@ class Renderer {
             }
         }
 
-        // ── 1. Crystal-Clear Transparent Glass Base (Zero Grey Mud) ────────────
-        // Translucent dark obsidian glass base (16% alpha) gives impressive, crystal-clear
-        // glassmorphism that lets underlying wallpapers and windows show through with high fidelity.
+        // ── 1. Crystal-Clear Transparent Glass Base vs Opaque Data Backdrop ───
+        // Collapsed compact pill retains crystal-clear 16% liquid glass.
+        // Expanded Media Player maintains reactive 35% translucent glass.
+        // Expanded Data Dashboards (Hardware Monitor, Overview, Calendar, Weather, etc.)
+        // command deep opaque obsidian backdrop (>= 0.96-1.0 alpha) preventing text bleed-through.
         const bool isExpanded = (h >= 56.0f * settings.sizeScale);
-        const bool isDataDashboard = isExpanded && (kind == IslandKind::Idle);
-        D2D1_COLOR_F glassBase;
-        if (isDataDashboard) {
-            const float floorAlpha = std::clamp(std::max(0.82f, settingsOpacity_), 0.78f, 0.94f);
-            glassBase = D2D1::ColorF(0.06f, 0.07f, 0.09f, floorAlpha);
-        } else if (isExpanded && kind == IslandKind::Media) {
-            glassBase = D2D1::ColorF(0.04f, 0.04f, 0.06f, 0.35f * settingsOpacity_);
-        } else {
-            const float glassAlpha = 0.16f;
-            glassBase = D2D1::ColorF(0.04f, 0.04f, 0.06f, glassAlpha * settingsOpacity_);
-        }
+        const auto mat = island_layout::CalculateSurfaceMaterial(isExpanded, activePageId, settingsOpacity_);
+        const D2D1_COLOR_F glassBase = D2D1::ColorF(mat.r, mat.g, mat.b, mat.alpha);
         if (ID2D1SolidColorBrush* baseBrush = AcquireBrush(glassBase)) {
             FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, baseBrush, settings.bladeStyle);
         }
@@ -14016,9 +14022,9 @@ class Renderer {
         // Dynamic music response: when songs play on Spotify, YouTube, or Apple Music,
         // the album art dominant color softly washes into the transparent glass!
         if (settings.materialDepth) {
-            const float bloom = (kind == IslandKind::Media) ? 0.18f
-                                : (kind == IslandKind::Idle)  ? 0.06f
-                                                             : 0.08f;
+            const float bloom = (activePageId == island_layout::DashboardPageId::Media && kind == IslandKind::Media) ? 0.18f
+                                : (kind == IslandKind::Media && !isExpanded) ? 0.18f
+                                : 0.06f;
             FillAccentBloom(rect, radius, bloom * settings.accentBloom);
         }
 
@@ -16168,31 +16174,20 @@ class Renderer {
         // Strict vertical hierarchy: Date -> Clock -> Status Chips
         // Enforce >= 14 logical pixels of visual separation between clock glyph bounds and chips
         const bool dateFirst = true; // Primary companion hierarchy: Date above large Clock
-        const float topH = dateFirst ? dateH : timeH;
-        const float midH = dateFirst ? timeH : dateH;
-        const float rowGap = 4.0f * scale;
-        const float clockToChipGap = 14.0f * scale; // Strictly >= 10-14 logical px separation
-        const float chipH = 26.0f * scale;
-        const float chipRadius = 13.0f * scale;
-
         const bool micActive = state.system.micActive && settings.privacyDots && settings.privacyDotsMic;
         const bool camActive = state.system.cameraActive && settings.privacyDots && settings.privacyDotsCam;
         const bool privacyActive = (camActive || micActive);
-        const float privacyH = 20.0f * scale;
-        const float privacyGap = 8.0f * scale;
 
-        float totalContentH = topH + rowGap + midH + clockToChipGap + chipH;
-        if (privacyActive) {
-            totalContentH += privacyGap + privacyH;
-        }
+        const island_layout::OverviewLayoutMetrics m = island_layout::CalculateOverviewLayoutMetrics(
+            rect.top, rect.bottom, scale, dateH, timeH, dateFirst, privacyActive);
 
-        const float availH = rect.bottom - rect.top;
-        const float startY = rect.top + std::max(12.0f * scale, (availH - totalContentH) * 0.44f);
-
-        const float topY = startY;
-        const float midY = topY + topH + rowGap;
-        const float chipY = midY + midH + clockToChipGap;
-        const float privacyY = chipY + chipH + privacyGap;
+        const float topY = m.topY;
+        const float midY = m.midY;
+        const float chipY = m.chipY;
+        const float chipH = m.chipH;
+        const float privacyY = m.privacyY;
+        const float privacyH = m.privacyH;
+        const float chipRadius = 13.0f * scale;
 
         const float clockCenterY = (dateFirst ? midY : topY) + timeH * 0.5f;
 
@@ -16299,10 +16294,10 @@ class Renderer {
             float chipX = cx - totalRowW * 0.5f;
 
             // Frosted chip background and subtle stroke
-            D2D1_COLOR_F chipBgColor = D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.82f * settingsOpacity_);
+            D2D1_COLOR_F chipBgColor = D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.92f * settingsOpacity_);
             ComPtr<ID2D1SolidColorBrush> chipBgBrush;
             target_->CreateSolidColorBrush(chipBgColor, &chipBgBrush);
-            D2D1_COLOR_F chipStrokeColor = WithAlpha(material_.stroke, 0.28f * settingsOpacity_);
+            D2D1_COLOR_F chipStrokeColor = WithAlpha(material_.stroke, 0.35f * settingsOpacity_);
             ComPtr<ID2D1SolidColorBrush> chipStrokeBrush;
             target_->CreateSolidColorBrush(chipStrokeColor, &chipStrokeBrush);
 

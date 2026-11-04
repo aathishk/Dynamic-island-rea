@@ -1194,7 +1194,7 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                 L"Dynamic Edge v1.7.0 — Adaptive Desktop Companion\n"
                 L"• Six built-in profiles: Obsidian, Frost, Midnight, Aurora, Minimal, Studio\n"
                 L"• Adaptive intelligence: Fullscreen suppression, battery saver, and quiet hours\n"
-                L"• Native Win32 + Direct2D: Zero cloud dependencies, 100% offline local privacy", 0);
+                L"• Native Windows rendering. Local settings and history. Optional online integrations for Weather, Lyrics and Quick Lookup.", 0);
 
             // ── PAGE 1: Personalisation ─────────────────────────────────────────
             makeLabel(32, 55, 180, 20, L"Screen Position:", 1);

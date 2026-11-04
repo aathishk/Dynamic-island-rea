@@ -3,7 +3,10 @@
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
-#include "island_layout.h"
+
+namespace island_layout {
+    enum class DashboardPageId : int;
+}
 
 namespace island_alpha {
 
@@ -19,7 +22,7 @@ enum class ElementKind {
     StatusChipSurface,
     StatusChipStroke,
     PrimaryContent,    // Clock digits, large titles, hardware metric values
-    SecondaryContent,  // Date header, subtitles, metric labels
+    SecondaryContent,  // Date header, subtitles, metric labels, icon glyphs
     TertiaryContent,   // Hairline dividers, subtle indicators
     DropShadow,
     SpecularSheen,
@@ -46,12 +49,12 @@ inline float CalculateSurfaceOpacity(
         // Collapsed compact pill: follows the theme's pill opacity (e.g. 0.16 for Obsidian)
         return std::clamp(settingPillOpacity, 0.10f, 1.0f);
     }
-    if (activePageId == island_layout::DashboardPageId::Media) {
+    if (static_cast<int>(activePageId) == 1 /* Media */) {
         // Expanded Media Player: reactive translucent glass
         return 0.35f;
     }
     // Expanded Data Dashboards: deep opaque obsidian backdrop (0.98)
-    // Completely blocks background windows and code editors regardless of theme opacity!
+    // Provides 98% background opacity and high visual contrast regardless of theme opacity.
     return 0.98f;
 }
 

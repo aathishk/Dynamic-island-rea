@@ -1,6 +1,12 @@
 # Changelog
 
 ## 1.7.0 — Adaptive Desktop Companion
+- **Product-Quality & Interaction Hardening (Tenth Audit Remediation):**
+  - **Comprehensive Alpha Architecture Consistency:** Connected `island_alpha::CalculateSurfaceOpacity` directly into `island_layout::CalculateSurfaceMaterial` and decoupled all foreground content rendering paths (Overview status chips, Hardware Monitor glyphs, Game Overlay metrics, File Tray ink, and privacy indicators) from `settingsOpacity_`, ensuring foreground content retains crisp, full contrast ($0.85\text{--}0.98$ alpha) independently of background transparency.
+  - **Unclipped Compact Page Indicators:** Replaced text-heavy header strings with compact `Current / Total` page indicators (`swprintf_s(headerBuf, L"%d / %d", displayIdx, tabCount)`) with a safe 28px right margin, permanently preventing header clipping across all dashboard views.
+  - **Interactive Quick Controls Volume Slider:** Upgraded master volume control to a fully interactive slider with an explicit `Volume · %d%%` header label, sleek 8px track, accent progress fill, prominent circular draggable thumb with ambient drop shadow, and native drag-and-seek mouse interaction (`WM_MOUSEMOVE` tracking and mouse capture).
+  - **Explicit Weather Temperature Units:** Appended unambiguous temperature units (`°F` or `°C` following `weatherFahrenheit` setting) across the Weather hero reading, Feels Like metric card, and Overview glanceable weather chip.
+  - **Transparent Privacy Disclosure:** Updated Settings overview disclosure to accurately state: "Native Windows rendering. Local settings and history. Optional online integrations for Weather, Lyrics and Quick Lookup."
 - **Layered-Window Alpha-Compositing & Double-Opacity Remediation:**
   - **Refactored Alpha Architecture (`island_alpha.h`):** Separated alpha responsibilities into explicit, non-overlapping policies: `compositionOpacity` (Win32 layered-window `BLENDFUNCTION.SourceConstantAlpha`), `surfaceOpacity` (Direct2D per-pixel background & card alpha), and `contentOpacity` (Direct2D per-pixel foreground text & controls).
   - **Eradicated Double-Opacity Multiplication:** Eliminated compound attenuation where `settings.pillOpacity` was being multiplied against both Direct2D brushes and Win32 layered-window constant alpha. With layered-window composition alpha set to 255 (`0xFF`), Direct2D per-pixel alpha dictates the exact opacity of every pixel on screen.

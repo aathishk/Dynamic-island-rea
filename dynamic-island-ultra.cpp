@@ -1831,6 +1831,7 @@ std::atomic<int> g_tabEdgeBump{0};            // +1 / -1: wheel or swipe pushed 
 std::atomic<double> g_tabLastPaintAt{0.0};    // last time the tab view painted a moving frame
 std::atomic<bool> g_tabAnimating{false};      // a tab transition is in motion (render loop paces frames for it)
 bool g_oleInitialized = false;
+std::atomic<bool> g_volumeDragging = false;        // true while dragging Quick Controls master volume slider
 std::atomic<bool> g_scrubbing = false;           // true while press-dragging the media timeline scrubber
 std::atomic<float> g_scrubDragFraction = 0.0f;   // live 0..1 drag position while g_scrubbing is true
 std::atomic<double> g_lastLiveSeekTime = 0.0;    // throttle gate for live seeks while dragging
@@ -13839,7 +13840,7 @@ class Renderer {
 
         if (cam) {
             D2D1_COLOR_F camColor = settings.privacyDotsCamHex;
-            camColor.a = settingsOpacity_;
+            camColor.a = 1.0f;
             if (!camDotBrush_) target_->CreateSolidColorBrush(camColor, &camDotBrush_);
             else camDotBrush_->SetColor(camColor);
 
@@ -13848,7 +13849,7 @@ class Renderer {
             }
         } else if (mic) {
             D2D1_COLOR_F micColor = settings.privacyDotsMicHex;
-            micColor.a = settingsOpacity_;
+            micColor.a = 1.0f;
             if (!micDotBrush_) target_->CreateSolidColorBrush(micColor, &micDotBrush_);
             else micDotBrush_->SetColor(micColor);
 
@@ -14587,9 +14588,10 @@ class Renderer {
     }
 
     void DrawWeatherDashboard(const SharedState& state, D2D1_RECT_F rect, const Settings& settings, double now, float scale, bool hasWeather, const std::wstring& wIcon, const std::wstring& wText) {
+        const wchar_t* tempUnit = settings.weatherFahrenheit ? L"\u00B0F" : L"\u00B0C";
         wchar_t wTemp[32] = {};
-        if (hasWeather) swprintf_s(wTemp, L"%.0f\u00B0", state.weather.temperature);
-        else wcscpy_s(wTemp, L"--\u00B0");
+        if (hasWeather) swprintf_s(wTemp, L"%.0f%ls", state.weather.temperature, tempUnit);
+        else swprintf_s(wTemp, L"--%ls", tempUnit);
 
         std::wstring city = hasWeather ? state.weather.city : std::wstring(Loc(L"Locating..."));
         std::wstring desc = wText;
@@ -14611,8 +14613,8 @@ class Renderer {
         // secondary detail (rain, rays, fog bands).
         ComPtr<ID2D1SolidColorBrush> iconStrong;
         ComPtr<ID2D1SolidColorBrush> iconSoft;
-        target_->CreateSolidColorBrush(WithAlpha(material_.accent, 0.95f * settingsOpacity_), &iconStrong);
-        target_->CreateSolidColorBrush(WithAlpha(material_.accent, 0.42f * settingsOpacity_), &iconSoft);
+        target_->CreateSolidColorBrush(WithAlpha(material_.accent, 0.95f), &iconStrong);
+        target_->CreateSolidColorBrush(WithAlpha(material_.accent, 0.42f), &iconSoft);
 
         // Place label.
         textBrush_->SetOpacity(0.55f);
@@ -14707,7 +14709,7 @@ class Renderer {
         // Hairline divider, inset from both ends so it reads as a separator
         // rather than a full-height rule.
         ComPtr<ID2D1SolidColorBrush> divider;
-        target_->CreateSolidColorBrush(WithAlpha(material_.hairline, material_.hairline.a * settingsOpacity_), &divider);
+        target_->CreateSolidColorBrush(WithAlpha(material_.hairline, island_alpha::ResolveElementAlpha(island_alpha::ElementKind::TertiaryContent, true, island_layout::DashboardPageId::Weather, settingsOpacity_)), &divider);
         target_->FillRoundedRectangle(
             D2D1::RoundedRect(D2D1::RectF(dividerX, rect.top + 34.0f * scale,
                                           dividerX + 1.0f * scale, rect.bottom - 34.0f * scale),
@@ -14729,7 +14731,7 @@ class Renderer {
              hasWeather ? state.weather.windSpeed + windUnit + L" " + WindDirToArrow(state.weather.windDir)
                         : std::wstring(L"--")},
             {1, Loc(L"Feels Like"),
-             hasWeather ? state.weather.feelsLike + L"\u00B0" : std::wstring(L"--")},
+             hasWeather ? state.weather.feelsLike + tempUnit : std::wstring(L"--")},
             {2, Loc(L"Humidity"),
              hasWeather ? state.weather.humidity + L"%" : std::wstring(L"--")},
         };
@@ -15004,19 +15006,59 @@ class Renderer {
             boldTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         }
         const int vol = island_controls::GetMasterVolumePercent();
-        float barY = rect.top + 40.0f * scale;
+
+        // Numerical percentage & label on header right: "Volume · 60%"
+        if (textBrush_ && smallTextFormat_) {
+            wchar_t volLabel[32];
+            swprintf_s(volLabel, L"Volume · %d%%", vol);
+            smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            textBrush_->SetOpacity(island_alpha::ResolveElementAlpha(island_alpha::ElementKind::SecondaryContent, true, island_layout::DashboardPageId::QuickControls, 1.0f));
+            const D2D1_RECT_F volRect = D2D1::RectF(rect.left + padX, rect.top + 16.0f * scale, rect.right - padX - 60.0f * scale, rect.top + 36.0f * scale);
+            target_->DrawTextW(volLabel, static_cast<UINT32>(wcslen(volLabel)), smallTextFormat_.Get(), volRect, textBrush_.Get());
+            smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
+
+        float barY = rect.top + 42.0f * scale;
         float barLeft = rect.left + padX;
         float barRight = rect.right - padX;
-        float barH = 14.0f * scale;
+        float barH = 8.0f * scale;
+
+        // Track background
         D2D1_ROUNDED_RECT rTrack = D2D1::RoundedRect(D2D1::RectF(barLeft, barY, barRight, barY + barH), barH * 0.5f, barH * 0.5f);
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> trackBrush;
-        if (SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.25f, 0.25f, 0.30f, 0.45f), &trackBrush))) {
+        if (SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.20f, 0.22f, 0.26f, 0.85f), &trackBrush))) {
             target_->FillRoundedRectangle(rTrack, trackBrush.Get());
         }
+
+        // Active Fill
         float fillW = (barRight - barLeft) * (static_cast<float>(vol) / 100.0f);
-        D2D1_ROUNDED_RECT rFill = D2D1::RoundedRect(D2D1::RectF(barLeft, barY, barLeft + fillW, barY + barH), barH * 0.5f, barH * 0.5f);
+        if (fillW > 0.0f) {
+            D2D1_ROUNDED_RECT rFill = D2D1::RoundedRect(D2D1::RectF(barLeft, barY, barLeft + fillW, barY + barH), barH * 0.5f, barH * 0.5f);
+            if (accentBrush_) {
+                target_->FillRoundedRectangle(rFill, accentBrush_.Get());
+            }
+        }
+
+        // Distinct Circular Draggable Thumb
+        const float thumbX = barLeft + fillW;
+        const float thumbY = barY + barH * 0.5f;
+        const float thumbR = 7.0f * scale;
+
+        // Thumb ambient drop shadow
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> thumbShadowBrush;
+        if (SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.40f), &thumbShadowBrush))) {
+            target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY + 1.0f * scale), thumbR + 1.5f * scale, thumbR + 1.5f * scale), thumbShadowBrush.Get());
+        }
+
+        // Solid White Thumb Body
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> thumbBrush;
+        if (SUCCEEDED(target_->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &thumbBrush))) {
+            target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY), thumbR, thumbR), thumbBrush.Get());
+        }
+
+        // Accent Core in Thumb
         if (accentBrush_) {
-            target_->FillRoundedRectangle(rFill, accentBrush_.Get());
+            target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY), 2.8f * scale, 2.8f * scale), accentBrush_.Get());
         }
         const auto tiles = island_controls::GetStandardControlTiles();
         float gridY = barY + 20.0f * scale;
@@ -15333,7 +15375,7 @@ class Renderer {
             const bool hasBar = m.fraction >= 0.0f;
             const D2D1_COLOR_F tint = hasBar ? LoadStateColor(m.fraction) : material_.accent;
 
-            if (ID2D1SolidColorBrush* glyphBrush = AcquireBrush(WithAlpha(tint, 0.85f * settingsOpacity_))) {
+            if (ID2D1SolidColorBrush* glyphBrush = AcquireBrush(WithAlpha(tint, island_alpha::ResolveElementAlpha(island_alpha::ElementKind::SecondaryContent, true, island_layout::DashboardPageId::HardwareMonitor, settingsOpacity_)))) {
                 DrawMetricGlyph(D2D1::Point2F(card.left + 16.0f * scale, card.top + 15.0f * scale),
                                 15.0f * scale, m.glyph, glyphBrush);
             }
@@ -16101,7 +16143,7 @@ class Renderer {
                     const float pillY = rect.bottom - 18.0f * scale - pillH;
 
                     ComPtr<ID2D1SolidColorBrush> badgeBg;
-                    target_->CreateSolidColorBrush(WithAlpha(material_.raised, material_.raised.a * settingsOpacity_), &badgeBg);
+                    target_->CreateSolidColorBrush(WithAlpha(material_.raised, 0.85f), &badgeBg);
                     if (badgeBg) {
                         target_->FillRoundedRectangle(
                             D2D1::RoundedRect(D2D1::RectF(pillX, pillY, pillX + pillW, pillY + pillH), pillH * 0.5f, pillH * 0.5f),
@@ -16109,7 +16151,7 @@ class Renderer {
                     }
 
                     ComPtr<ID2D1SolidColorBrush> dotBrush;
-                    dotColor.a = settingsOpacity_;
+                    dotColor.a = 1.0f;
                     target_->CreateSolidColorBrush(dotColor, &dotBrush);
                     if (dotBrush) {
                         const float badgeDotR = 3.5f * scale;
@@ -16250,8 +16292,9 @@ class Renderer {
         std::wstring weatherStr = L"";
         if (settings.weather && state.weather.hasData) {
             weatherStr = state.weather.weatherDesc;
+            const wchar_t* tempUnit = settings.weatherFahrenheit ? L"\u00B0F" : L"\u00B0C";
             wchar_t wTemp[32] = {};
-            swprintf_s(wTemp, L"%.0f\u00B0", state.weather.temperature);
+            swprintf_s(wTemp, L"%.0f%ls", state.weather.temperature, tempUnit);
             if (!weatherStr.empty()) {
                 weatherStr += L" " + std::wstring(wTemp);
             } else {
@@ -16330,7 +16373,7 @@ class Renderer {
                     chipLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
                     chipLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                     chipLayout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                    mutedBrush_->SetOpacity(0.96f * settingsOpacity_);
+                    mutedBrush_->SetOpacity(island_alpha::ResolveElementAlpha(island_alpha::ElementKind::PrimaryContent, true, island_layout::DashboardPageId::Overview, settingsOpacity_));
                     target_->DrawTextLayout(D2D1::Point2F(cr.left + 6.0f * scale, cr.top), chipLayout.Get(),
                                            mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 }
@@ -16729,7 +16772,7 @@ class Renderer {
 
         ComPtr<ID2D1SolidColorBrush> glyphBrush;
         if (SUCCEEDED(target_->CreateSolidColorBrush(
-                WithAlpha(tint, 0.85f * settingsOpacity_), &glyphBrush)) && glyphBrush) {
+                WithAlpha(tint, island_alpha::ResolveElementAlpha(island_alpha::ElementKind::SecondaryContent, true, island_layout::DashboardPageId::GameOverlay, settingsOpacity_)), &glyphBrush)) && glyphBrush) {
             DrawMetricGlyph(D2D1::Point2F(rect.left + 15.0f * scale, rect.top + 15.0f * scale),
                             14.0f * scale, glyph, glyphBrush.Get());
         }
@@ -16957,17 +17000,13 @@ class Renderer {
         const float r = 2.5f;
         const float startY = (rect.top + rect.bottom) * 0.5f - spacing * (tabCount - 1) * 0.5f;
 
-        // Header / Indicator text (e.g. "Tab · 1 of 5" or "Calendar · 2 of 5")
+        // Header / Indicator text (compact "4 / 7" page indicator to prevent clipping)
         if (smallTextFormat_ && mutedBrush_) {
-            wchar_t headerBuf[64];
+            wchar_t headerBuf[32];
             const int displayIdx = std::clamp(currentTab + 1, 1, tabCount);
-            if (tabName && tabName[0] != L'\0') {
-                swprintf_s(headerBuf, L"%ls · %d of %d", tabName, displayIdx, tabCount);
-            } else {
-                swprintf_s(headerBuf, L"Tab · %d of %d", displayIdx, tabCount);
-            }
-            const D2D1_RECT_F headerRect = D2D1::RectF(rect.right - 140.0f, rect.top + 8.0f, rect.right - 14.0f, rect.top + 24.0f);
-            mutedBrush_->SetOpacity(0.55f * settingsOpacity_);
+            swprintf_s(headerBuf, L"%d / %d", displayIdx, tabCount);
+            const D2D1_RECT_F headerRect = D2D1::RectF(rect.right - 90.0f, rect.top + 8.0f, rect.right - 28.0f, rect.top + 24.0f);
+            mutedBrush_->SetOpacity(island_alpha::ResolveElementAlpha(island_alpha::ElementKind::SecondaryContent, true, island_layout::DashboardPageId::Overview, settingsOpacity_));
             smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
             smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             target_->DrawTextW(headerBuf, static_cast<UINT32>(wcslen(headerBuf)), smallTextFormat_.Get(), headerRect, mutedBrush_.Get());
@@ -23726,7 +23765,14 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     SetCursor(LoadCursorW(nullptr, LookupCursorAt(cp.x, cp.y)));
                     return TRUE;
                 }
-                if (g_scrubbing.load()) {
+                if (g_volumeDragging.load()) {
+                    SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                    return TRUE;
+                }
+
+
+
+            if (g_scrubbing.load()) {
                     SetCursor(LoadCursorW(nullptr, IDC_HAND));
                     return TRUE;
                 }
@@ -23799,9 +23845,11 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                         float barLeft = left + padX;
                         float barRight = right - padX;
                         float barH = 14.0f * scale;
-                        if (yPos >= barY - 8.0f * scale && yPos <= barY + barH + 8.0f * scale && xPos >= barLeft && xPos <= barRight) {
+                        if (yPos >= barY - 12.0f * scale && yPos <= barY + barH + 12.0f * scale && xPos >= barLeft - 8.0f * scale && xPos <= barRight + 8.0f * scale) {
                             float pctF = std::clamp((static_cast<float>(xPos) - barLeft) / (barRight - barLeft), 0.0f, 1.0f);
                             island_controls::SetMasterVolumePercent(static_cast<int>(pctF * 100.0f));
+                            g_volumeDragging.store(true);
+                            SetCapture(hwnd);
                             TriggerNudge();
                             return 0;
                         }
@@ -24068,6 +24116,13 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         case WM_LBUTTONUP:
             {
+                if (g_volumeDragging.exchange(false)) {
+                    ReleaseCapture();
+                    g_layoutDirty = true;
+                    TriggerNudge();
+                    return 0;
+                }
+
                 if (g_scrubbing.load()) {
                     g_scrubbing = false;
                     ReleaseCapture();

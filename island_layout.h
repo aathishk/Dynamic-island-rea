@@ -101,7 +101,7 @@ inline IslandContentDimensions CalculateAdaptiveDimensions(
 }
 
 // ── Single Authoritative Navigation Model (Directives Section 4 & 5) ─────────
-enum class DashboardPageId {
+enum class DashboardPageId : int {
     Overview = 0,       // Integrated glanceable overview (Time, Date, System, Battery, compact media, privacy)
     Media,              // Dedicated media player (cover art, scrubber, transport, source switch)
     Calendar,           // Month calendar
@@ -113,6 +113,12 @@ enum class DashboardPageId {
     GameOverlay,        // Gaming HUD / performance metrics
     Count
 };
+
+} // namespace island_layout
+
+#include "island_alpha.h"
+
+namespace island_layout {
 
 struct DashboardPageDescriptor {
     DashboardPageId id;
@@ -356,20 +362,11 @@ inline SurfaceMaterialProperties CalculateSurfaceMaterial(
     float settingsPillOpacity
 ) {
     SurfaceMaterialProperties p = {};
-    if (!isExpanded) {
-        // Collapsed compact pill retains crystal-clear liquid glass at configured opacity (e.g. 16% for Obsidian)
-        p.alpha = std::clamp(settingsPillOpacity, 0.10f, 1.0f);
-        p.r = 0.04f; p.g = 0.04f; p.b = 0.06f;
-        p.isOpaqueBackdrop = false;
-    } else if (activePageId == DashboardPageId::Media) {
-        // Expanded Media Player maintains reactive 35% translucent glass
-        p.alpha = 0.35f;
+    p.alpha = island_alpha::CalculateSurfaceOpacity(isExpanded, activePageId, settingsPillOpacity);
+    if (!isExpanded || activePageId == DashboardPageId::Media) {
         p.r = 0.04f; p.g = 0.04f; p.b = 0.06f;
         p.isOpaqueBackdrop = false;
     } else {
-        // Expanded Data Dashboards (Hardware Monitor, Overview, Calendar, Weather, File Tray, Quick Controls, Game Overlay)
-        // command deep opaque obsidian backdrop (0.98 alpha) preventing text bleed-through
-        p.alpha = 0.98f;
         p.r = 0.04f; p.g = 0.05f; p.b = 0.07f;
         p.isOpaqueBackdrop = true;
     }

@@ -1,10 +1,18 @@
 # Changelog
 
 ## 1.7.0 — Adaptive Desktop Companion
+- **Layered-Window Alpha-Compositing & Double-Opacity Remediation:**
+  - **Refactored Alpha Architecture (`island_alpha.h`):** Separated alpha responsibilities into explicit, non-overlapping policies: `compositionOpacity` (Win32 layered-window `BLENDFUNCTION.SourceConstantAlpha`), `surfaceOpacity` (Direct2D per-pixel background & card alpha), and `contentOpacity` (Direct2D per-pixel foreground text & controls).
+  - **Eradicated Double-Opacity Multiplication:** Eliminated compound attenuation where `settings.pillOpacity` was being multiplied against both Direct2D brushes and Win32 layered-window constant alpha. With layered-window composition alpha set to 255 (`0xFF`), Direct2D per-pixel alpha dictates the exact opacity of every pixel on screen.
+  - **Opaque Data Dashboards Under Obsidian (16% Opacity):** Guaranteed that expanded data dashboards (Hardware Monitor, Overview, Calendar, Weather, File Tray, Quick Controls, Game Overlay) command a deep $0.98$ opaque obsidian backdrop with solid $0.94\text{--}0.96$ card tiles, completely eliminating desktop and code editor text bleed-through even when the theme pill opacity is set to 16%.
+  - **High-Contrast Legible Content:** Ensured primary clock digits, metric values, track titles, and buttons render with $0.98$ content opacity, preserving full contrast and readability independently of background capsule transparency.
+  - **Preserved Translucent Glass:** Maintained crystal-clear $16\%$ liquid glass for the collapsed pill capsule and $35\%$ reactive translucent glass with dynamic album art bloom for the expanded Media Player.
+  - **Automated Window Control Messages:** Added `WM_APP_TOGGLE_EXPAND` (`WM_APP + 0x449`) and `WM_APP_SET_TAB` (`WM_APP + 0x44A`) for deterministic automation, testing, and accessibility.
+  - **Comprehensive Win32 Composition Test Coverage:** Added unit test suite exercising 9 opacity steps (10%, 16%, 25%, 35%, 55%, 70%, 85%, 96%, 100%) across 7 presentation states, validating both internal Direct2D per-pixel alpha and final composed effective screen alpha through `BLENDFUNCTION.SourceConstantAlpha`.
 - **Visual Quality & Interaction Sprint (Audit Verdict Remediation):**
   - **Overview Measured Typography & Zero-Overlap Layout:** Replaced fixed vertical layout rectangles in `DrawOverviewDashboard()` with true DirectWrite layout measurement (`CreateTextLayout` & `GetMetrics`), enforcing a strict Date $\rightarrow$ Clock $\rightarrow$ Status Chips vertical hierarchy with strictly $\ge 14.0\text{px}$ visual separation between clock glyph bounds and chip backgrounds across all display scales.
   - **Status Chips Ellipsis Trimming & Constrained Row:** Implemented proportional chip width distribution and DirectWrite character trimming with ellipsis (`CreateEllipsisTrimmingSign`), guaranteeing background pills never shrink below $56\text{px}$ or overflow row margins/pagination dots even with extreme localized weather descriptions.
-  - **Active Dashboard Page Surface Decoupling & Opaque Obsidian Backdrop:** Decoupled surface material in `DrawPillSurface()` by active dashboard page (`activePageId`) rather than activity kind, guaranteeing data dashboards (Hardware Monitor, Overview, Calendar, Weather, File Tray) receive a deep opaque obsidian backdrop ($\ge 0.96\text{--}1.0$ alpha) and solid cards ($0.94\text{--}0.96$ alpha) with zero text bleed-through over bright documents and code editors, while strictly preserving crystal-clear $16\%$ liquid glass for the collapsed pill and translucent reactive bloom for the Media Player. Wired `CalculateOverviewLayoutMetrics()` directly into the runtime `DrawOverviewDashboard()` rendering path for 100% unit-tested code coverage.
+  - **Active Dashboard Page Surface Decoupling & Opaque Obsidian Backdrop:** Decoupled surface material in `DrawPillSurface()` by active dashboard page (`activePageId`) rather than activity kind, guaranteeing data dashboards (Hardware Monitor, Overview, Calendar, Weather, File Tray) receive a deep opaque obsidian backdrop ($\ge 0.96\text{--}1.0$ alpha) and solid cards ($0.94\text{--}0.96$ alpha) with zero text bleed-through over bright documents and code editors, while strictly preserving crystal-clear $16\%$ liquid glass for the collapsed pill and translucent reactive bloom for the Media Player. Wired `CalculateOverviewLayoutMetrics()` directly into the runtime `DrawOverviewDashboard()` rendering path, aligning layout metrics calculation between unit test verification and Direct2D rendering.
   - **Settings & Profile Studio Layout & Full Client Sizing:** Redesigned tab header separation using $y=56\text{px}$ anchoring to completely eliminate tab header overlap, eliminated white tab pane background by sizing tab control to header height and subclassing for dark `RGB(28, 28, 32)` theme, and enforced `AdjustWindowRectEx` for full $670 \times 535$ client area without clipping.
   - **Initial Expanded Page on Playback Transition:** Automatically switches to the dedicated Media Player once upon transition into active playback, preserves user navigation to other dashboards during playback, and safely falls back to configured default dashboard on pause timeout expiration.
   - **Full Configuration Coverage for Profile Studio:** Added serialization, INI persistence, and Save-As capture for all 7 companion settings: `defaultDashboardPage`, `mediaPausedTimeoutSeconds`, `rememberLastPage`, `genericDuplicateDebounce`, `moduleQuickControls`, `moduleGameOverlay`, and `gameOverlayMode`.
@@ -49,19 +57,19 @@
 - **Glanceable Overview Dashboard (DrawOverviewDashboard):**
   - Integrated typographic Clock and Date with radial accent bloom.
   - Glanceable status chips row: Battery level / charging state, live Weather summary, and real-time CPU/RAM telemetry chip.
-  - Contextual compact media line or active camera/microphone privacy indicators.
+  - Dedicated active camera/microphone privacy indicators with accent glow.
 - **Game Overlay Mode & Hover Overhaul (Modules.GameOverlayMode):**
   - Prevented hover expansion suppression when Game Overlay is active.
   - Added user-selectable GameOverlayMode: DashboardOnly (tab only), CollapsedHud (persistent HUD strip), or GamingContextOnly (HUD strip only during gaming context/fullscreen).
   - Renamed metrics to clear standard definitions: Overlay FPS and C: STORAGE.
 - **Media Session Arbitration & Idle Timeout (Modules.MediaPausedTimeoutSeconds):**
-  - Monotonic paused timestamp tracking (pausedAt) with configurable fallback timeout (default 300s) returning cleanly to Idle Clock state.
+  - Monotonic paused timestamp tracking (pausedAt) with configurable fallback timeout (default 30s) returning cleanly to Idle Clock state.
 - **Category-Specific Notification Debouncing:**
   - Separated Notifications.SuppressBleSensorDuplicates (BLE connection/sensor spams) from Notifications.GenericDuplicateDebounce (generic application toasts).
 - **Theme System Single Source of Truth (island_policy::kAllThemePalettes):**
   - Direct consumption of unified palette definitions across runtime, right-click context menu, settings UI, and unit test suites.
 - **Comprehensive 12-Group Unit & Regression Test Suite:**
-  - Expanded `tests/standalone_stub_check.cpp` from 5 to 11 test suites covering all policies with 100% test pass.
+  - Expanded `tests/standalone_stub_check.cpp` to 12 comprehensive unit test groups covering all policies, layout helpers, Win32 alpha composition, and state machines with 100% passing results in CI.
 
 ## 1.5.5
 - **Thread Shutdown Safety & Wait Classification:**

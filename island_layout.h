@@ -353,23 +353,23 @@ struct SurfaceMaterialProperties {
 inline SurfaceMaterialProperties CalculateSurfaceMaterial(
     bool isExpanded,
     DashboardPageId activePageId,
-    float settingsOpacity
+    float settingsPillOpacity
 ) {
     SurfaceMaterialProperties p = {};
     if (!isExpanded) {
-        // Collapsed compact pill retains crystal-clear 16% liquid glass
-        p.alpha = 0.16f * settingsOpacity;
+        // Collapsed compact pill retains crystal-clear liquid glass at configured opacity (e.g. 16% for Obsidian)
+        p.alpha = std::clamp(settingsPillOpacity, 0.10f, 1.0f);
         p.r = 0.04f; p.g = 0.04f; p.b = 0.06f;
         p.isOpaqueBackdrop = false;
     } else if (activePageId == DashboardPageId::Media) {
         // Expanded Media Player maintains reactive 35% translucent glass
-        p.alpha = 0.35f * settingsOpacity;
+        p.alpha = 0.35f;
         p.r = 0.04f; p.g = 0.04f; p.b = 0.06f;
         p.isOpaqueBackdrop = false;
     } else {
         // Expanded Data Dashboards (Hardware Monitor, Overview, Calendar, Weather, File Tray, Quick Controls, Game Overlay)
-        // command deep opaque obsidian backdrop (>= 0.96-1.0 alpha) preventing text bleed-through
-        p.alpha = std::clamp(std::max(0.96f, settingsOpacity), 0.94f, 1.0f);
+        // command deep opaque obsidian backdrop (0.98 alpha) preventing text bleed-through
+        p.alpha = 0.98f;
         p.r = 0.04f; p.g = 0.05f; p.b = 0.07f;
         p.isOpaqueBackdrop = true;
     }

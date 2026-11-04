@@ -675,6 +675,7 @@ We love community contributions! To ensure high-quality updates, please follow t
 #include "focus_timer.h"
 #include "gesture_manager.h"
 #include "island_layout.h"
+#include "island_alpha.h"
 
 namespace island_globals {
     inline island_context::ContextEngine g_contextEngine;
@@ -705,6 +706,9 @@ constexpr UINT WM_APP_MOUSE_WAKE = WM_APP + 0x446;
 // thread, so hotkey and backdrop changes are posted across and applied there.
 constexpr UINT WM_APP_APPLY_HOTKEY = WM_APP + 0x447;
 constexpr UINT WM_APP_APPLY_BACKDROP = WM_APP + 0x448;
+constexpr UINT WM_APP_TOGGLE_EXPAND = WM_APP + 0x449;
+constexpr UINT WM_APP_SET_TAB = WM_APP + 0x44A;
+constexpr UINT WM_APP_OPEN_SETTINGS = WM_APP + 0x44B;
 constexpr int ID_HIDE_SHOW_HOTKEY = 1;
 constexpr int ID_LOOKUP_HOTKEY = 2;
 constexpr float kRenderPadX = 28.0f;
@@ -3751,8 +3755,7 @@ void LoadSettings() {
     next.micDotColor = next.privacyDotsMicHex;
     next.camDotColor = next.privacyDotsCamHex;
 
-    g_pinnedExpanded.store(false);
-    Wh_SetIntValue(L"PinnedExpanded", 0);
+    // g_pinnedExpanded is preserved from Wh_GetIntValue(L"PinnedExpanded", 0) above
 
     // Compare-then-publish under one lock so the change flags describe exactly
     // the transition we are about to commit. Two LoadSettings() calls can run
@@ -12502,7 +12505,8 @@ class Renderer {
         const float top = stage.pillTop + (flushTop ? std::max(0.0f, nudge) : nudge);
         const float left = stage.pillLeft;
 
-        const BYTE alpha = island_policy::PillOpacityToAlphaByte(settings.pillOpacity);
+        // Use composition alpha for window-level presentation (255 for normal per-pixel rendering).
+        const BYTE alpha = island_alpha::CalculateCompositionAlphaByte(1.0f);
         const bool sizeChanged = pixelWidth != bitmapWidth_ || pixelHeight != bitmapHeight_;
         const bool moved = stage.origin.x != lastOrigin_.x || stage.origin.y != lastOrigin_.y;
 
@@ -13693,7 +13697,7 @@ class Renderer {
             const float t = static_cast<float>(i) / static_cast<float>(kSteps);
             const float grow = spread * t;
             // Quadratic falloff keeps the core dense and the outer edge feathered.
-            const float alpha = material_.shadow.a * (1.0f - t) * (1.0f - t) * 0.55f * settingsOpacity_;
+            const float alpha = material_.shadow.a * (1.0f - t) * (1.0f - t) * 0.55f;
             if (alpha <= 0.002f) {
                 continue;
             }
@@ -13768,7 +13772,7 @@ class Renderer {
         if (!brush) {
             return;
         }
-        brush->SetOpacity(Clamp(strength * settingsOpacity_, 0.0f, 1.0f));
+        brush->SetOpacity(Clamp(strength, 0.0f, 1.0f));
         FillIslandShape(rect, radius, g_settings.w11Style, g_settings.notchStyle, brush, g_settings.bladeStyle);
     }
 
@@ -13781,12 +13785,12 @@ class Renderer {
     // was raised to carry the separation on its own.
     void DrawCard(D2D1_RECT_F rect, float radius, bool active = false) {
         const D2D1_COLOR_F cardBg = active
-            ? D2D1::ColorF(0.18f, 0.20f, 0.24f, 0.96f * settingsOpacity_)
-            : D2D1::ColorF(0.10f, 0.11f, 0.14f, 0.94f * settingsOpacity_);
+            ? D2D1::ColorF(0.18f, 0.20f, 0.24f, 0.96f)
+            : D2D1::ColorF(0.10f, 0.11f, 0.14f, 0.94f);
         if (ID2D1SolidColorBrush* cardBrush = AcquireBrush(cardBg)) {
             target_->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), cardBrush);
         }
-        const D2D1_COLOR_F strokeColor = WithAlpha(material_.stroke, 0.35f * settingsOpacity_);
+        const D2D1_COLOR_F strokeColor = WithAlpha(material_.stroke, 0.35f);
         if (ID2D1SolidColorBrush* strokeBrush = AcquireBrush(strokeColor)) {
             target_->DrawRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), strokeBrush, 0.75f);
         }
@@ -14014,7 +14018,7 @@ class Renderer {
             depthGrad_, kGlassStops, 3,
             D2D1::Point2F(rect.left, rect.top), D2D1::Point2F(rect.left, rect.bottom));
         if (glassGradBrush) {
-            glassGradBrush->SetOpacity(Clamp(settingsOpacity_, 0.0f, 1.0f));
+            glassGradBrush->SetOpacity(0.18f);
             FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, glassGradBrush, settings.bladeStyle);
         }
 
@@ -14031,8 +14035,8 @@ class Renderer {
         // ── 4. Polished Glass Hairline Bevel Rim (Dual-Tone Glass Edge) ────────
         // Razor-sharp 1.0px antialiased glass edge defining the capsule against any background
         if (settings.contourBorderMode != ContourBorderMode::Borderless && settings.contourBorderEnabled) {
-            D2D1_COLOR_F topEdge = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.32f * settingsOpacity_);
-            D2D1_COLOR_F btmEdge = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f * settingsOpacity_);
+            D2D1_COLOR_F topEdge = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.32f);
+            D2D1_COLOR_F btmEdge = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f);
 
             if (currentAccent_.a > 0.0f) {
                 topEdge.r = (topEdge.r + currentAccent_.r * 0.6f) / 1.6f;
@@ -16219,20 +16223,20 @@ class Renderer {
 
         if (dateFirst) {
             if (dateLayout) {
-                mutedBrush_->SetOpacity(0.90f * settingsOpacity_);
+                mutedBrush_->SetOpacity(0.85f);
                 target_->DrawTextLayout(topOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
             if (timeLayout) {
-                textBrush_->SetOpacity(0.98f * settingsOpacity_);
+                textBrush_->SetOpacity(0.98f);
                 target_->DrawTextLayout(midOrigin, timeLayout.Get(), textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
         } else {
             if (timeLayout) {
-                textBrush_->SetOpacity(0.98f * settingsOpacity_);
+                textBrush_->SetOpacity(0.98f);
                 target_->DrawTextLayout(topOrigin, timeLayout.Get(), textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
             if (dateLayout) {
-                mutedBrush_->SetOpacity(0.90f * settingsOpacity_);
+                mutedBrush_->SetOpacity(0.85f);
                 target_->DrawTextLayout(midOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
         }
@@ -16294,10 +16298,10 @@ class Renderer {
             float chipX = cx - totalRowW * 0.5f;
 
             // Frosted chip background and subtle stroke
-            D2D1_COLOR_F chipBgColor = D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.92f * settingsOpacity_);
+            D2D1_COLOR_F chipBgColor = D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.92f);
             ComPtr<ID2D1SolidColorBrush> chipBgBrush;
             target_->CreateSolidColorBrush(chipBgColor, &chipBgBrush);
-            D2D1_COLOR_F chipStrokeColor = WithAlpha(material_.stroke, 0.35f * settingsOpacity_);
+            D2D1_COLOR_F chipStrokeColor = WithAlpha(material_.stroke, 0.35f);
             ComPtr<ID2D1SolidColorBrush> chipStrokeBrush;
             target_->CreateSolidColorBrush(chipStrokeColor, &chipStrokeBrush);
 
@@ -16352,17 +16356,17 @@ class Renderer {
                     const float pillY = privacyY;
 
                     ComPtr<ID2D1SolidColorBrush> badgeBg;
-                    target_->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.13f, 0.16f, 0.85f * settingsOpacity_), &badgeBg);
+                    target_->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.13f, 0.16f, 0.85f), &badgeBg);
                     if (badgeBg) {
                         target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(pillX, pillY, pillX + pillW, pillY + pillH), pillH * 0.5f, pillH * 0.5f), badgeBg.Get());
                     }
                     ComPtr<ID2D1SolidColorBrush> dotBrush;
-                    dotColor.a = settingsOpacity_;
+                    dotColor.a = 1.0f;
                     target_->CreateSolidColorBrush(dotColor, &dotBrush);
                     if (dotBrush) {
                         target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(pillX + 9.0f * scale, pillY + pillH * 0.5f), 3.0f * scale, 3.0f * scale), dotBrush.Get());
                     }
-                    mutedBrush_->SetOpacity(0.92f * settingsOpacity_);
+                    mutedBrush_->SetOpacity(0.92f);
                     target_->DrawTextLayout(D2D1::Point2F(pillX + 16.0f * scale, pillY + (pillH - tm.height) * 0.5f), tl.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
                 }
             }
@@ -16975,7 +16979,7 @@ class Renderer {
         // as travelling over the track instead of sitting on top of a dot.
         for (int i = 0; i < tabCount; ++i) {
             const float under = SmoothStep01(Clamp(1.0f - std::fabs(tabPos_ - static_cast<float>(i)), 0.0f, 1.0f));
-            dotBrush->SetOpacity(0.22f * (1.0f - under) * settingsOpacity_);
+            dotBrush->SetOpacity(0.22f * (1.0f - under));
             target_->FillEllipse(
                 D2D1::Ellipse(D2D1::Point2F(dotX, startY + spacing * static_cast<float>(i)), r, r),
                 dotBrush);
@@ -16987,7 +16991,7 @@ class Renderer {
         const float stretch = Clamp(std::fabs(tabVel_) * 0.55f, 0.0f, 3.5f);
         const float halfH = r + 2.2f + stretch;
         const float cy = startY + spacing * pos;
-        dotBrush->SetOpacity(0.90f * settingsOpacity_);
+        dotBrush->SetOpacity(0.90f);
         target_->FillRoundedRectangle(
             D2D1::RoundedRect(D2D1::RectF(dotX - r, cy - halfH, dotX + r, cy + halfH), r, r),
             dotBrush);
@@ -23552,6 +23556,22 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         case WM_APP_APPLY_BACKDROP:
             ApplyBackdropMaterial(hwnd);
+            return 0;
+
+        case WM_APP_TOGGLE_EXPAND:
+            g_pinnedExpanded.store(wParam != 0);
+            Wh_SetIntValue(L"PinnedExpanded", wParam ? 1 : 0);
+            g_layoutDirty = true;
+            TriggerNudge();
+            return 0;
+
+        case WM_APP_SET_TAB:
+            g_idleTab = static_cast<int>(wParam);
+            g_layoutDirty = true;
+            TriggerNudge();
+            return 0;
+        case WM_APP_OPEN_SETTINGS:
+            settings_ui::ShowSettingsWindow(hwnd);
             return 0;
 
         case WM_APP_MOUSE_WAKE:

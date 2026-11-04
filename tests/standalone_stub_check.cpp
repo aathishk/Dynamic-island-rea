@@ -31,6 +31,7 @@
 #include "focus_timer.h"
 #include "gesture_manager.h"
 #include "island_layout.h"
+#include "island_alpha.h"
 
 struct StressProducerData {
     island_notification::NotificationQueue* q;
@@ -1339,30 +1340,69 @@ int RunNavigationMatrixAndThemeResolutionTest() {
             if (mLong.chipY <= mLong.midY + mLong.midH) return 1284;
         }
 
-        // Surface Material and Opacity Policy Tests
+        // Surface Material and Layered-Window Composition Opacity Policy Tests
         {
-            // Case 1: Collapsed pill retains crystal-clear 16% liquid glass base
-            auto mCollapsed = island_layout::CalculateSurfaceMaterial(false, island_layout::DashboardPageId::Overview, 1.0f);
-            if (mCollapsed.alpha > 0.17f || mCollapsed.alpha < 0.15f) return 1270;
-            if (mCollapsed.isOpaqueBackdrop) return 1271;
+            const float testOpacities[] = { 0.10f, 0.16f, 0.25f, 0.35f, 0.55f, 0.70f, 0.85f, 0.96f, 1.00f };
+            const BYTE compAlpha = island_alpha::CalculateCompositionAlphaByte(1.0f); // 255 for normal rendering
+            if (compAlpha != 255) return 1260;
 
-            // Case 2: Expanded Media Player maintains reactive 35% translucent glass
-            auto mMedia = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::Media, 1.0f);
-            if (mMedia.alpha > 0.36f || mMedia.alpha < 0.34f) return 1272;
-            if (mMedia.isOpaqueBackdrop) return 1273;
+            for (float op : testOpacities) {
+                // 1. Collapsed Overview:
+                // Direct2D surface alpha matches user setting (e.g. 0.16 for Obsidian)
+                float d2dCollapsed = island_alpha::CalculateSurfaceOpacity(false, island_layout::DashboardPageId::Overview, op);
+                float compCollapsed = island_alpha::CalculateComposedEffectiveAlpha(d2dCollapsed, compAlpha);
+                if (std::abs(compCollapsed - op) > 0.015f) return 1261;
+                // At Obsidian 16%: must strictly preserve translucent glass (<= 17%)
+                if (std::abs(op - 0.16f) < 0.005f && (compCollapsed < 0.15f || compCollapsed > 0.17f)) return 1262;
 
-            // Case 3: Expanded Hardware Monitor commands deep opaque obsidian backdrop (>= 0.96)
-            auto mHw = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::HardwareMonitor, 1.0f);
-            if (mHw.alpha < 0.96f) return 1274;
-            if (!mHw.isOpaqueBackdrop) return 1275;
+                // Primary clock text is NEVER faint under any opacity setting (composed alpha >= 0.95)
+                float d2dClock = island_alpha::ResolveElementAlpha(island_alpha::ElementKind::PrimaryContent, false, island_layout::DashboardPageId::Overview, op);
+                float compClock = island_alpha::CalculateComposedEffectiveAlpha(d2dClock, compAlpha);
+                if (compClock < 0.95f) return 1263;
 
-            // Case 4: Expanded Overview, Calendar, Weather, FileTray all command deep opaque obsidian backdrop
-            auto mOverview = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::Overview, 1.0f);
-            if (mOverview.alpha < 0.96f || !mOverview.isOpaqueBackdrop) return 1276;
-            auto mCalendar = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::Calendar, 1.0f);
-            if (mCalendar.alpha < 0.96f || !mCalendar.isOpaqueBackdrop) return 1277;
-            auto mFileTray = island_layout::CalculateSurfaceMaterial(true, island_layout::DashboardPageId::FileTray, 1.0f);
-            if (mFileTray.alpha < 0.96f || !mFileTray.isOpaqueBackdrop) return 1278;
+                // 2. Expanded Overview:
+                // Retains documented deep opaque backdrop (>= 0.96) even at Obsidian 16%!
+                float d2dExpOverview = island_alpha::CalculateSurfaceOpacity(true, island_layout::DashboardPageId::Overview, op);
+                float compExpOverview = island_alpha::CalculateComposedEffectiveAlpha(d2dExpOverview, compAlpha);
+                if (compExpOverview < 0.96f) return 1264;
+
+                // 3. Expanded Hardware Monitor:
+                // Retains documented deep opaque backdrop (>= 0.96) even at Obsidian 16%!
+                float d2dExpHw = island_alpha::CalculateSurfaceOpacity(true, island_layout::DashboardPageId::HardwareMonitor, op);
+                float compExpHw = island_alpha::CalculateComposedEffectiveAlpha(d2dExpHw, compAlpha);
+                if (compExpHw < 0.96f) return 1265;
+
+                // Telemetry cards: solid contrast (>= 0.94)
+                float d2dCard = island_alpha::ResolveElementAlpha(island_alpha::ElementKind::CardSurface, true, island_layout::DashboardPageId::HardwareMonitor, op);
+                float compCard = island_alpha::CalculateComposedEffectiveAlpha(d2dCard, compAlpha);
+                if (compCard < 0.94f) return 1266;
+
+                // 4. Expanded Media Player:
+                // Maintains reactive 35% translucent glass across all opacities
+                float d2dMedia = island_alpha::CalculateSurfaceOpacity(true, island_layout::DashboardPageId::Media, op);
+                float compMedia = island_alpha::CalculateComposedEffectiveAlpha(d2dMedia, compAlpha);
+                if (compMedia < 0.34f || compMedia > 0.36f) return 1267;
+
+                // 5. Active Notification Card:
+                float d2dNotif = island_alpha::ResolveElementAlpha(island_alpha::ElementKind::NotificationSurface, false, island_layout::DashboardPageId::Overview, op);
+                float compNotif = island_alpha::CalculateComposedEffectiveAlpha(d2dNotif, compAlpha);
+                if (compNotif < 0.95f) return 1268;
+
+                // 6. Progress Activity:
+                float d2dProg = island_alpha::ResolveElementAlpha(island_alpha::ElementKind::ProgressSurface, false, island_layout::DashboardPageId::Overview, op);
+                float compProg = island_alpha::CalculateComposedEffectiveAlpha(d2dProg, compAlpha);
+                if (compProg < 0.95f) return 1269;
+
+                // 7. Multiple Rendered Pills (Secondary Pill):
+                float d2dSec = island_alpha::CalculateSurfaceOpacity(false, island_layout::DashboardPageId::Media, op);
+                float compSec = island_alpha::CalculateComposedEffectiveAlpha(d2dSec, compAlpha);
+                if (std::abs(compSec - op) > 0.015f) return 1270;
+            }
+
+            // Window fade-in / fade-out transition test:
+            BYTE fadeHalf = island_alpha::CalculateCompositionAlphaByte(0.50f); // 128
+            float compFade = island_alpha::CalculateComposedEffectiveAlpha(1.0f, fadeHalf);
+            if (compFade < 0.49f || compFade > 0.51f) return 1271;
         }
 
         // Status Chip width constraints and proportional scaling

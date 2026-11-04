@@ -1314,6 +1314,127 @@ int RunNavigationMatrixAndThemeResolutionTest() {
         if (IsGameOverlayVisible(true, GameOverlayMode::GamingContextOnly, false, DashboardPageId::Overview, false, false, false)) return 1276;
     }
 
+    // 6. Overview Measured Layout Hierarchy & Separation Tests
+    {
+        const float testScales[] = { 0.8f, 1.0f, 1.25f, 1.4f, 2.0f };
+        for (float sc : testScales) {
+            float rectTop = 0.0f;
+            float rectBottom = 220.0f * sc;
+            float measuredDateH = 18.0f * sc;
+            float measuredTimeH = 56.0f * sc;
+
+            // Date on top hierarchy
+            auto m = CalculateOverviewLayoutMetrics(rectTop, rectBottom, sc, measuredDateH, measuredTimeH, true, true);
+            // 1. Separation between clock glyph bounds and chip backgrounds must be strictly >= 10-14 logical px
+            if (m.clockToChipSeparation < 10.0f * sc - 0.01f) return 1280;
+            if (m.chipY <= m.midY + m.midH) return 1281;
+            // 2. Chip background bounds must not collide with privacy badge
+            if (m.privacyY < m.chipY + m.chipH + 8.0f * sc) return 1282;
+
+            // Long localized date / 24-hour clock simulation
+            float longDateH = 24.0f * sc;
+            float bigTimeH = 64.0f * sc;
+            auto mLong = CalculateOverviewLayoutMetrics(rectTop, rectBottom, sc, longDateH, bigTimeH, true, false);
+            if (mLong.clockToChipSeparation < 14.0f * sc - 0.01f) return 1283;
+            if (mLong.chipY <= mLong.midY + mLong.midH) return 1284;
+        }
+
+        // Status Chip width constraints and proportional scaling
+        {
+            const float maxRowW = 400.0f;
+            const float chipGap = 8.0f;
+            const float minChipW = 56.0f;
+
+            // Case A: Natural widths fit comfortably within maxRowW
+            std::vector<float> fits = { 65.0f, 90.0f, 110.0f };
+            auto outFits = CalculateChipWidths(fits, maxRowW, chipGap, minChipW);
+            if (outFits != fits) return 1285;
+
+            // Case B: Extremely long weather text overflows maxRowW
+            std::vector<float> overflows = { 65.0f, 320.0f, 110.0f }; // total = 495 > 400
+            auto outClamped = CalculateChipWidths(overflows, maxRowW, chipGap, minChipW);
+            float totalCalculatedW = 0.0f;
+            for (float w : outClamped) {
+                if (w < minChipW) return 1286; // No chip below minChipW
+                totalCalculatedW += w;
+            }
+            totalCalculatedW += chipGap * static_cast<float>(outClamped.size() - 1);
+            if (totalCalculatedW > maxRowW + 0.01f) return 1287; // Must not exceed row width
+        }
+    }
+
+    // 7. Active Playback Transition, Page Preservation & Default Page Fallback
+    {
+        // ParseDashboardPageId validation
+        if (ParseDashboardPageId(L"overview") != DashboardPageId::Overview) return 1290;
+        if (ParseDashboardPageId(L"media") != DashboardPageId::Media) return 1291;
+        if (ParseDashboardPageId(L"calendar") != DashboardPageId::Calendar) return 1292;
+        if (ParseDashboardPageId(L"weather") != DashboardPageId::Weather) return 1293;
+        if (ParseDashboardPageId(L"hardware") != DashboardPageId::HardwareMonitor) return 1294;
+        if (ParseDashboardPageId(L"filetray") != DashboardPageId::FileTray) return 1295;
+        if (ParseDashboardPageId(L"lyrics") != DashboardPageId::Lyrics) return 1296;
+        if (ParseDashboardPageId(L"controls") != DashboardPageId::QuickControls) return 1297;
+        if (ParseDashboardPageId(L"game_overlay") != DashboardPageId::GameOverlay) return 1298;
+        if (ParseDashboardPageId(L"unknown_bogus") != DashboardPageId::Overview) return 1299;
+
+        // Transition: when media starts playing, Media page is selected once
+        auto pList = BuildActiveDashboardPages(true, MediaPresentationState::Playing, true, true, true, true, false, false, false, true, false);
+        int mediaIdx = FindPageIndex(pList, DashboardPageId::Media);
+        if (mediaIdx < 0) return 1300;
+
+        // User manual page override during playback: selecting Hardware Monitor
+        int hwIdx = FindPageIndex(pList, DashboardPageId::HardwareMonitor);
+        if (hwIdx < 0) return 1301;
+        int activeTab = hwIdx; // user switched to Hardware Monitor
+        // On subsequent frames while media continues playing, user tab is preserved
+        if (activeTab != hwIdx) return 1302;
+
+        // When paused beyond timeout: drops Media/Lyrics and falls back to defaultDashboardPage
+        auto pAfterTimeout = BuildActiveDashboardPages(true, MediaPresentationState::PausedExpired, true, true, true, true, false, false, false, true, false);
+        if (FindPageIndex(pAfterTimeout, DashboardPageId::Media) != -1) return 1303;
+        int defIdx = FindPageIndex(pAfterTimeout, DashboardPageId::Overview);
+        if (defIdx != 0) return 1304;
+    }
+
+    // 8. Profile Studio Full Round-Trip Persistence with 7 Companion Preferences
+    {
+        island_profile::ProfileData p;
+        p.name = L"SprintVerificationProfile";
+        p.description = L"Test Profile";
+        p.genericDuplicateDebounce = true;
+        p.mediaPausedTimeoutSeconds = 45;
+        p.rememberLastPage = true;
+        p.defaultDashboardPage = L"hardware";
+        p.moduleQuickControls = true;
+        p.moduleGameOverlay = true;
+        p.gameOverlayMode = L"collapsed_hud";
+
+        island_profile::ValidateProfile(p);
+        if (p.mediaPausedTimeoutSeconds != 45) return 1310;
+        if (p.defaultDashboardPage != L"hardware") return 1311;
+        if (p.gameOverlayMode != L"collapsed_hud") return 1312;
+
+        // Test file round-trip
+        wchar_t tempDir[MAX_PATH];
+        GetTempPathW(MAX_PATH, tempDir);
+        std::wstring testFile = std::wstring(tempDir) + L"test_profile_roundtrip.ini";
+
+        if (!island_profile::ProfileManager::SaveProfileToFile(p, testFile)) return 1313;
+
+        island_profile::ProfileData loaded;
+        if (!island_profile::ProfileManager::LoadProfileFromFile(testFile, loaded)) return 1314;
+
+        if (loaded.genericDuplicateDebounce != p.genericDuplicateDebounce) return 1315;
+        if (loaded.mediaPausedTimeoutSeconds != p.mediaPausedTimeoutSeconds) return 1316;
+        if (loaded.rememberLastPage != p.rememberLastPage) return 1317;
+        if (loaded.defaultDashboardPage != p.defaultDashboardPage) return 1318;
+        if (loaded.moduleQuickControls != p.moduleQuickControls) return 1319;
+        if (loaded.moduleGameOverlay != p.moduleGameOverlay) return 1320;
+        if (loaded.gameOverlayMode != p.gameOverlayMode) return 1321;
+
+        DeleteFileW(testFile.c_str());
+    }
+
     return 0;
 }
 

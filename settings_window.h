@@ -1084,6 +1084,20 @@ inline void ShowTab(int tabIndex) {
     }
 }
 
+inline LRESULT CALLBACK TabSubclassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+    (void)uIdSubclass; (void)dwRefData;
+    if (uMsg == WM_ERASEBKGND) {
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        HBRUSH hBr = CreateSolidBrush(RGB(28, 28, 32));
+        FillRect(hdc, &rc, hBr);
+        DeleteObject(hBr);
+        return 1;
+    }
+    return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+}
+
 inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_CREATE: {
@@ -1096,10 +1110,13 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
             hTab = CreateWindowExW(0, WC_TABCONTROLW, L"",
                                    WS_CHILD | WS_CLIPSIBLINGS | WS_VISIBLE,
-                                   12, 12, 630, 430, hwnd, reinterpret_cast<HMENU>(ID_TAB),
+                                   12, 12, 646, 36, hwnd, reinterpret_cast<HMENU>(ID_TAB),
                                    reinterpret_cast<LPCREATESTRUCT>(lParam)->hInstance, nullptr);
             SendMessageW(hTab, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
             SetWindowTheme(hTab, L"DarkMode_Explorer", nullptr);
+            SetWindowSubclass(hTab, TabSubclassProc, 1, 0);
+
+            const int tabContentY = 56;
 
             TCITEMW ti = {};
             ti.mask = TCIF_TEXT;
@@ -1151,29 +1168,29 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             };
 
             // ── PAGE 0: Overview & Profiles ─────────────────────────────────────
-            hLblAppliedProfile = makeLabel(32, 26, 560, 20, L"Currently Applied Profile: Obsidian", 0);
-            makeLabel(32, 55, 200, 20, L"Select Profile to Apply / Edit:", 0);
-            hComboActiveProfile = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 240, 52, 240, 240, hwnd, reinterpret_cast<HMENU>(ID_COMBO_ACTIVE_PROFILE), nullptr, nullptr);
+            hLblAppliedProfile = makeLabel(32, tabContentY, 560, 20, L"Currently Applied Profile: Obsidian", 0);
+            makeLabel(32, tabContentY + 28, 200, 20, L"Select Profile to Apply / Edit:", 0);
+            hComboActiveProfile = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 240, tabContentY + 25, 240, 240, hwnd, reinterpret_cast<HMENU>(ID_COMBO_ACTIVE_PROFILE), nullptr, nullptr);
             SendMessageW(hComboActiveProfile, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
             SetWindowTheme(hComboActiveProfile, L"DarkMode_Explorer", nullptr);
             g_pageControls[0].push_back(hComboActiveProfile);
 
-            makeBtn(490, 50, 120, 28, ID_BTN_APPLY_PROFILE, L"Apply Profile", 0);
-            makeBtn(240, 88, 95, 26, ID_BTN_SAVE_PROFILE, L"💾 Save As...", 0);
-            makeBtn(340, 88, 95, 26, ID_BTN_RENAME_PROFILE, L"✏️ Rename", 0);
-            makeBtn(440, 88, 95, 26, ID_BTN_DUPLICATE_PROFILE, L"📋 Duplicate", 0);
-            makeBtn(540, 88, 80, 26, ID_BTN_DELETE_PROFILE, L"🗑️ Delete", 0);
-            makeBtn(240, 118, 95, 26, ID_BTN_EXPORT_PROFILE, L"📤 Export...", 0);
-            makeBtn(340, 118, 95, 26, ID_BTN_IMPORT_PROFILE, L"📥 Import...", 0);
-            makeBtn(440, 118, 140, 26, ID_BTN_RESET_PROFILE, L"↺ Reset Defaults", 0);
+            makeBtn(490, tabContentY + 23, 120, 28, ID_BTN_APPLY_PROFILE, L"Apply Profile", 0);
+            makeBtn(240, tabContentY + 58, 95, 26, ID_BTN_SAVE_PROFILE, L"💾 Save As...", 0);
+            makeBtn(340, tabContentY + 58, 95, 26, ID_BTN_RENAME_PROFILE, L"✏️ Rename", 0);
+            makeBtn(440, tabContentY + 58, 95, 26, ID_BTN_DUPLICATE_PROFILE, L"📋 Duplicate", 0);
+            makeBtn(540, tabContentY + 58, 80, 26, ID_BTN_DELETE_PROFILE, L"🗑️ Delete", 0);
+            makeBtn(240, tabContentY + 88, 95, 26, ID_BTN_EXPORT_PROFILE, L"📤 Export...", 0);
+            makeBtn(340, tabContentY + 88, 95, 26, ID_BTN_IMPORT_PROFILE, L"📥 Import...", 0);
+            makeBtn(440, tabContentY + 88, 140, 26, ID_BTN_RESET_PROFILE, L"↺ Reset Defaults", 0);
 
-            makeLabel(32, 155, 200, 20, L"Active Context Mode:", 0);
-            hComboActiveContext = makeCombo(240, 152, 240, 200, ID_COMBO_ACTIVE_CONTEXT, kContextOptions, ARRAYSIZE(kContextOptions), 0);
-            hChkContextLock = makeCheck(32, 185, 400, 24, ID_CHK_CONTEXT_LOCK, L"🔒 Lock Context (prevent automatic app detection)", 0);
+            makeLabel(32, tabContentY + 128, 200, 20, L"Active Context Mode:", 0);
+            hComboActiveContext = makeCombo(240, tabContentY + 125, 240, 200, ID_COMBO_ACTIVE_CONTEXT, kContextOptions, ARRAYSIZE(kContextOptions), 0);
+            hChkContextLock = makeCheck(32, tabContentY + 158, 400, 24, ID_CHK_CONTEXT_LOCK, L"🔒 Lock Context (prevent automatic app detection)", 0);
 
-            makeBtn(32, 220, 200, 32, ID_BTN_TOGGLE_ISLAND, L"👁️ Show / Hide Island", 0);
+            makeBtn(32, tabContentY + 192, 200, 30, ID_BTN_TOGGLE_ISLAND, L"👁️ Show / Hide Island", 0);
 
-            hLblOverviewStatus = makeLabel(32, 275, 570, 120,
+            hLblOverviewStatus = makeLabel(32, tabContentY + 235, 580, 130,
                 L"Dynamic Edge v1.7.0 — Adaptive Desktop Companion\n"
                 L"• Six built-in profiles: Obsidian, Frost, Midnight, Aurora, Minimal, Studio\n"
                 L"• Adaptive intelligence: Fullscreen suppression, battery saver, and quiet hours\n"
@@ -1496,6 +1513,13 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     current.moduleClipboard = (ReadIniInt(L"Settings", L"Modules.Clipboard", 0) != 0);
                     current.moduleQuickLookup = (ReadIniInt(L"Settings", L"Modules.QuickLookup", 1) != 0);
                     current.moduleLyrics = (ReadIniInt(L"Settings", L"Modules.Lyrics", 1) != 0);
+                    current.moduleQuickControls = (ReadIniInt(L"Settings", L"Modules.QuickControls", 1) != 0);
+                    current.moduleGameOverlay = (ReadIniInt(L"Settings", L"Modules.GameOverlay", 0) != 0);
+                    current.gameOverlayMode = ReadIniString(L"Settings", L"Modules.GameOverlayMode", L"dashboard_only");
+                    current.genericDuplicateDebounce = (ReadIniInt(L"Settings", L"Notifications.GenericDuplicateDebounce", 1) != 0);
+                    current.mediaPausedTimeoutSeconds = ReadIniInt(L"Settings", L"Media.PausedTimeoutSeconds", ReadIniInt(L"Settings", L"Modules.MediaPausedTimeoutSeconds", 30));
+                    current.rememberLastPage = (ReadIniInt(L"Settings", L"Behavior.RememberLastPage", 1) != 0);
+                    current.defaultDashboardPage = ReadIniString(L"Settings", L"Behavior.DefaultDashboardPage", L"overview");
 
                     std::wstring targetPath = island_profile::ProfileManager::GetProfileFilePath(current.name);
                     if (island_profile::ProfileManager::SaveProfileToFile(current, targetPath)) {
@@ -1587,8 +1611,15 @@ inline void ShowSettingsWindow(HWND hParent) {
     wc.lpszClassName = L"DynamicIsland.SettingsDialog";
     RegisterClassExW(&wc);
 
-    const int width = 670;
-    const int height = 535;
+    const int clientW = 670;
+    const int clientH = 535;
+    RECT wndRect = { 0, 0, clientW, clientH };
+    DWORD dwStyle = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+    DWORD dwExStyle = WS_EX_DLGMODALFRAME;
+    AdjustWindowRectEx(&wndRect, dwStyle, FALSE, dwExStyle);
+    const int width = wndRect.right - wndRect.left;
+    const int height = wndRect.bottom - wndRect.top;
+
     HMONITOR hMon = MonitorFromWindow(hParent ? hParent : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi = {}; mi.cbSize = sizeof(mi);
     GetMonitorInfoW(hMon, &mi);
@@ -1596,10 +1627,10 @@ inline void ShowSettingsWindow(HWND hParent) {
     const int posY = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - height) / 2;
 
     HWND hwnd = CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        dwExStyle,
         wc.lpszClassName,
         L"Dynamic Edge — Settings & Profile Studio",
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
+        dwStyle | WS_VISIBLE,
         posX, posY, width, height,
         nullptr, nullptr, hInst, nullptr
     );

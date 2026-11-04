@@ -330,4 +330,93 @@ inline int NormalizePageIndex(int rawIndex, int pageCount) {
     return ((rawIndex % pageCount) + pageCount) % pageCount;
 }
 
+inline DashboardPageId ParseDashboardPageId(std::wstring_view name) {
+    if (name == L"media") return DashboardPageId::Media;
+    if (name == L"calendar") return DashboardPageId::Calendar;
+    if (name == L"weather") return DashboardPageId::Weather;
+    if (name == L"hardware") return DashboardPageId::HardwareMonitor;
+    if (name == L"filetray") return DashboardPageId::FileTray;
+    if (name == L"lyrics") return DashboardPageId::Lyrics;
+    if (name == L"controls") return DashboardPageId::QuickControls;
+    if (name == L"game_overlay") return DashboardPageId::GameOverlay;
+    return DashboardPageId::Overview;
+}
+
+struct OverviewLayoutMetrics {
+    float topY;
+    float topH;
+    float midY;
+    float midH;
+    float chipY;
+    float chipH;
+    float privacyY;
+    float privacyH;
+    float clockToChipSeparation;
+    float totalContentH;
+};
+
+inline OverviewLayoutMetrics CalculateOverviewLayoutMetrics(
+    float rectTop, float rectBottom, float scale,
+    float measuredDateH, float measuredTimeH,
+    bool dateFirst = true, bool privacyActive = false
+) {
+    OverviewLayoutMetrics m = {};
+    m.topH = dateFirst ? measuredDateH : measuredTimeH;
+    m.midH = dateFirst ? measuredTimeH : measuredDateH;
+    const float rowGap = 4.0f * scale;
+    const float clockToChipGap = 14.0f * scale;
+    m.chipH = 26.0f * scale;
+    m.privacyH = 20.0f * scale;
+    const float privacyGap = 8.0f * scale;
+
+    m.totalContentH = m.topH + rowGap + m.midH + clockToChipGap + m.chipH;
+    if (privacyActive) {
+        m.totalContentH += privacyGap + m.privacyH;
+    }
+
+    const float availH = rectBottom - rectTop;
+    const float startY = rectTop + std::max(12.0f * scale, (availH - m.totalContentH) * 0.44f);
+
+    m.topY = startY;
+    m.midY = m.topY + m.topH + rowGap;
+    m.chipY = m.midY + m.midH + clockToChipGap;
+    m.privacyY = m.chipY + m.chipH + privacyGap;
+    m.clockToChipSeparation = m.chipY - (m.midY + m.midH);
+    return m;
+}
+
+inline std::vector<float> CalculateChipWidths(
+    const std::vector<float>& naturalWidths,
+    float maxRowW,
+    float chipGap,
+    float minChipW
+) {
+    std::vector<float> widths = naturalWidths;
+    if (widths.empty()) return widths;
+
+    float totalNaturalW = 0.0f;
+    for (float w : widths) totalNaturalW += w;
+
+    const float totalGaps = chipGap * static_cast<float>(widths.size() - 1);
+    const float availBoxesW = std::max(0.0f, maxRowW - totalGaps);
+
+    if (totalNaturalW + totalGaps > maxRowW && totalNaturalW > 0.0f) {
+        const float allocatedMin = minChipW * static_cast<float>(widths.size());
+        if (availBoxesW <= allocatedMin) {
+            for (size_t i = 0; i < widths.size(); ++i) widths[i] = minChipW;
+        } else {
+            float remAvail = availBoxesW - allocatedMin;
+            float remNatural = 0.0f;
+            for (float w : widths) remNatural += std::max(0.0f, w - minChipW);
+
+            for (size_t i = 0; i < widths.size(); ++i) {
+                float extra = std::max(0.0f, widths[i] - minChipW);
+                float share = (remNatural > 0.0f) ? (extra / remNatural) : (1.0f / static_cast<float>(widths.size()));
+                widths[i] = minChipW + remAvail * share;
+            }
+        }
+    }
+    return widths;
+}
+
 } // namespace island_layout

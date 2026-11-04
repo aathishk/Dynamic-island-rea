@@ -1334,7 +1334,13 @@ struct Settings {
     bool quickControlsModule = true;
     bool rememberLastPage = true;
     int mediaPausedTimeoutSeconds = 30;
+    std::wstring defaultDashboardPage = L"overview";
+    island_layout::DashboardPageId defaultPageId = island_layout::DashboardPageId::Overview;
 };
+
+inline island_layout::DashboardPageId ParseDashboardPageId(std::wstring_view name) {
+    return island_layout::ParseDashboardPageId(name);
+}
 
 inline island_notification::NotificationPolicySettings MakeNotificationPolicySettings(const Settings& settings) {
     island_notification::NotificationPolicySettings nPolicy;
@@ -3476,8 +3482,17 @@ void LoadSettings() {
     const int localExpandOnHover = Wh_GetIntValue(L"ExpandOnHoverOverride", -1);
     next.expandOnHover = localExpandOnHover >= 0 ? (localExpandOnHover != 0) : (Wh_GetIntSetting(L"Behavior.ExpandOnHover") != 0);
     next.rememberLastPage = Wh_GetIntSetting(L"Behavior.RememberLastPage") != 0;
-    int pauseTimeout = Wh_GetIntSetting(L"Modules.MediaPausedTimeoutSeconds");
-    next.mediaPausedTimeoutSeconds = (pauseTimeout > 0) ? pauseTimeout : 300;
+    int pauseTimeout = Wh_GetIntSetting(L"Media.PausedTimeoutSeconds");
+    if (pauseTimeout == -999999) pauseTimeout = Wh_GetIntSetting(L"Modules.MediaPausedTimeoutSeconds");
+    next.mediaPausedTimeoutSeconds = (pauseTimeout >= 0) ? pauseTimeout : 30;
+    PCWSTR defPageStr = Wh_GetStringSetting(L"Behavior.DefaultDashboardPage");
+    if (defPageStr && defPageStr[0] != L'\0') {
+        next.defaultDashboardPage = defPageStr;
+        Wh_FreeStringSetting(defPageStr);
+    } else {
+        next.defaultDashboardPage = L"overview";
+    }
+    next.defaultPageId = ParseDashboardPageId(next.defaultDashboardPage);
     // Right-click toggle; stored with Wh_SetIntValue so it survives restarts.
     next.collapsedLyrics = Wh_GetIntValue(L"CollapsedLyrics", 0) != 0;
     next.lyricsPinnedFirst = Wh_GetIntValue(L"LyricsPinnedFirst", 0) != 0;
@@ -5970,7 +5985,6 @@ DWORD WINAPI MediaThreadProc(void*) {
             if (isDifferentTrack) {
                 next.titleChangedAt = NowSeconds();
                 trackJustChanged = true;
-                g_idleTab = 0;
             }
 
             if (g_state.media.art &&
@@ -13754,9 +13768,15 @@ class Renderer {
     // edges competing with the content. The fill alpha in BuildMaterialTokens
     // was raised to carry the separation on its own.
     void DrawCard(D2D1_RECT_F rect, float radius, bool active = false) {
-        ID2D1SolidColorBrush* fill = active ? raisedStrongBrush_.Get() : raisedBrush_.Get();
-        if (fill) {
-            target_->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), fill);
+        const D2D1_COLOR_F cardBg = active
+            ? D2D1::ColorF(0.18f, 0.20f, 0.24f, 0.88f * settingsOpacity_)
+            : D2D1::ColorF(0.12f, 0.13f, 0.16f, 0.76f * settingsOpacity_);
+        if (ID2D1SolidColorBrush* cardBrush = AcquireBrush(cardBg)) {
+            target_->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), cardBrush);
+        }
+        const D2D1_COLOR_F strokeColor = WithAlpha(material_.stroke, 0.28f * settingsOpacity_);
+        if (ID2D1SolidColorBrush* strokeBrush = AcquireBrush(strokeColor)) {
+            target_->DrawRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), strokeBrush, 0.75f);
         }
     }
 
@@ -13961,8 +13981,18 @@ class Renderer {
         // ── 1. Crystal-Clear Transparent Glass Base (Zero Grey Mud) ────────────
         // Translucent dark obsidian glass base (16% alpha) gives impressive, crystal-clear
         // glassmorphism that lets underlying wallpapers and windows show through with high fidelity.
-        const float glassAlpha = 0.16f;
-        D2D1_COLOR_F glassBase = D2D1::ColorF(0.04f, 0.04f, 0.06f, glassAlpha * settingsOpacity_);
+        const bool isExpanded = (h >= 56.0f * settings.sizeScale);
+        const bool isDataDashboard = isExpanded && (kind == IslandKind::Idle);
+        D2D1_COLOR_F glassBase;
+        if (isDataDashboard) {
+            const float floorAlpha = std::clamp(std::max(0.82f, settingsOpacity_), 0.78f, 0.94f);
+            glassBase = D2D1::ColorF(0.06f, 0.07f, 0.09f, floorAlpha);
+        } else if (isExpanded && kind == IslandKind::Media) {
+            glassBase = D2D1::ColorF(0.04f, 0.04f, 0.06f, 0.35f * settingsOpacity_);
+        } else {
+            const float glassAlpha = 0.16f;
+            glassBase = D2D1::ColorF(0.04f, 0.04f, 0.06f, glassAlpha * settingsOpacity_);
+        }
         if (ID2D1SolidColorBrush* baseBrush = AcquireBrush(glassBase)) {
             FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, baseBrush, settings.bladeStyle);
         }
@@ -16095,9 +16125,78 @@ class Renderer {
                                double now, float scale, SYSTEMTIME& local) {
         (void)now;
         const float cx = (rect.left + rect.right) * 0.5f;
-        const float cy = (rect.top + rect.bottom) * 0.5f;
 
-        // 1. Radial glow with accent color
+        // Formatted Time & Date
+        const std::wstring timeText = FormatIslandTime(local, settings.clockFollowSystem,
+                                                       settings.use24HourClock, settings.showSeconds);
+        const std::wstring dateText = FormatIslandDate(local, settings.dateFormat, L"dddd, MMMM d");
+
+        IDWriteTextFormat* bigFmt = timeDashboardFormat_ ? timeDashboardFormat_.Get() : hugeTextFormat_.Get();
+        IDWriteTextFormat* smallFmt = dateDashboardFormat_ ? dateDashboardFormat_.Get() : boldTextFormat_.Get();
+
+        const float availW = (rect.right - rect.left) - 32.0f * scale;
+
+        // Measure true layout metrics using DirectWrite
+        ComPtr<IDWriteTextLayout> timeLayout;
+        ComPtr<IDWriteTextLayout> dateLayout;
+        if (dwriteFactory_) {
+            dwriteFactory_->CreateTextLayout(timeText.c_str(), static_cast<UINT32>(timeText.size()),
+                                             bigFmt, availW, 120.0f * scale, &timeLayout);
+            dwriteFactory_->CreateTextLayout(dateText.c_str(), static_cast<UINT32>(dateText.size()),
+                                             smallFmt, availW, 60.0f * scale, &dateLayout);
+        }
+
+        if (timeLayout) {
+            timeLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            timeLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            timeLayout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        }
+        if (dateLayout) {
+            dateLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            dateLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            dateLayout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        }
+
+        DWRITE_TEXT_METRICS tmTime = {};
+        if (timeLayout) timeLayout->GetMetrics(&tmTime);
+        DWRITE_TEXT_METRICS tmDate = {};
+        if (dateLayout) dateLayout->GetMetrics(&tmDate);
+
+        const float timeH = (tmTime.height > 0.0f) ? tmTime.height : 56.0f * scale;
+        const float dateH = (tmDate.height > 0.0f) ? tmDate.height : 18.0f * scale;
+
+        // Strict vertical hierarchy: Date -> Clock -> Status Chips
+        // Enforce >= 14 logical pixels of visual separation between clock glyph bounds and chips
+        const bool dateFirst = true; // Primary companion hierarchy: Date above large Clock
+        const float topH = dateFirst ? dateH : timeH;
+        const float midH = dateFirst ? timeH : dateH;
+        const float rowGap = 4.0f * scale;
+        const float clockToChipGap = 14.0f * scale; // Strictly >= 10-14 logical px separation
+        const float chipH = 26.0f * scale;
+        const float chipRadius = 13.0f * scale;
+
+        const bool micActive = state.system.micActive && settings.privacyDots && settings.privacyDotsMic;
+        const bool camActive = state.system.cameraActive && settings.privacyDots && settings.privacyDotsCam;
+        const bool privacyActive = (camActive || micActive);
+        const float privacyH = 20.0f * scale;
+        const float privacyGap = 8.0f * scale;
+
+        float totalContentH = topH + rowGap + midH + clockToChipGap + chipH;
+        if (privacyActive) {
+            totalContentH += privacyGap + privacyH;
+        }
+
+        const float availH = rect.bottom - rect.top;
+        const float startY = rect.top + std::max(12.0f * scale, (availH - totalContentH) * 0.44f);
+
+        const float topY = startY;
+        const float midY = topY + topH + rowGap;
+        const float chipY = midY + midH + clockToChipGap;
+        const float privacyY = chipY + chipH + privacyGap;
+
+        const float clockCenterY = (dateFirst ? midY : topY) + timeH * 0.5f;
+
+        // 1. Radial glow with accent color centered on the clock
         if (settings.clockAccentGlow) {
             D2D1_COLOR_F accentColor = accentBrush_ ? accentBrush_->GetColor() : D2D1::ColorF(0x4cc9f0);
             D2D1_GRADIENT_STOP stops[2] = {
@@ -16107,7 +16206,7 @@ class Renderer {
             ComPtr<ID2D1GradientStopCollection> glowStops;
             target_->CreateGradientStopCollection(stops, 2, &glowStops);
             if (glowStops) {
-                const D2D1_POINT_2F glowCenter = D2D1::Point2F(cx, cy - 14.0f * scale);
+                const D2D1_POINT_2F glowCenter = D2D1::Point2F(cx, clockCenterY);
                 ComPtr<ID2D1RadialGradientBrush> glowBrush;
                 target_->CreateRadialGradientBrush(
                     D2D1::RadialGradientBrushProperties(glowCenter, D2D1::Point2F(0, 0),
@@ -16119,37 +16218,31 @@ class Renderer {
             }
         }
 
-        // 2. Formatted Time & Date
-        const std::wstring timeText = FormatIslandTime(local, settings.clockFollowSystem,
-                                                       settings.use24HourClock, settings.showSeconds);
-        const std::wstring dateText = FormatIslandDate(local, settings.dateFormat, L"dddd, MMMM d");
+        // 2. Draw Date and Clock with DirectWrite layouts (Zero vertical overlap!)
+        const D2D1_POINT_2F topOrigin = D2D1::Point2F(rect.left + 16.0f * scale, topY);
+        const D2D1_POINT_2F midOrigin = D2D1::Point2F(rect.left + 16.0f * scale, midY);
 
-        IDWriteTextFormat* bigFmt = timeDashboardFormat_ ? timeDashboardFormat_.Get() : hugeTextFormat_.Get();
-        IDWriteTextFormat* smallFmt = dateDashboardFormat_ ? dateDashboardFormat_.Get() : boldTextFormat_.Get();
+        if (dateFirst) {
+            if (dateLayout) {
+                mutedBrush_->SetOpacity(0.90f * settingsOpacity_);
+                target_->DrawTextLayout(topOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+            }
+            if (timeLayout) {
+                textBrush_->SetOpacity(0.98f * settingsOpacity_);
+                target_->DrawTextLayout(midOrigin, timeLayout.Get(), textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+            }
+        } else {
+            if (timeLayout) {
+                textBrush_->SetOpacity(0.98f * settingsOpacity_);
+                target_->DrawTextLayout(topOrigin, timeLayout.Get(), textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+            }
+            if (dateLayout) {
+                mutedBrush_->SetOpacity(0.90f * settingsOpacity_);
+                target_->DrawTextLayout(midOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+            }
+        }
 
-        const std::wstring& headline = settings.dateFirst ? dateText : timeText;
-        const std::wstring& subline = settings.dateFirst ? timeText : dateText;
-        IDWriteTextFormat* headlineFmt = settings.dateFirst ? smallFmt : bigFmt;
-        IDWriteTextFormat* sublineFmt = settings.dateFirst ? bigFmt : smallFmt;
-
-        // Headline & Subline: clean, non-colliding vertical hierarchy
-        const D2D1_RECT_F headRect = D2D1::RectF(rect.left, cy - 64.0f * scale, rect.right, cy - 24.0f * scale);
-        textBrush_->SetOpacity(0.98f);
-        target_->DrawTextW(headline.c_str(), static_cast<UINT32>(headline.size()), headlineFmt,
-                           headRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-
-        const D2D1_RECT_F subRect = D2D1::RectF(rect.left, cy - 22.0f * scale, rect.right, cy - 1.0f * scale);
-        mutedBrush_->SetOpacity(0.88f);
-        target_->DrawTextW(subline.c_str(), static_cast<UINT32>(subline.size()), sublineFmt,
-                           subRect, mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-
-        // 3. Glanceable Status Chips row (Battery, Weather, CPU/RAM)
-        const float chipY = cy + 10.0f * scale;
-        const float chipH = 26.0f * scale;
-        const float chipGap = 8.0f * scale;
-        const float chipRadius = 13.0f * scale;
-
-        // Collect chip strings
+        // 3. Status Chips row with DirectWrite measurement and ellipsis trimming
         std::wstring batStr = L"";
         if (state.battery.active || settings.battery) {
             batStr = (state.battery.charging ? L"⚡ " : L"🔋 ") + std::to_wstring(state.battery.percent) + L"%";
@@ -16177,36 +16270,45 @@ class Renderer {
         chips.push_back(sysStr);
 
         IDWriteTextFormat* chipFmt = smallTextFormat_ ? smallTextFormat_.Get() : textFormat_.Get();
-        if (chipFmt && dwriteFactory_) {
-            // Measure chips
+        if (chipFmt && dwriteFactory_ && !chips.empty()) {
+            const float maxRowW = (rect.right - rect.left) - 44.0f * scale; // Safe clearance from pagination dots
+            const float chipGap = 8.0f * scale;
+            const float minChipW = 56.0f * scale;
+
+            // Measure natural width of each chip
             std::vector<float> chipWidths;
-            float totalChipsW = 0.0f;
+            float totalNaturalW = 0.0f;
             for (const auto& c : chips) {
                 ComPtr<IDWriteTextLayout> tl;
-                dwriteFactory_->CreateTextLayout(c.c_str(), static_cast<UINT32>(c.size()), chipFmt, 400.0f, 30.0f, &tl);
-                float w = 60.0f * scale;
+                dwriteFactory_->CreateTextLayout(c.c_str(), static_cast<UINT32>(c.size()), chipFmt, 400.0f * scale, 30.0f * scale, &tl);
+                float naturalW = 60.0f * scale;
                 if (tl) {
                     DWRITE_TEXT_METRICS tm = {};
                     tl->GetMetrics(&tm);
-                    w = tm.width + 20.0f * scale;
+                    naturalW = tm.width + 22.0f * scale;
                 }
-                chipWidths.push_back(w);
-                totalChipsW += w;
-            }
-            totalChipsW += chipGap * static_cast<float>(chips.size() - 1);
-
-            const float availW = (rect.right - rect.left) - 32.0f * scale;
-            if (totalChipsW > availW && totalChipsW > 0.0f) {
-                float factor = availW / totalChipsW;
-                for (auto& w : chipWidths) w *= factor;
-                totalChipsW = availW;
+                chipWidths.push_back(naturalW);
+                totalNaturalW += naturalW;
             }
 
-            float chipX = cx - totalChipsW * 0.5f;
+            chipWidths = island_layout::CalculateChipWidths(chipWidths, maxRowW, chipGap, minChipW);
+            float totalRowW = 0.0f;
+            for (float w : chipWidths) totalRowW += w;
+            totalRowW += chipGap * static_cast<float>(chipWidths.size() - 1);
+
+            float chipX = cx - totalRowW * 0.5f;
+
+            // Frosted chip background and subtle stroke
+            D2D1_COLOR_F chipBgColor = D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.82f * settingsOpacity_);
             ComPtr<ID2D1SolidColorBrush> chipBgBrush;
-            target_->CreateSolidColorBrush(WithAlpha(material_.raised, std::clamp(material_.raised.a * 1.5f, 0.28f, 0.70f) * settingsOpacity_), &chipBgBrush);
+            target_->CreateSolidColorBrush(chipBgColor, &chipBgBrush);
+            D2D1_COLOR_F chipStrokeColor = WithAlpha(material_.stroke, 0.28f * settingsOpacity_);
             ComPtr<ID2D1SolidColorBrush> chipStrokeBrush;
-            target_->CreateSolidColorBrush(WithAlpha(material_.stroke, 0.22f * settingsOpacity_), &chipStrokeBrush);
+            target_->CreateSolidColorBrush(chipStrokeColor, &chipStrokeBrush);
+
+            ComPtr<IDWriteInlineObject> ellipsisSign;
+            dwriteFactory_->CreateEllipsisTrimmingSign(chipFmt, &ellipsisSign);
+            DWRITE_TRIMMING trimming = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
 
             for (size_t i = 0; i < chips.size(); ++i) {
                 const float cw = chipWidths[i];
@@ -16217,19 +16319,28 @@ class Renderer {
                 if (chipStrokeBrush) {
                     target_->DrawRoundedRectangle(D2D1::RoundedRect(cr, chipRadius, chipRadius), chipStrokeBrush.Get(), 0.75f * scale);
                 }
-                mutedBrush_->SetOpacity(0.95f);
-                target_->DrawTextW(chips[i].c_str(), static_cast<UINT32>(chips[i].size()), chipFmt,
-                                   D2D1::RectF(cr.left + 10.0f * scale, cr.top + 4.0f * scale, cr.right - 10.0f * scale, cr.bottom),
-                                   mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+
+                // Render text with DirectWrite trimming layout
+                const float textMaxW = std::max(10.0f * scale, cw - 12.0f * scale);
+                ComPtr<IDWriteTextLayout> chipLayout;
+                if (SUCCEEDED(dwriteFactory_->CreateTextLayout(chips[i].c_str(), static_cast<UINT32>(chips[i].size()),
+                                                              chipFmt, textMaxW, chipH, &chipLayout)) && chipLayout) {
+                    if (ellipsisSign) {
+                        chipLayout->SetTrimming(&trimming, ellipsisSign.Get());
+                    }
+                    chipLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                    chipLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                    chipLayout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                    mutedBrush_->SetOpacity(0.96f * settingsOpacity_);
+                    target_->DrawTextLayout(D2D1::Point2F(cr.left + 6.0f * scale, cr.top), chipLayout.Get(),
+                                           mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                }
                 chipX += cw + chipGap;
             }
         }
 
-        // 4. Privacy Indicators (Camera/Mic) if active. Ticker is cleanly removed from Overview.
-        const bool micActive = state.system.micActive && settings.privacyDots && settings.privacyDotsMic;
-        const bool camActive = state.system.cameraActive && settings.privacyDots && settings.privacyDotsCam;
-
-        if (camActive || micActive) {
+        // 4. Privacy Indicators (Camera/Mic) if active, positioned cleanly below status chips
+        if (privacyActive) {
             std::wstring label = (camActive && micActive) ? L"Camera & microphone in use" :
                                  (camActive ? L"Camera in use" : L"Microphone in use");
             D2D1_COLOR_F dotColor = camActive ? settings.privacyDotsCamHex : settings.privacyDotsMicHex;
@@ -16240,13 +16351,13 @@ class Renderer {
                 if (SUCCEEDED(dwriteFactory_->CreateTextLayout(label.c_str(), static_cast<UINT32>(label.size()), fmt, 500.0f, 30.0f, &tl)) && tl) {
                     DWRITE_TEXT_METRICS tm = {};
                     tl->GetMetrics(&tm);
-                    const float pillH = 20.0f * scale;
+                    const float pillH = privacyH;
                     const float pillW = tm.width + 26.0f * scale;
                     const float pillX = cx - pillW * 0.5f;
-                    const float pillY = rect.bottom - 22.0f * scale - pillH;
+                    const float pillY = privacyY;
 
                     ComPtr<ID2D1SolidColorBrush> badgeBg;
-                    target_->CreateSolidColorBrush(WithAlpha(material_.raised, material_.raised.a * settingsOpacity_), &badgeBg);
+                    target_->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.13f, 0.16f, 0.85f * settingsOpacity_), &badgeBg);
                     if (badgeBg) {
                         target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(pillX, pillY, pillX + pillW, pillY + pillH), pillH * 0.5f, pillH * 0.5f), badgeBg.Get());
                     }
@@ -16256,7 +16367,7 @@ class Renderer {
                     if (dotBrush) {
                         target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(pillX + 9.0f * scale, pillY + pillH * 0.5f), 3.0f * scale, 3.0f * scale), dotBrush.Get());
                     }
-                    mutedBrush_->SetOpacity(0.90f);
+                    mutedBrush_->SetOpacity(0.92f * settingsOpacity_);
                     target_->DrawTextLayout(D2D1::Point2F(pillX + 16.0f * scale, pillY + (pillH - tm.height) * 0.5f), tl.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
                 }
             }
@@ -16491,7 +16602,14 @@ class Renderer {
 
         if (expandedAlpha <= 0.01f && !g_trayDragOver.load(std::memory_order_relaxed)) {
             if (!settings.rememberLastPage) {
-                g_idleTab = 0;
+                auto pages = GetActiveDashboardPages(
+                    settings,
+                    state.media.available,
+                    MediaExpandBlocked(state.media),
+                    g_lyricsTabAvailable.load(std::memory_order_relaxed)
+                );
+                int defIdx = island_layout::FindPageIndex(pages, settings.defaultPageId);
+                g_idleTab = (defIdx >= 0) ? defIdx : 0;
             }
             ResetTabTransition();
         }
@@ -24917,8 +25035,10 @@ DWORD WINAPI RenderThreadProc(void*) {
                 g_idleTab = mIdx;
             }
         } else if (!mediaActiveOrGrace && s_lastMediaActive) {
-            // Media ended / expired: fall back to Overview
-            g_idleTab = 0;
+            // Media ended / expired: fall back to default dashboard page
+            auto pList = GetCurrentActivePages(g_settings);
+            int defIdx = island_layout::FindPageIndex(pList, g_settings.defaultPageId);
+            g_idleTab = (defIdx >= 0) ? defIdx : 0;
         }
         s_lastMediaActive = mediaActiveOrGrace;
         Activity primary = ActivityForKind(kinds[0], g_settings, snapshot);

@@ -1011,13 +1011,82 @@ int RunGesturesAndLayoutPolicyTest() {
     IslandContentDimensions dExpCal = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, DashboardPageId::Calendar);
     if (std::abs(dExpCal.width - 410.0f) > 0.1f || std::abs(dExpCal.height - 210.0f) > 0.1f) return 1025;
 
-    // Multi-scale validation across 80%, 100%, 125%, 150%, 200%
-    const float scales[] = {0.80f, 1.0f, 1.25f, 1.50f, 2.0f};
-    for (float sc : scales) {
-        IslandContentDimensions dHwScaled = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, sc, 1.0f, DashboardPageId::HardwareMonitor);
-        if (std::abs(dHwScaled.width - 410.0f * sc) > 0.1f || std::abs(dHwScaled.height - 210.0f * sc) > 0.1f) return 1026;
-        IslandContentDimensions dQcScaled = CalculateAdaptiveDimensions(IslandPresentationState::QuickControlGrid, sc, 1.0f);
-        if (std::abs(dQcScaled.width - 410.0f * sc) > 0.1f || std::abs(dQcScaled.height - 270.0f * sc) > 0.1f) return 1027;
+    // Multi-DPI & Multi-Scale validation across Windows per-monitor DPI factors (1.0x/96DPI, 1.25x/120DPI, 1.50x/144DPI, 2.0x/192DPI)
+    // combined with user scale factors (0.80, 1.0, 1.25, 1.50, 2.0)
+    const float dpiFactors[] = {1.0f, 1.25f, 1.50f, 2.0f};
+    const float userScales[] = {0.80f, 1.0f, 1.25f, 1.50f, 2.0f};
+
+    for (float dpi : dpiFactors) {
+        for (float uSc : userScales) {
+            float effScale = uSc * dpi;
+
+            // A. Window geometry scaling across all dashboard page IDs
+            IslandContentDimensions dHw = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, uSc, dpi, DashboardPageId::HardwareMonitor);
+            if (std::abs(dHw.width - 410.0f * effScale) > 0.15f || std::abs(dHw.height - 210.0f * effScale) > 0.15f) return 1061;
+
+            IslandContentDimensions dWeather = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, uSc, dpi, DashboardPageId::Weather);
+            if (std::abs(dWeather.width - 410.0f * effScale) > 0.15f || std::abs(dWeather.height - 210.0f * effScale) > 0.15f) return 1062;
+
+            IslandContentDimensions dCal = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, uSc, dpi, DashboardPageId::Calendar);
+            if (std::abs(dCal.width - 410.0f * effScale) > 0.15f || std::abs(dCal.height - 210.0f * effScale) > 0.15f) return 1063;
+
+            IslandContentDimensions dQc = CalculateAdaptiveDimensions(IslandPresentationState::QuickControlGrid, uSc, dpi);
+            if (std::abs(dQc.width - 410.0f * effScale) > 0.15f || std::abs(dQc.height - 270.0f * effScale) > 0.15f) return 1064;
+
+            IslandContentDimensions dOverview = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, uSc, dpi, DashboardPageId::Overview);
+            if (std::abs(dOverview.width - 380.0f * effScale) > 0.15f || std::abs(dOverview.height - 184.0f * effScale) > 0.15f) return 1065;
+
+            IslandContentDimensions dCol = CalculateAdaptiveDimensions(IslandPresentationState::Collapsed, uSc, dpi);
+            if (std::abs(dCol.width - 160.0f * effScale) > 0.15f || std::abs(dCol.height - 36.0f * effScale) > 0.15f) return 1066;
+
+            // B. Quick Controls layout & hit-testing scaling
+            auto qcLayout = CalculateQuickControlsLayout(dQc.width, dQc.height, effScale, 60);
+            if (qcLayout.tileCount != 12) return 1067;
+            if (qcLayout.barRight <= qcLayout.barLeft || qcLayout.thumbX < qcLayout.barLeft || qcLayout.thumbX > qcLayout.barRight) return 1068;
+
+            // Volume slider hit testing: thumb position must hit; outside bounds must miss
+            if (!HitTestVolumeSlider(qcLayout, qcLayout.thumbX, qcLayout.thumbY, 5.0f * effScale)) return 1069;
+            if (HitTestVolumeSlider(qcLayout, -100.0f, -100.0f, 5.0f * effScale)) return 1070;
+
+            // All 12 tile hitboxes must be non-overlapping, strictly ordered, and hit-testable
+            for (int t = 0; t < 12; ++t) {
+                const auto& tr = qcLayout.tiles[t];
+                if (tr.right <= tr.left || tr.bottom <= tr.top) return 1071;
+                float midX = (tr.left + tr.right) * 0.5f;
+                float midY = (tr.top + tr.bottom) * 0.5f;
+                if (HitTestQuickControlTile(qcLayout, midX, midY) != t) return 1072;
+            }
+            if (HitTestQuickControlTile(qcLayout, -50.0f, -50.0f) != -1) return 1073;
+
+            // C. Pagination dots layout & hit-testing scaling across tab counts (2 to 8)
+            for (int tabs = 2; tabs <= 8; ++tabs) {
+                auto dotLayout = CalculatePaginationDotsLayout(dHw.width, dHw.height, tabs, effScale);
+                if (dotLayout.tabCount != tabs) return 1074;
+                if (dotLayout.dotX <= 0.0f || dotLayout.dotX >= dHw.width) return 1075;
+                for (int d = 0; d < tabs; ++d) {
+                    float dotY = dotLayout.startY + dotLayout.spacing * static_cast<float>(d);
+                    if (HitTestPaginationDot(dotLayout, dotLayout.dotX, dotY, 4.0f * effScale) != d) return 1076;
+                }
+                if (HitTestPaginationDot(dotLayout, dotLayout.dotX - 50.0f * effScale, dotLayout.startY, 4.0f * effScale) != -1) return 1077;
+            }
+
+            // D. Overview text and chip layout scaling
+            float dateH = 14.0f * effScale;
+            float timeH = 32.0f * effScale;
+            auto ovLayout = CalculateOverviewLayoutMetrics(0.0f, dOverview.height, effScale, dateH, timeH, true, false);
+            if (ovLayout.topY < 0.0f || ovLayout.midY <= ovLayout.topY || ovLayout.chipY <= ovLayout.midY) return 1078;
+            if (ovLayout.clockToChipSeparation <= 0.0f) return 1079;
+            if (ovLayout.chipY + ovLayout.chipH > dOverview.height) return 1080;
+
+            // E. Status chips width distribution under DPI scaling
+            std::vector<float> naturalChips = {45.0f * effScale, 55.0f * effScale, 40.0f * effScale};
+            auto scaledChips = CalculateChipWidths(naturalChips, dOverview.width - 48.0f * effScale, 6.0f * effScale, 30.0f * effScale);
+            if (scaledChips.size() != naturalChips.size()) return 1081;
+            float totalChipsW = 0.0f;
+            for (float cw : scaledChips) totalChipsW += cw;
+            totalChipsW += 6.0f * effScale * (scaledChips.size() - 1);
+            if (totalChipsW > dOverview.width - 40.0f * effScale) return 1082;
+        }
     }
 
     IslandContentDimensions dTimer = CalculateAdaptiveDimensions(IslandPresentationState::CompactTimer, 1.0f, 1.0f);
@@ -1380,21 +1449,21 @@ int RunNavigationMatrixAndThemeResolutionTest() {
                 if (compClock < 0.95f) return 1263;
 
                 // 2. Expanded Overview:
-                // Retains documented deep opaque backdrop (>= 0.96) even at Obsidian 16%!
+                // Retains fully opaque solid obsidian backdrop (1.0f) even at Obsidian 16%!
                 float d2dExpOverview = island_alpha::CalculateSurfaceOpacity(true, island_layout::DashboardPageId::Overview, op);
                 float compExpOverview = island_alpha::CalculateComposedEffectiveAlpha(d2dExpOverview, compAlpha);
-                if (compExpOverview < 0.96f) return 1264;
+                if (compExpOverview < 0.999f) return 1264;
 
                 // 3. Expanded Hardware Monitor:
-                // Retains documented deep opaque backdrop (>= 0.96) even at Obsidian 16%!
+                // Retains fully opaque solid obsidian backdrop (1.0f) even at Obsidian 16%!
                 float d2dExpHw = island_alpha::CalculateSurfaceOpacity(true, island_layout::DashboardPageId::HardwareMonitor, op);
                 float compExpHw = island_alpha::CalculateComposedEffectiveAlpha(d2dExpHw, compAlpha);
-                if (compExpHw < 0.96f) return 1265;
+                if (compExpHw < 0.999f) return 1265;
 
-                // Telemetry cards: solid contrast (>= 0.94)
+                // Telemetry cards: fully solid 100% opaque surface (1.0f)
                 float d2dCard = island_alpha::ResolveElementAlpha(island_alpha::ElementKind::CardSurface, true, island_layout::DashboardPageId::HardwareMonitor, op);
                 float compCard = island_alpha::CalculateComposedEffectiveAlpha(d2dCard, compAlpha);
-                if (compCard < 0.94f) return 1266;
+                if (compCard < 0.999f) return 1266;
 
                 // 4. Expanded Media Player:
                 // Maintains reactive 35% translucent glass across all opacities

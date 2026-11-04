@@ -488,4 +488,106 @@ inline std::vector<float> CalculateChipWidths(
     return widths;
 }
 
+// ── Quick Controls Grid & Volume Slider Layout & Hit-Testing ──────────────────
+struct QuickControlTileRect {
+    float left;
+    float top;
+    float right;
+    float bottom;
+};
+
+struct QuickControlsLayout {
+    float barLeft;
+    float barTop;
+    float barRight;
+    float barBottom;
+    float thumbX;
+    float thumbY;
+    float thumbRadius;
+    QuickControlTileRect tiles[12];
+    int tileCount;
+};
+
+inline QuickControlsLayout CalculateQuickControlsLayout(
+    float contentWidth, float contentHeight, float scale, int volumePercent = 50
+) {
+    (void)contentHeight;
+    QuickControlsLayout l = {};
+    const float padX = 24.0f * scale;
+    l.barLeft = padX;
+    l.barRight = contentWidth - padX;
+    l.barTop = 42.0f * scale;
+    l.barBottom = l.barTop + 8.0f * scale;
+
+    float pct = static_cast<float>(std::clamp(volumePercent, 0, 100)) / 100.0f;
+    float fillW = (l.barRight - l.barLeft) * pct;
+    l.thumbX = l.barLeft + fillW;
+    l.thumbY = (l.barTop + l.barBottom) * 0.5f;
+    l.thumbRadius = 7.0f * scale;
+
+    const float gridY = l.barTop + 22.0f * scale;
+    const float colGap = 9.0f * scale;
+    const float rowGap = 9.0f * scale;
+    const float tileW = (l.barRight - l.barLeft - colGap * 2.0f) / 3.0f;
+    const float tileH = 32.0f * scale;
+
+    l.tileCount = 12;
+    for (int i = 0; i < 12; ++i) {
+        int r = i / 3;
+        int c = i % 3;
+        float tx = l.barLeft + static_cast<float>(c) * (tileW + colGap);
+        float ty = gridY + static_cast<float>(r) * (tileH + rowGap);
+        l.tiles[i] = {tx, ty, tx + tileW, ty + tileH};
+    }
+    return l;
+}
+
+inline int HitTestQuickControlTile(const QuickControlsLayout& layout, float x, float y) {
+    for (int i = 0; i < layout.tileCount; ++i) {
+        if (x >= layout.tiles[i].left && x <= layout.tiles[i].right &&
+            y >= layout.tiles[i].top && y <= layout.tiles[i].bottom) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+inline bool HitTestVolumeSlider(const QuickControlsLayout& layout, float x, float y, float tolerance = 10.0f) {
+    return (x >= layout.barLeft - tolerance && x <= layout.barRight + tolerance &&
+            y >= layout.barTop - tolerance && y <= layout.barBottom + tolerance);
+}
+
+// ── Vertical Sliding Pagination Dots Layout & Hit-Testing ─────────────────────
+struct PaginationDotLayout {
+    float dotX;
+    float startY;
+    float spacing;
+    float radius;
+    int tabCount;
+};
+
+inline PaginationDotLayout CalculatePaginationDotsLayout(
+    float contentWidth, float contentHeight, int tabCount, float scale = 1.0f
+) {
+    PaginationDotLayout p = {};
+    p.tabCount = tabCount;
+    p.spacing = 10.0f * scale;
+    p.radius = 2.5f * scale;
+    p.dotX = contentWidth - 12.0f * scale;
+    p.startY = contentHeight * 0.5f - p.spacing * static_cast<float>(tabCount - 1) * 0.5f;
+    return p;
+}
+
+inline int HitTestPaginationDot(const PaginationDotLayout& layout, float x, float y, float hitTolerance = 6.5f) {
+    if (layout.tabCount <= 1) return -1;
+    if (std::abs(x - layout.dotX) > hitTolerance * 2.0f) return -1;
+    for (int i = 0; i < layout.tabCount; ++i) {
+        float dotY = layout.startY + layout.spacing * static_cast<float>(i);
+        if (std::abs(y - dotY) <= hitTolerance) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 } // namespace island_layout

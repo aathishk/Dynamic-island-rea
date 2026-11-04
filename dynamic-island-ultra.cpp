@@ -13786,8 +13786,8 @@ class Renderer {
     // was raised to carry the separation on its own.
     void DrawCard(D2D1_RECT_F rect, float radius, bool active = false) {
         const D2D1_COLOR_F cardBg = active
-            ? D2D1::ColorF(0.18f, 0.20f, 0.24f, 0.96f)
-            : D2D1::ColorF(0.10f, 0.11f, 0.14f, 0.94f);
+            ? D2D1::ColorF(0.18f, 0.20f, 0.24f, 1.0f)
+            : D2D1::ColorF(0.10f, 0.11f, 0.14f, 1.0f);
         if (ID2D1SolidColorBrush* cardBrush = AcquireBrush(cardBg)) {
             target_->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), cardBrush);
         }
@@ -13976,11 +13976,19 @@ class Renderer {
             radius = 14.0f * settings.sizeScale;
         }
 
-        // ── 0. Real Optical Liquid Glass (Backdrop Capture & Refraction) ──────
+        // ── 0. Surface Material Determination & Backdrop Alpha Policy ────────
+        // Collapsed compact pill retains crystal-clear 16% liquid glass.
+        // Expanded Media Player maintains reactive 35% translucent glass.
+        // Expanded Data Dashboards (Hardware Monitor, Overview, Calendar, Weather, Quick Controls, File Tray, Game Overlay)
+        // command deep opaque obsidian backdrop (1.0 alpha) completely eliminating background text bleed-through.
+        const bool isExpanded = (h >= 56.0f * settings.sizeScale);
+        const auto mat = island_layout::CalculateSurfaceMaterial(isExpanded, activePageId, settingsOpacity_);
+
+        // Real Optical Liquid Glass (Backdrop Capture & Refraction) only active for translucent surfaces
         const island_performance::PowerStateInfo powerInfo = island_performance::ReadSystemPowerStatus();
         const island_performance::EffectivePowerMode effMode = island_performance::DetermineEffectivePowerMode(
             settings.performanceMode.c_str(), settings.autoBatterySaver, powerInfo);
-        const bool canCaptureLiveGlass = settings.realLiquidGlass &&
+        const bool canCaptureLiveGlass = !mat.isOpaqueBackdrop && settings.realLiquidGlass &&
             island_performance::IsLiveBackdropCaptureAllowed(effMode, settings.realLiquidGlass);
         if (canCaptureLiveGlass) {
             ID2D1Bitmap* glassBmp = liquid_glass::g_glassEngine.UpdateAndGetBitmap(
@@ -13997,12 +14005,6 @@ class Renderer {
         }
 
         // ── 1. Crystal-Clear Transparent Glass Base vs Opaque Data Backdrop ───
-        // Collapsed compact pill retains crystal-clear 16% liquid glass.
-        // Expanded Media Player maintains reactive 35% translucent glass.
-        // Expanded Data Dashboards (Hardware Monitor, Overview, Calendar, Weather, etc.)
-        // command deep opaque obsidian backdrop (>= 0.96-1.0 alpha) preventing text bleed-through.
-        const bool isExpanded = (h >= 56.0f * settings.sizeScale);
-        const auto mat = island_layout::CalculateSurfaceMaterial(isExpanded, activePageId, settingsOpacity_);
         const D2D1_COLOR_F glassBase = D2D1::ColorF(mat.r, mat.g, mat.b, mat.alpha);
         if (ID2D1SolidColorBrush* baseBrush = AcquireBrush(glassBase)) {
             FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, baseBrush, settings.bladeStyle);
@@ -15056,23 +15058,19 @@ class Renderer {
             target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY), 2.8f * scale, 2.8f * scale), accentBrush_.Get());
         }
         const auto tiles = island_controls::GetStandardControlTiles();
-        const float gridY = barY + 22.0f * scale;
-        const float colGap = 9.0f * scale;
-        const float rowGap = 9.0f * scale;
-        const float tileW = (barRight - barLeft - colGap * 2.0f) / 3.0f;
-        const float tileH = 32.0f * scale;
+        const auto qcLayout = island_layout::CalculateQuickControlsLayout(rect.right - rect.left, rect.bottom - rect.top, scale, vol);
 
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> tileBrush;
-        target_->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.20f, 0.25f, 0.65f), &tileBrush);
+        target_->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.14f, 0.18f, 1.0f), &tileBrush);
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> tileBorderBrush;
         target_->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f), &tileBorderBrush);
 
         for (int i = 0; i < 12 && i < static_cast<int>(tiles.size()); ++i) {
-            int row = i / 3;
-            int col = i % 3;
-            float tx = barLeft + col * (tileW + colGap);
-            float ty = gridY + row * (tileH + rowGap);
-            D2D1_RECT_F tileRect = D2D1::RectF(tx, ty, tx + tileW, ty + tileH);
+            float tx = rect.left + qcLayout.tiles[i].left;
+            float ty = rect.top + qcLayout.tiles[i].top;
+            float tw = qcLayout.tiles[i].right - qcLayout.tiles[i].left;
+            float th = qcLayout.tiles[i].bottom - qcLayout.tiles[i].top;
+            D2D1_RECT_F tileRect = D2D1::RectF(tx, ty, tx + tw, ty + th);
             D2D1_ROUNDED_RECT rTile = D2D1::RoundedRect(tileRect, 7.0f * scale, 7.0f * scale);
             if (tileBrush) {
                 target_->FillRoundedRectangle(rTile, tileBrush.Get());
@@ -15081,14 +15079,50 @@ class Renderer {
                 target_->DrawRoundedRectangle(rTile, tileBorderBrush.Get(), 1.0f * scale);
             }
 
-            if (accentBrush_) {
-                target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(tx + 12.0f * scale, ty + tileH * 0.5f), 2.5f * scale, 2.5f * scale), accentBrush_.Get());
+            // Draw Segoe Fluent / MDL2 Assets glyph icon on the left of the tile
+            if (iconFormat_ && textBrush_) {
+                iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                D2D1_RECT_F iconRect = D2D1::RectF(tx + 6.0f * scale, ty, tx + 24.0f * scale, ty + th);
+                textBrush_->SetOpacity(0.85f);
+                target_->DrawTextW(tiles[i].glyph, static_cast<UINT32>(wcslen(tiles[i].glyph)),
+                                   iconFormat_.Get(), iconRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             }
 
+            // Determine if this tile represents a genuinely verifiable active state
+            bool isTileActive = false;
+            switch (tiles[i].action) {
+            case island_controls::ControlAction::ToggleFocusMode:
+                isTileActive = (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Focus);
+                break;
+            case island_controls::ControlAction::ToggleGamingMode:
+                isTileActive = (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Gaming);
+                break;
+            case island_controls::ControlAction::TogglePresentationMode:
+                isTileActive = (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Presentation);
+                break;
+            case island_controls::ControlAction::OpenBluetoothSettings:
+                isTileActive = g_defaultOutputIsBluetooth.load(std::memory_order_relaxed);
+                break;
+            default:
+                isTileActive = false;
+                break;
+            }
+
+            // Only show an active indicator if the tile state is genuinely active
+            if (isTileActive && accentBrush_) {
+                target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(tx + tw - 8.0f * scale, ty + th * 0.5f), 2.5f * scale, 2.5f * scale), accentBrush_.Get());
+            }
+
+            // Primary interaction cue: tile label
             if (smallTextFormat_ && textBrush_) {
                 smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                D2D1_RECT_F textR = D2D1::RectF(tx + 20.0f * scale, ty, tx + tileW - 6.0f * scale, ty + tileH);
+                textBrush_->SetOpacity(0.96f);
+                const float textRight = isTileActive ? (tx + tw - 14.0f * scale) : (tx + tw - 6.0f * scale);
+                D2D1_RECT_F textR = D2D1::RectF(tx + 26.0f * scale, ty, textRight, ty + th);
                 target_->DrawTextW(tiles[i].label, static_cast<UINT32>(wcslen(tiles[i].label)), smallTextFormat_.Get(), textR, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             }
@@ -23829,38 +23863,32 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 if (g_settings.quickControlsModule && qcTab >= 0 && NormalizedTabIndex(g_settings) == qcTab) {
                     if (g_pillClientRect.valid) {
                         const float scale = (g_settings.sizeScale > 0.01f) ? g_settings.sizeScale : 1.0f;
-                        const float padX = 24.0f * scale;
                         float left = static_cast<float>(g_pillClientRect.left);
                         float top = static_cast<float>(g_pillClientRect.top);
                         float right = static_cast<float>(g_pillClientRect.right);
-                        float barY = top + 40.0f * scale;
-                        float barLeft = left + padX;
-                        float barRight = right - padX;
-                        float barH = 14.0f * scale;
-                        if (yPos >= barY - 12.0f * scale && yPos <= barY + barH + 12.0f * scale && xPos >= barLeft - 8.0f * scale && xPos <= barRight + 8.0f * scale) {
-                            float pctF = std::clamp((static_cast<float>(xPos) - barLeft) / (barRight - barLeft), 0.0f, 1.0f);
+                        float bottom = static_cast<float>(g_pillClientRect.bottom);
+                        const auto layout = island_layout::CalculateQuickControlsLayout(right - left, bottom - top, scale);
+
+                        float localX = static_cast<float>(xPos) - left;
+                        float localY = static_cast<float>(yPos) - top;
+
+                        if (island_layout::HitTestVolumeSlider(layout, localX, localY, 12.0f * scale)) {
+                            float pctF = std::clamp((localX - layout.barLeft) / (layout.barRight - layout.barLeft), 0.0f, 1.0f);
                             island_controls::SetMasterVolumePercent(static_cast<int>(pctF * 100.0f));
                             g_volumeDragging.store(true);
                             SetCapture(hwnd);
                             TriggerNudge();
                             return 0;
                         }
-                        const float gridY = barY + 22.0f * scale;
-                        const float colGap = 9.0f * scale;
-                        const float rowGap = 9.0f * scale;
-                        const float tileW = (barRight - barLeft - colGap * 2.0f) / 3.0f;
-                        const float tileH = 32.0f * scale;
-                        const auto tiles = island_controls::GetStandardControlTiles();
-                        for (int i = 0; i < 12 && i < static_cast<int>(tiles.size()); ++i) {
-                            int r = i / 3;
-                            int c = i % 3;
-                            float tx = barLeft + c * (tileW + colGap);
-                            float ty = gridY + r * (tileH + rowGap);
-                            if (xPos >= tx && xPos <= tx + tileW && yPos >= ty && yPos <= ty + tileH) {
-                                if (tiles[i].action == island_controls::ControlAction::OpenDynamicEdgeSettings) {
+
+                        int clickedTile = island_layout::HitTestQuickControlTile(layout, localX, localY);
+                        if (clickedTile >= 0) {
+                            const auto tiles = island_controls::GetStandardControlTiles();
+                            if (clickedTile < static_cast<int>(tiles.size())) {
+                                if (tiles[clickedTile].action == island_controls::ControlAction::OpenDynamicEdgeSettings) {
                                     settings_ui::ShowSettingsWindow(hwnd);
                                 } else {
-                                    island_controls::ExecuteControlAction(tiles[i].action, hwnd, &island_globals::g_contextEngine);
+                                    island_controls::ExecuteControlAction(tiles[clickedTile].action, hwnd, &island_globals::g_contextEngine);
                                 }
                                 TriggerNudge();
                                 return 0;
@@ -23873,16 +23901,13 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 const MediaContentPoint pcp = MediaContentFromClient(xPos, yPos);
                 if (pcp.valid) {
                     const int tabCount = ActiveTabCount(g_settings);
-                    if (tabCount > 1 && pcp.x >= pcp.width - 24.0f) {
-                        const float spacing = 10.0f;
-                        const float startY = pcp.height * 0.5f - spacing * (tabCount - 1) * 0.5f;
-                        for (int i = 0; i < tabCount; ++i) {
-                            float dotY = startY + spacing * static_cast<float>(i);
-                            if (std::abs(pcp.y - dotY) <= 6.5f) {
-                                g_idleTab = i;
-                                TriggerNudge();
-                                return 0;
-                            }
+                    if (tabCount > 1) {
+                        const auto dotLayout = island_layout::CalculatePaginationDotsLayout(pcp.width, pcp.height, tabCount, 1.0f);
+                        int clickedDot = island_layout::HitTestPaginationDot(dotLayout, pcp.x, pcp.y, 6.5f);
+                        if (clickedDot >= 0) {
+                            g_idleTab = clickedDot;
+                            TriggerNudge();
+                            return 0;
                         }
                     }
                 }

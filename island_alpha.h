@@ -53,9 +53,9 @@ inline float CalculateSurfaceOpacity(
         // Expanded Media Player: reactive translucent glass
         return 0.35f;
     }
-    // Expanded Data Dashboards: deep opaque obsidian backdrop (0.98)
-    // Provides 98% background opacity and high visual contrast regardless of theme opacity.
-    return 0.98f;
+    // Expanded Data Dashboards (Hardware Monitor, Overview, Calendar, Weather, Quick Controls, File Tray, Game Overlay):
+    // Fully opaque solid obsidian backdrop (1.0f alpha) for 100% crisp readability over any background.
+    return 1.0f;
 }
 
 // 3. Content Opacity (Direct2D per-pixel alpha for foreground text & glyphs)
@@ -96,14 +96,14 @@ inline float ResolveElementAlpha(
     case ElementKind::ExpandedMediaSurface:
         return 0.35f;
     case ElementKind::ExpandedDataDashboardSurface:
-        return 0.98f;
+        return 1.0f;
     case ElementKind::NotificationSurface:
     case ElementKind::ProgressSurface:
-        return 0.96f;
+        return 1.0f;
     case ElementKind::CardSurface:
-        return 0.94f;
+        return 1.0f;
     case ElementKind::CardSurfaceActive:
-        return 0.96f;
+        return 1.0f;
     case ElementKind::CardStroke:
         return 0.35f;
     case ElementKind::StatusChipSurface:

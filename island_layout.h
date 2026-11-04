@@ -47,12 +47,26 @@ inline IslandPresentationState ArbitratePresentationState(
     return IslandPresentationState::Collapsed;
 }
 
-// Calculates adaptive dimensions based on presentation state and user size scale
+// ── Single Authoritative Navigation Model (Directives Section 4 & 5) ─────────
+enum class DashboardPageId : int {
+    Overview = 0,       // Integrated glanceable overview (Time, Date, System, Battery, compact media, privacy)
+    Media,              // Dedicated media player (cover art, scrubber, transport, source switch)
+    Calendar,           // Month calendar
+    Weather,            // Weather details
+    HardwareMonitor,    // CPU, RAM, GPU, C: STORAGE, Network telemetry
+    FileTray,           // Drag & drop shelf
+    Lyrics,             // Full synced lyrics view
+    QuickControls,      // Master volume slider & action tiles
+    GameOverlay,        // Gaming HUD / performance metrics
+    Count
+};
+
+// Calculates adaptive dimensions based on presentation state, active page, and user size scale
 inline IslandContentDimensions CalculateAdaptiveDimensions(
     IslandPresentationState state,
     float userScale,
     float dpiScale,
-    int tabType = 0) {
+    DashboardPageId activePageId = DashboardPageId::Overview) {
 
     float scale = std::clamp(userScale, 0.50f, 2.0f) * std::max(0.5f, dpiScale);
     IslandContentDimensions dims;
@@ -83,36 +97,60 @@ inline IslandContentDimensions CalculateAdaptiveDimensions(
         break;
 
     case IslandPresentationState::QuickControlGrid:
-        dims.width = 380.0f * scale;
-        dims.height = 240.0f * scale;
+        dims.width = 410.0f * scale;
+        dims.height = 270.0f * scale;
         dims.cornerRadius = 28.0f * scale;
         break;
 
     case IslandPresentationState::ExpandedDashboard:
     default:
-        // Expanded tabs (Media = 380x184, Hardware = 380x140, File Tray = 380x190)
-        dims.width = 380.0f * scale;
-        dims.height = (tabType == 33 /* File Tray */) ? (190.0f * scale) : (184.0f * scale);
+        // Page-specific adaptive dimensions:
+        // Overview & Media: preserve existing compact size (380 x 184)
+        // Hardware Monitor, Weather, Calendar, File Tray, Game Overlay: spacious ~410 x 210
+        // Quick Controls: approximately 410 x 270
         dims.cornerRadius = 28.0f * scale;
+        switch (activePageId) {
+        case DashboardPageId::HardwareMonitor:
+        case DashboardPageId::Weather:
+        case DashboardPageId::Calendar:
+        case DashboardPageId::FileTray:
+        case DashboardPageId::GameOverlay:
+            dims.width = 410.0f * scale;
+            dims.height = 210.0f * scale;
+            break;
+
+        case DashboardPageId::QuickControls:
+            dims.width = 410.0f * scale;
+            dims.height = 270.0f * scale;
+            break;
+
+        case DashboardPageId::Overview:
+        case DashboardPageId::Media:
+        case DashboardPageId::Lyrics:
+        default:
+            dims.width = 380.0f * scale;
+            dims.height = 184.0f * scale;
+            break;
+        }
         break;
     }
 
     return dims;
 }
 
-// ── Single Authoritative Navigation Model (Directives Section 4 & 5) ─────────
-enum class DashboardPageId : int {
-    Overview = 0,       // Integrated glanceable overview (Time, Date, System, Battery, compact media, privacy)
-    Media,              // Dedicated media player (cover art, scrubber, transport, source switch)
-    Calendar,           // Month calendar
-    Weather,            // Weather details
-    HardwareMonitor,    // CPU, RAM, GPU, C: STORAGE, Network telemetry
-    FileTray,           // Drag & drop shelf
-    Lyrics,             // Full synced lyrics view
-    QuickControls,      // Master volume slider & action tiles
-    GameOverlay,        // Gaming HUD / performance metrics
-    Count
-};
+inline IslandContentDimensions CalculateAdaptiveDimensions(
+    IslandPresentationState state,
+    float userScale,
+    float dpiScale,
+    int tabType) {
+    DashboardPageId pageId = DashboardPageId::Overview;
+    if (tabType == 33 || tabType == static_cast<int>(DashboardPageId::FileTray)) {
+        pageId = DashboardPageId::FileTray;
+    } else if (tabType >= 0 && tabType < static_cast<int>(DashboardPageId::Count)) {
+        pageId = static_cast<DashboardPageId>(tabType);
+    }
+    return CalculateAdaptiveDimensions(state, userScale, dpiScale, pageId);
+}
 
 } // namespace island_layout
 

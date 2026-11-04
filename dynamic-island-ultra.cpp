@@ -14103,8 +14103,8 @@ class Renderer {
         // Today's date as an editorial block: month over a large day figure over
         // the weekday. Uses the shared DrawCard so it matches every other panel
         // instead of being a one-off translucent slab.
-        const D2D1_RECT_F hero = D2D1::RectF(rect.left + 22.0f * scale, rect.top + 16.0f * scale,
-                                             rect.left + 115.0f * scale, rect.bottom - 20.0f * scale);
+        const D2D1_RECT_F hero = D2D1::RectF(rect.left + 22.0f * scale, rect.top + 18.0f * scale,
+                                             rect.left + 120.0f * scale, rect.bottom - 18.0f * scale);
         DrawCard(hero, 12.0f * scale);
 
         // The accent is the album-art / system accent like everywhere else. This
@@ -14209,21 +14209,17 @@ class Renderer {
         }
 
         // ── Month grid ───────────────────────────────────────────────────────
-        const float gridStart = rect.left + 134.0f * scale;
-        const float gridTop = rect.top + 16.0f * scale;
-        const float colW = 38.0f * scale;
-        const float headerH = 18.0f * scale;
+        const float gridStart = rect.left + 136.0f * scale;
+        const float gridTop = rect.top + 18.0f * scale;
+        const float colW = 36.0f * scale;
+        const float headerH = 20.0f * scale;
         const int firstDay = calendarCachedFirstDay_;
 
         const int startDayIdx = (GetDayOfWeek(local.wYear, local.wMonth, 1) - firstDay + 7) % 7;
         const int monthDays = GetDaysInMonth(local.wYear, local.wMonth);
         const int rowCount = (startDayIdx + monthDays + 6) / 7;  // 5 or 6
 
-        // Row height is derived from the space actually available rather than
-        // fixed at 26px. At 26 a six-row month ran to y=197 inside a 184px
-        // island, so the last row was silently clipped by the island mask --
-        // visible every month that starts late in the week.
-        const float datesTop = gridTop + headerH + 7.0f * scale;
+        const float datesTop = gridTop + headerH + 6.0f * scale;
         const float gridBottom = rect.bottom - 14.0f * scale;
         const float rowH = (gridBottom - datesTop) / static_cast<float>(rowCount > 0 ? rowCount : 1);
 
@@ -14604,10 +14600,10 @@ class Renderer {
         // own box, which is what left the icon and the temperature floating apart
         // with a dead gap between them.
         const float heroLeft = rect.left + 26.0f * scale;
-        const float heroRight = rect.left + 188.0f * scale;
-        const float dividerX = rect.left + 200.0f * scale;
-        const float metricLeft = rect.left + 214.0f * scale;
-        const float metricRight = rect.right - 22.0f * scale;
+        const float heroRight = rect.left + 200.0f * scale;
+        const float dividerX = rect.left + 212.0f * scale;
+        const float metricLeft = rect.left + 224.0f * scale;
+        const float metricRight = rect.right - 24.0f * scale;
 
         // Accent-tinted icon brushes: `strong` carries the shape, `soft` the
         // secondary detail (rain, rays, fog bands).
@@ -14617,23 +14613,22 @@ class Renderer {
         target_->CreateSolidColorBrush(WithAlpha(material_.accent, 0.42f), &iconSoft);
 
         // Place label.
-        textBrush_->SetOpacity(0.55f);
+        textBrush_->SetOpacity(0.65f);
         if (smallTextFormat_) {
             smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
             target_->DrawTextW(city.c_str(), static_cast<UINT32>(city.length()), smallTextFormat_.Get(),
-                               D2D1::RectF(heroLeft, rect.top + 26.0f * scale, heroRight, rect.top + 44.0f * scale),
+                               D2D1::RectF(heroLeft, rect.top + 24.0f * scale, heroRight, rect.top + 44.0f * scale),
                                textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
 
-        // Icon and temperature share one band and sit adjacent, so they read as
-        // a single unit instead of two centred items.
-        const float readingCenterY = rect.top + 82.0f * scale;
+        // Icon and temperature share one band and sit adjacent with comfortable breathing room.
+        const float readingCenterY = rect.top + 90.0f * scale;
         if (hasWeather && iconStrong && iconSoft) {
-            DrawWeatherIcon(D2D1::Point2F(heroLeft + 22.0f * scale, readingCenterY), 44.0f * scale,
+            DrawWeatherIcon(D2D1::Point2F(heroLeft + 24.0f * scale, readingCenterY), 46.0f * scale,
                             WeatherVisualFromCode(state.weather.weatherCode),
                             iconStrong.Get(), iconSoft.Get());
         } else if (iconStrong && iconSoft) {
-            DrawWeatherIcon(D2D1::Point2F(heroLeft + 22.0f * scale, readingCenterY), 44.0f * scale,
+            DrawWeatherIcon(D2D1::Point2F(heroLeft + 24.0f * scale, readingCenterY), 46.0f * scale,
                             WeatherVisual::Unknown, iconStrong.Get(), iconSoft.Get());
         }
 
@@ -14641,14 +14636,14 @@ class Renderer {
         if (hugeTextFormat_) {
             hugeTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
             target_->DrawTextW(wTemp, static_cast<UINT32>(wcslen(wTemp)), hugeTextFormat_.Get(),
-                               D2D1::RectF(heroLeft + 52.0f * scale, readingCenterY - 32.0f * scale,
+                               D2D1::RectF(heroLeft + 58.0f * scale, readingCenterY - 32.0f * scale,
                                            heroRight, readingCenterY + 32.0f * scale),
                                textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             hugeTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         }
 
-        const float descTop = rect.top + 120.0f * scale;
-        const float descBottom = rect.top + 162.0f * scale;
+        const float descTop = rect.top + 132.0f * scale;
+        const float descBottom = rect.top + 180.0f * scale;
 
         // Description
         const size_t descLength = desc.length();
@@ -14736,8 +14731,8 @@ class Renderer {
              hasWeather ? state.weather.humidity + L"%" : std::wstring(L"--")},
         };
 
-        const float cardH = 40.0f * scale;
-        const float cardGap = 7.0f * scale;
+        const float cardH = 44.0f * scale;
+        const float cardGap = 8.0f * scale;
         const float stackH = cardH * 3.0f + cardGap * 2.0f;
         float cardTop = (rect.top + rect.bottom) * 0.5f - stackH * 0.5f;
 
@@ -14746,18 +14741,18 @@ class Renderer {
             DrawCard(card, 10.0f * scale);
 
             if (iconSoft) {
-                DrawMetricGlyph(D2D1::Point2F(card.left + 17.0f * scale, card.top + 14.0f * scale),
-                                14.0f * scale, m.glyph, iconSoft.Get());
+                DrawMetricGlyph(D2D1::Point2F(card.left + 18.0f * scale, card.top + 16.0f * scale),
+                                16.0f * scale, m.glyph, iconSoft.Get());
             }
 
-            const float textLeft = card.left + 30.0f * scale;
+            const float textLeft = card.left + 36.0f * scale;
             if (smallTextFormat_) {
                 smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                mutedBrush_->SetOpacity(0.62f);
+                mutedBrush_->SetOpacity(0.68f);
                 target_->DrawTextW(m.label, static_cast<UINT32>(wcslen(m.label)), smallTextFormat_.Get(),
                                    D2D1::RectF(textLeft, card.top + 4.0f * scale,
-                                               card.right - 8.0f * scale, card.top + 20.0f * scale),
+                                               card.right - 8.0f * scale, card.top + 18.0f * scale),
                                    mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             }
@@ -14765,10 +14760,10 @@ class Renderer {
             if (textFormat_) {
                 textFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 textFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                textBrush_->SetOpacity(0.95f);
+                textBrush_->SetOpacity(0.96f);
                 target_->DrawTextW(m.value.c_str(), static_cast<UINT32>(m.value.size()), textFormat_.Get(),
-                                   D2D1::RectF(textLeft, card.top + 19.0f * scale,
-                                               card.right - 8.0f * scale, card.bottom - 3.0f * scale),
+                                   D2D1::RectF(textLeft, card.top + 18.0f * scale,
+                                               card.right - 8.0f * scale, card.bottom - 4.0f * scale),
                                    textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 textFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             }
@@ -15061,24 +15056,41 @@ class Renderer {
             target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY), 2.8f * scale, 2.8f * scale), accentBrush_.Get());
         }
         const auto tiles = island_controls::GetStandardControlTiles();
-        float gridY = barY + 20.0f * scale;
-        float tileW = (barRight - barLeft - 16.0f * scale) / 3.0f;
-        float tileH = 26.0f * scale;
+        const float gridY = barY + 22.0f * scale;
+        const float colGap = 9.0f * scale;
+        const float rowGap = 9.0f * scale;
+        const float tileW = (barRight - barLeft - colGap * 2.0f) / 3.0f;
+        const float tileH = 32.0f * scale;
+
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> tileBrush;
-        target_->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.18f, 0.22f, 0.55f), &tileBrush);
+        target_->CreateSolidColorBrush(D2D1::ColorF(0.18f, 0.20f, 0.25f, 0.65f), &tileBrush);
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> tileBorderBrush;
+        target_->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f), &tileBorderBrush);
+
         for (int i = 0; i < 12 && i < static_cast<int>(tiles.size()); ++i) {
             int row = i / 3;
             int col = i % 3;
-            float tx = barLeft + col * (tileW + 8.0f * scale);
-            float ty = gridY + row * (tileH + 6.0f * scale);
-            D2D1_ROUNDED_RECT rTile = D2D1::RoundedRect(D2D1::RectF(tx, ty, tx + tileW, ty + tileH), 6.0f * scale, 6.0f * scale);
+            float tx = barLeft + col * (tileW + colGap);
+            float ty = gridY + row * (tileH + rowGap);
+            D2D1_RECT_F tileRect = D2D1::RectF(tx, ty, tx + tileW, ty + tileH);
+            D2D1_ROUNDED_RECT rTile = D2D1::RoundedRect(tileRect, 7.0f * scale, 7.0f * scale);
             if (tileBrush) {
                 target_->FillRoundedRectangle(rTile, tileBrush.Get());
             }
+            if (tileBorderBrush) {
+                target_->DrawRoundedRectangle(rTile, tileBorderBrush.Get(), 1.0f * scale);
+            }
+
+            if (accentBrush_) {
+                target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(tx + 12.0f * scale, ty + tileH * 0.5f), 2.5f * scale, 2.5f * scale), accentBrush_.Get());
+            }
+
             if (smallTextFormat_ && textBrush_) {
-                smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                D2D1_RECT_F textR = D2D1::RectF(tx + 4.0f, ty + 6.0f * scale, tx + tileW - 4.0f, ty + tileH);
-                target_->DrawTextW(tiles[i].label, static_cast<UINT32>(wcslen(tiles[i].label)), smallTextFormat_.Get(), textR, textBrush_.Get());
+                smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                D2D1_RECT_F textR = D2D1::RectF(tx + 20.0f * scale, ty, tx + tileW - 6.0f * scale, ty + tileH);
+                target_->DrawTextW(tiles[i].label, static_cast<UINT32>(wcslen(tiles[i].label)), smallTextFormat_.Get(), textR, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             }
         }
     }
@@ -15353,13 +15365,12 @@ class Renderer {
             {8, L"C: STORAGE", diskBuf, Clamp(diskUsed / 100.0f, 0.0f, 1.0f)},
         };
 
-        // 2 x 3 grid of cards. Cards give the grid its structure, so the old
-        // full-height centre divider is gone.
-        const float colGap = 9.0f * scale;
+        // 2 x 3 grid of cards with spacious 44px card height and 8px row spacing
+        const float colGap = 12.0f * scale;
         const float colW = (rect.right - rect.left - padX * 2.0f - colGap) * 0.5f;
-        const float rowH = 38.0f * scale;
-        const float rowGap = 6.0f * scale;
-        const float gridTop = rect.top + 38.0f * scale;
+        const float rowH = 44.0f * scale;
+        const float rowGap = 8.0f * scale;
+        const float gridTop = rect.top + 42.0f * scale;
 
         for (int i = 0; i < 6; ++i) {
             const HwMetric& m = metrics[i];
@@ -15370,31 +15381,26 @@ class Renderer {
             const float cardTop = gridTop + static_cast<float>(row) * (rowH + rowGap);
             const D2D1_RECT_F card = D2D1::RectF(cardLeft, cardTop, cardLeft + colW, cardTop + rowH);
 
-            DrawCard(card, 9.0f * scale);
+            DrawCard(card, 10.0f * scale);
 
             const bool hasBar = m.fraction >= 0.0f;
             const D2D1_COLOR_F tint = hasBar ? LoadStateColor(m.fraction) : material_.accent;
 
             if (ID2D1SolidColorBrush* glyphBrush = AcquireBrush(WithAlpha(tint, island_alpha::ResolveElementAlpha(island_alpha::ElementKind::SecondaryContent, true, island_layout::DashboardPageId::HardwareMonitor, settingsOpacity_)))) {
-                DrawMetricGlyph(D2D1::Point2F(card.left + 16.0f * scale, card.top + 15.0f * scale),
-                                15.0f * scale, m.glyph, glyphBrush);
+                DrawMetricGlyph(D2D1::Point2F(card.left + 18.0f * scale, card.top + 22.0f * scale),
+                                16.0f * scale, m.glyph, glyphBrush);
             }
 
-            const float textLeft = card.left + 30.0f * scale;
-            const float textRight = card.right - 9.0f * scale;
+            const float textLeft = card.left + 36.0f * scale;
+            const float textRight = card.right - 12.0f * scale;
 
-            // Label sits above the value rather than sharing a line with it.
-            // A single "Label: value" line collides once localized -- German
-            // "Luftfeuchte" or Russian "Влажность" leave no room for the number.
-            // The three bands (label / value / bar) are kept adjacent but
-            // non-overlapping so nothing clips into its neighbour.
             if (smallTextFormat_) {
                 smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                mutedBrush_->SetOpacity(0.60f);
+                mutedBrush_->SetOpacity(0.70f);
                 target_->DrawTextW(m.label, static_cast<UINT32>(wcslen(m.label)), smallTextFormat_.Get(),
-                                   D2D1::RectF(textLeft, card.top + 2.0f * scale,
-                                               textRight, card.top + 15.0f * scale),
+                                   D2D1::RectF(textLeft, card.top + 4.0f * scale,
+                                               textRight, card.top + 18.0f * scale),
                                    mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             }
@@ -15402,22 +15408,20 @@ class Renderer {
             if (textFormat_) {
                 textFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 textFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                textBrush_->SetOpacity(0.95f);
-                // Without a bar the value takes the band the bar would have
-                // used, so the two card shapes stay optically balanced.
-                const float valueBottom = hasBar ? card.top + 30.0f * scale : card.bottom - 4.0f * scale;
+                textBrush_->SetOpacity(0.96f);
+                const float valueBottom = hasBar ? card.top + 33.0f * scale : card.bottom - 4.0f * scale;
                 target_->DrawTextW(m.value, static_cast<UINT32>(wcslen(m.value)), textFormat_.Get(),
-                                   D2D1::RectF(textLeft, card.top + 15.0f * scale, textRight, valueBottom),
+                                   D2D1::RectF(textLeft, card.top + 18.0f * scale, textRight, valueBottom),
                                    textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 textFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             }
 
             if (hasBar) {
-                const D2D1_RECT_F track = D2D1::RectF(textLeft, card.bottom - 6.0f * scale,
-                                                      textRight, card.bottom - 3.5f * scale);
+                const D2D1_RECT_F track = D2D1::RectF(textLeft, card.bottom - 7.0f * scale,
+                                                      textRight, card.bottom - 4.0f * scale);
                 ComPtr<ID2D1SolidColorBrush> trackBrush;
                 if (SUCCEEDED(target_->CreateSolidColorBrush(material_.raisedStrong, &trackBrush)) && trackBrush) {
-                    target_->FillRoundedRectangle(D2D1::RoundedRect(track, 1.25f * scale, 1.25f * scale), trackBrush.Get());
+                    target_->FillRoundedRectangle(D2D1::RoundedRect(track, 1.5f * scale, 1.5f * scale), trackBrush.Get());
                 }
 
                 const float span = (track.right - track.left) * m.fraction;
@@ -15425,7 +15429,7 @@ class Renderer {
                     if (ID2D1SolidColorBrush* fillBrush = AcquireBrush(WithAlpha(tint, 0.95f))) {
                         target_->FillRoundedRectangle(
                             D2D1::RoundedRect(D2D1::RectF(track.left, track.top, track.left + span, track.bottom),
-                                              1.25f * scale, 1.25f * scale),
+                                              1.5f * scale, 1.5f * scale),
                             fillBrush);
                     }
                 }
@@ -16987,6 +16991,8 @@ class Renderer {
     // Vertical pagination dots on the right edge. The active dot stretches into a
     // pill and slides with the transition instead of jumping.
     void DrawTabPagination(D2D1_RECT_F rect, int tabCount, int currentTab = 0, const wchar_t* tabName = nullptr) {
+        (void)currentTab;
+        (void)tabName;
         if (tabCount <= 1) {
             return;
         }
@@ -16995,30 +17001,16 @@ class Renderer {
             return;
         }
 
-        const float dotX = rect.right - 10.0f;
-        const float spacing = 11.0f;
+        const float dotX = rect.right - 12.0f;
+        const float spacing = 10.0f;
         const float r = 2.5f;
         const float startY = (rect.top + rect.bottom) * 0.5f - spacing * (tabCount - 1) * 0.5f;
-
-        // Header / Indicator text (compact "4 / 7" page indicator to prevent clipping)
-        if (smallTextFormat_ && mutedBrush_) {
-            wchar_t headerBuf[32];
-            const int displayIdx = std::clamp(currentTab + 1, 1, tabCount);
-            swprintf_s(headerBuf, L"%d / %d", displayIdx, tabCount);
-            const D2D1_RECT_F headerRect = D2D1::RectF(rect.right - 90.0f, rect.top + 8.0f, rect.right - 28.0f, rect.top + 24.0f);
-            mutedBrush_->SetOpacity(island_alpha::ResolveElementAlpha(island_alpha::ElementKind::SecondaryContent, true, island_layout::DashboardPageId::Overview, settingsOpacity_));
-            smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
-            smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-            target_->DrawTextW(headerBuf, static_cast<UINT32>(wcslen(headerBuf)), smallTextFormat_.Get(), headerRect, mutedBrush_.Get());
-            smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-            smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-        }
 
         // Resting dots. The one under the indicator fades out, so the pill reads
         // as travelling over the track instead of sitting on top of a dot.
         for (int i = 0; i < tabCount; ++i) {
             const float under = SmoothStep01(Clamp(1.0f - std::fabs(tabPos_ - static_cast<float>(i)), 0.0f, 1.0f));
-            dotBrush->SetOpacity(0.22f * (1.0f - under));
+            dotBrush->SetOpacity(0.25f * (1.0f - under));
             target_->FillEllipse(
                 D2D1::Ellipse(D2D1::Point2F(dotX, startY + spacing * static_cast<float>(i)), r, r),
                 dotBrush);
@@ -17030,7 +17022,7 @@ class Renderer {
         const float stretch = Clamp(std::fabs(tabVel_) * 0.55f, 0.0f, 3.5f);
         const float halfH = r + 2.2f + stretch;
         const float cy = startY + spacing * pos;
-        dotBrush->SetOpacity(0.90f);
+        dotBrush->SetOpacity(0.92f);
         target_->FillRoundedRectangle(
             D2D1::RoundedRect(D2D1::RectF(dotX - r, cy - halfH, dotX + r, cy + halfH), r, r),
             dotBrush);
@@ -23853,15 +23845,17 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                             TriggerNudge();
                             return 0;
                         }
-                        float gridY = barY + 20.0f * scale;
-                        float tileW = (barRight - barLeft - 16.0f * scale) / 3.0f;
-                        float tileH = 26.0f * scale;
+                        const float gridY = barY + 22.0f * scale;
+                        const float colGap = 9.0f * scale;
+                        const float rowGap = 9.0f * scale;
+                        const float tileW = (barRight - barLeft - colGap * 2.0f) / 3.0f;
+                        const float tileH = 32.0f * scale;
                         const auto tiles = island_controls::GetStandardControlTiles();
                         for (int i = 0; i < 12 && i < static_cast<int>(tiles.size()); ++i) {
                             int r = i / 3;
                             int c = i % 3;
-                            float tx = barLeft + c * (tileW + 8.0f * scale);
-                            float ty = gridY + r * (tileH + 6.0f * scale);
+                            float tx = barLeft + c * (tileW + colGap);
+                            float ty = gridY + r * (tileH + rowGap);
                             if (xPos >= tx && xPos <= tx + tileW && yPos >= ty && yPos <= ty + tileH) {
                                 if (tiles[i].action == island_controls::ControlAction::OpenDynamicEdgeSettings) {
                                     settings_ui::ShowSettingsWindow(hwnd);
@@ -23880,7 +23874,7 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 if (pcp.valid) {
                     const int tabCount = ActiveTabCount(g_settings);
                     if (tabCount > 1 && pcp.x >= pcp.width - 24.0f) {
-                        const float spacing = 11.0f;
+                        const float spacing = 10.0f;
                         const float startY = pcp.height * 0.5f - spacing * (tabCount - 1) * 0.5f;
                         for (int i = 0; i < tabCount; ++i) {
                             float dotY = startY + spacing * static_cast<float>(i);
@@ -25358,6 +25352,12 @@ DWORD WINAPI RenderThreadProc(void*) {
 
         // Dynamic Edge v1.7.0 Adaptive Layout Presentation Arbitration
         const int currentTab = NormalizedTabIndex(g_settings);
+        auto activeDashboardPages = GetCurrentActivePages(g_settings);
+        island_layout::DashboardPageId activePageId = island_layout::DashboardPageId::Overview;
+        if (currentTab >= 0 && currentTab < static_cast<int>(activeDashboardPages.size())) {
+            activePageId = activeDashboardPages[currentTab].id;
+        }
+
         const bool isQuickControlsOpen = (g_settings.quickControlsModule &&
                                           currentTab == QuickControlsTabIndex(g_settings) &&
                                           (pinned || isHoverExpanded));
@@ -25376,12 +25376,12 @@ DWORD WINAPI RenderThreadProc(void*) {
         if (primary.kind == IslandKind::Idle) {
             if (isQuickControlsOpen) {
                 island_layout::IslandContentDimensions qcDims =
-                    island_layout::CalculateAdaptiveDimensions(presState, g_settings.sizeScale, 1.0f);
+                    island_layout::CalculateAdaptiveDimensions(presState, g_settings.sizeScale, 1.0f, island_layout::DashboardPageId::QuickControls);
                 primary.width = qcDims.width;
                 primary.height = qcDims.height;
             } else if (!isFullscreen && (pinned || isHoverExpanded)) {
                 island_layout::IslandContentDimensions expDims =
-                    island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::ExpandedDashboard, g_settings.sizeScale, 1.0f, currentTab);
+                    island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::ExpandedDashboard, g_settings.sizeScale, 1.0f, activePageId);
                 primary.width = expDims.width;
                 primary.height = expDims.height;
             } else if (primary.width > 0.0f) {
@@ -25426,7 +25426,7 @@ DWORD WINAPI RenderThreadProc(void*) {
         if (primary.kind == IslandKind::Media) {
             if (!isFullscreen && (isHoverExpanded || pinned || recentTrackChange)) {
                 island_layout::IslandContentDimensions expDims =
-                    island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::ExpandedDashboard, g_settings.sizeScale, 1.0f, currentTab);
+                    island_layout::CalculateAdaptiveDimensions(island_layout::IslandPresentationState::ExpandedDashboard, g_settings.sizeScale, 1.0f, activePageId);
                 primary.width = expDims.width;
                 primary.height = expDims.height;
                 // (Immersive lyrics: the island keeps its normal 380px width.)

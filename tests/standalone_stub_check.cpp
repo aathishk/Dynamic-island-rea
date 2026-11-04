@@ -993,13 +993,32 @@ int RunGesturesAndLayoutPolicyTest() {
     if (std::abs(dNotif.width - 320.0f) > 0.1f || std::abs(dNotif.height - 72.0f) > 0.1f) return 1016;
 
     IslandContentDimensions dQc = CalculateAdaptiveDimensions(IslandPresentationState::QuickControlGrid, 1.0f, 1.0f);
-    if (std::abs(dQc.width - 380.0f) > 0.1f || std::abs(dQc.height - 240.0f) > 0.1f) return 1017;
+    if (std::abs(dQc.width - 410.0f) > 0.1f || std::abs(dQc.height - 270.0f) > 0.1f) return 1017;
 
     IslandContentDimensions dExp = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, 0);
     if (std::abs(dExp.width - 380.0f) > 0.1f || std::abs(dExp.height - 184.0f) > 0.1f) return 1018;
 
     IslandContentDimensions dExpTray = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, 33);
-    if (std::abs(dExpTray.width - 380.0f) > 0.1f || std::abs(dExpTray.height - 190.0f) > 0.1f) return 1019;
+    if (std::abs(dExpTray.width - 410.0f) > 0.1f || std::abs(dExpTray.height - 210.0f) > 0.1f) return 1019;
+
+    // Page-specific adaptive dimensions verification
+    IslandContentDimensions dExpHw = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, DashboardPageId::HardwareMonitor);
+    if (std::abs(dExpHw.width - 410.0f) > 0.1f || std::abs(dExpHw.height - 210.0f) > 0.1f) return 1023;
+
+    IslandContentDimensions dExpWeather = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, DashboardPageId::Weather);
+    if (std::abs(dExpWeather.width - 410.0f) > 0.1f || std::abs(dExpWeather.height - 210.0f) > 0.1f) return 1024;
+
+    IslandContentDimensions dExpCal = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, DashboardPageId::Calendar);
+    if (std::abs(dExpCal.width - 410.0f) > 0.1f || std::abs(dExpCal.height - 210.0f) > 0.1f) return 1025;
+
+    // Multi-scale validation across 80%, 100%, 125%, 150%, 200%
+    const float scales[] = {0.80f, 1.0f, 1.25f, 1.50f, 2.0f};
+    for (float sc : scales) {
+        IslandContentDimensions dHwScaled = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, sc, 1.0f, DashboardPageId::HardwareMonitor);
+        if (std::abs(dHwScaled.width - 410.0f * sc) > 0.1f || std::abs(dHwScaled.height - 210.0f * sc) > 0.1f) return 1026;
+        IslandContentDimensions dQcScaled = CalculateAdaptiveDimensions(IslandPresentationState::QuickControlGrid, sc, 1.0f);
+        if (std::abs(dQcScaled.width - 410.0f * sc) > 0.1f || std::abs(dQcScaled.height - 270.0f * sc) > 0.1f) return 1027;
+    }
 
     IslandContentDimensions dTimer = CalculateAdaptiveDimensions(IslandPresentationState::CompactTimer, 1.0f, 1.0f);
     if (std::abs(dTimer.width - 200.0f) > 0.1f || std::abs(dTimer.height - 36.0f) > 0.1f) return 1020;

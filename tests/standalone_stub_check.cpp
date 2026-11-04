@@ -461,10 +461,39 @@ int RunNotificationPolicyTest() {
     if (!ShouldPresentNotification(critItem, settings, true, false, 14)) return 715;
     if (!ShouldPresentNotification(critItem, settings, false, true, 14)) return 716;
 
-    // 5. Arbitration queue de-duplication & priority
+    // 5. Arbitration queue de-duplication & priority with category differentiation
     NotificationQueue q;
+    settings.genericDuplicateDebounce = true;
+    settings.suppressBleSensorDuplicates = false;
+
+    NotificationItem bleItem;
+    bleItem.category = NotificationCategory::Bluetooth;
+    bleItem.title = L"Headphones Connected";
+    bleItem.message = L"Battery 90%";
+
+    // When suppressBleSensorDuplicates is false, repeated BLE item is NOT suppressed
+    q.Enqueue(bleItem, settings);
+    bool bleDupeAdded = q.Enqueue(bleItem, settings);
+    if (!bleDupeAdded) return 7171;
+
+    // When suppressBleSensorDuplicates is true, repeated BLE item IS suppressed
+    settings.suppressBleSensorDuplicates = true;
+    q.Clear();
+    q.Enqueue(bleItem, settings);
+    bool bleDupeBlocked = q.Enqueue(bleItem, settings);
+    if (bleDupeBlocked) return 7172;
+
+    // Generic item respects genericDuplicateDebounce
+    settings.genericDuplicateDebounce = false;
+    q.Clear();
     q.Enqueue(normItem, settings);
-    bool dupeAdded = q.Enqueue(normItem, settings); // same item immediately
+    bool normDupeAllowed = q.Enqueue(normItem, settings);
+    if (!normDupeAllowed) return 7173;
+
+    settings.genericDuplicateDebounce = true;
+    q.Clear();
+    q.Enqueue(normItem, settings);
+    bool dupeAdded = q.Enqueue(normItem, settings);
     if (dupeAdded) return 717; // Duplicate must be suppressed!
 
     // Critical items placed at front of queue
@@ -989,6 +1018,171 @@ int RunGesturesAndLayoutPolicyTest() {
     return 0;
 }
 
+// Test 12: Production navigation matrix, authoritative page arbitration & theme resolution
+int RunNavigationMatrixAndThemeResolutionTest() {
+    using namespace island_layout;
+    using namespace island_policy;
+
+    // 1. Theme single source of truth resolution
+    // All 14 presets must resolve correctly
+    if (ARRAYSIZE(kAllThemePalettes) != 14) return 1201;
+    for (size_t i = 0; i < ARRAYSIZE(kAllThemePalettes); ++i) {
+        const auto* pal = ResolveThemePalette(kAllThemePalettes[i].id);
+        if (!pal || pal != &kAllThemePalettes[i]) return 1202;
+    }
+
+    // Case-insensitivity check
+    if (!ResolveThemePalette(L"OBSIDIAN") || ResolveThemePalette(L"Obsidian") != &kAllThemePalettes[0]) return 1203;
+
+    // Legacy alias mapping checks
+    if (ResolveThemePalette(L"oled-black") != &kAllThemePalettes[0]) return 1204;
+    if (ResolveThemePalette(L"mica") != &kAllThemePalettes[1]) return 1205;
+    if (ResolveThemePalette(L"dark-gray") != &kAllThemePalettes[1]) return 1206;
+    if (ResolveThemePalette(L"midnight-blue") != &kAllThemePalettes[2]) return 1207;
+    if (ResolveThemePalette(L"deep-purple") != &kAllThemePalettes[6]) return 1208;
+    if (ResolveThemePalette(L"non_existent_preset_xyz") != nullptr) return 1209;
+
+    // 2. GameOverlayMode enum values
+    if (static_cast<int>(GameOverlayMode::DashboardOnly) != 0) return 1210;
+    if (static_cast<int>(GameOverlayMode::CollapsedHud) != 1) return 1211;
+    if (static_cast<int>(GameOverlayMode::GamingContextOnly) != 2) return 1212;
+
+    // 3. Navigation Matrix Permutations
+    // Permutation A: Full Idle suite (hasOverview=true, no media, all idle modules on)
+    auto pIdle = BuildActiveDashboardPages(
+        true,   // hasOverview
+        true,   // mediaModuleEnabled
+        false,  // mediaAvailable
+        false,  // mediaBlocked
+        true,   // calendar
+        true,   // weather
+        true,   // hardware
+        true,   // fileTray
+        false,  // lyricsModule
+        false,  // lyricsAvailable
+        false,  // lyricsPinnedFirst
+        true,   // quickControls
+        true    // gameOverlay
+    );
+    // Order: Overview, Calendar, Weather, Hardware, FileTray, Controls, GameOverlay -> 7 pages
+    if (pIdle.size() != 7) return 1213;
+    if (pIdle[0].id != DashboardPageId::Overview) return 1214;
+    if (pIdle[1].id != DashboardPageId::Calendar) return 1215;
+    if (pIdle[2].id != DashboardPageId::Weather) return 1216;
+    if (pIdle[3].id != DashboardPageId::HardwareMonitor) return 1217;
+    if (pIdle[4].id != DashboardPageId::FileTray) return 1218;
+    if (pIdle[5].id != DashboardPageId::QuickControls) return 1219;
+    if (pIdle[6].id != DashboardPageId::GameOverlay) return 1220;
+
+    // FindPageIndex checks
+    if (FindPageIndex(pIdle, DashboardPageId::Overview) != 0) return 1221;
+    if (FindPageIndex(pIdle, DashboardPageId::Media) != -1) return 1222; // Media is absent
+    if (FindPageIndex(pIdle, DashboardPageId::QuickControls) != 5) return 1223;
+    if (FindPageIndex(pIdle, DashboardPageId::FileTray) != 4) return 1224;
+
+    // Permutation B: Active unblocked Media session without lyrics
+    auto pMedia = BuildActiveDashboardPages(
+        true,   // hasOverview
+        true,   // mediaModuleEnabled
+        true,   // mediaAvailable
+        false,  // mediaBlocked
+        true,   // calendar
+        true,   // weather
+        true,   // hardware
+        true,   // fileTray
+        false,  // lyricsModule
+        false,  // lyricsAvailable
+        false,  // lyricsPinnedFirst
+        true,   // quickControls
+        false   // gameOverlay
+    );
+    // Order: Overview, Media, Calendar, Weather, Hardware, FileTray, Controls -> 7 pages
+    if (pMedia.size() != 7) return 1225;
+    if (pMedia[0].id != DashboardPageId::Overview) return 1226;
+    if (pMedia[1].id != DashboardPageId::Media) return 1227;
+    if (FindPageIndex(pMedia, DashboardPageId::Media) != 1) return 1228;
+
+    // Permutation C: Active Media session with Lyrics pinned first
+    auto pLyricsFirst = BuildActiveDashboardPages(
+        true,   // hasOverview
+        true,   // mediaModuleEnabled
+        true,   // mediaAvailable
+        false,  // mediaBlocked
+        true,   // calendar
+        false,  // weather
+        false,  // hardware
+        false,  // fileTray
+        true,   // lyricsModule
+        true,   // lyricsAvailable
+        true,   // lyricsPinnedFirst
+        false,  // quickControls
+        false   // gameOverlay
+    );
+    // Order: Overview, Lyrics, Media, Calendar -> 4 pages
+    if (pLyricsFirst.size() != 4) return 1229;
+    if (pLyricsFirst[0].id != DashboardPageId::Overview) return 1230;
+    if (pLyricsFirst[1].id != DashboardPageId::Lyrics) return 1231;
+    if (pLyricsFirst[2].id != DashboardPageId::Media) return 1232;
+    if (pLyricsFirst[3].id != DashboardPageId::Calendar) return 1233;
+
+    // Permutation D: Active Media session with Lyrics NOT pinned first (Lyrics placed after File Tray)
+    auto pLyricsLast = BuildActiveDashboardPages(
+        true,   // hasOverview
+        true,   // mediaModuleEnabled
+        true,   // mediaAvailable
+        false,  // mediaBlocked
+        true,   // calendar
+        false,  // weather
+        false,  // hardware
+        false,  // fileTray
+        true,   // lyricsModule
+        true,   // lyricsAvailable
+        false,  // lyricsPinnedFirst
+        true,   // quickControls
+        false   // gameOverlay
+    );
+    // Order: Overview, Media, Calendar, Lyrics, Controls -> 5 pages
+    if (pLyricsLast.size() != 5) return 1234;
+    if (pLyricsLast[0].id != DashboardPageId::Overview) return 1235;
+    if (pLyricsLast[1].id != DashboardPageId::Media) return 1236;
+    if (pLyricsLast[2].id != DashboardPageId::Calendar) return 1237;
+    if (pLyricsLast[3].id != DashboardPageId::Lyrics) return 1238;
+    if (pLyricsLast[4].id != DashboardPageId::QuickControls) return 1239;
+
+    // Permutation E: Blocklisted Media session (mediaBlocked == true)
+    // CRITICAL: Lyrics and Media must both be absent, introducing ZERO phantom tabs!
+    auto pBlocked = BuildActiveDashboardPages(
+        true,   // hasOverview
+        true,   // mediaModuleEnabled
+        true,   // mediaAvailable
+        true,   // mediaBlocked (BLOCKLISTED!)
+        true,   // calendar
+        true,   // weather
+        false,  // hardware
+        false,  // fileTray
+        true,   // lyricsModule
+        true,   // lyricsAvailable
+        true,   // lyricsPinnedFirst
+        true,   // quickControls
+        false   // gameOverlay
+    );
+    // Order: Overview, Calendar, Weather, Controls -> 4 pages (NO Media, NO Lyrics)
+    if (pBlocked.size() != 4) return 1240;
+    if (FindPageIndex(pBlocked, DashboardPageId::Media) != -1) return 1241;
+    if (FindPageIndex(pBlocked, DashboardPageId::Lyrics) != -1) return 1242;
+    if (FindPageIndex(pBlocked, DashboardPageId::Calendar) != 1) return 1243;
+    if (FindPageIndex(pBlocked, DashboardPageId::Weather) != 2) return 1244;
+    if (FindPageIndex(pBlocked, DashboardPageId::QuickControls) != 3) return 1245;
+
+    // Permutation F: Normalization and wrapping
+    if (NormalizePageIndex(-1, 5) != 4) return 1246;
+    if (NormalizePageIndex(5, 5) != 0) return 1247;
+    if (NormalizePageIndex(2, 5) != 2) return 1248;
+    if (NormalizePageIndex(0, 0) != 0) return 1249;
+
+    return 0;
+}
+
 int wmain(int argc, wchar_t** argv) {
     (void)argc;
     (void)argv;
@@ -1026,7 +1220,10 @@ int wmain(int argc, wchar_t** argv) {
     int r11 = RunGesturesAndLayoutPolicyTest();
     if (r11 != 0) { printf("FAIL: Gestures & layout policy self-test failed: %d\n", r11); return r11; }
 
-    printf("SUCCESS: All 11 production unit & regression test suites passed (launchers, opacity, bluetooth, classification, shutdown, profiles, context, notifications, performance, clipboard/timer, gestures/layout)!\n");
+    int r12 = RunNavigationMatrixAndThemeResolutionTest();
+    if (r12 != 0) { printf("FAIL: Navigation matrix & theme resolution self-test failed: %d\n", r12); return r12; }
+
+    printf("SUCCESS: All 12 production unit & regression test suites passed (launchers, opacity, bluetooth, classification, shutdown, profiles, context, notifications, performance, clipboard/timer, gestures/layout, navigation/themes)!\n");
     return 0;
 }
 

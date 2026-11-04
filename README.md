@@ -50,7 +50,7 @@ With Windhawk installed:
 python build.py --toolchain "C:\Users\<User>\Windhawk\Compiler"
 ```
 
-Automated GitHub Actions CI/CD ([.github/workflows/build.yml](.github/workflows/build.yml)) compiles and validates on both Linux (Wine runner) and Windows native runners, running the 11-group regression test suite, import verification, and checksum sidecar generation.
+Automated GitHub Actions CI/CD ([.github/workflows/build.yml](.github/workflows/build.yml)) compiles and validates on both Linux (Wine runner) and Windows native runners, running the 12-group regression test suite, import verification, and checksum sidecar generation.
 
 ---
 
@@ -75,7 +75,7 @@ Automated GitHub Actions CI/CD ([.github/workflows/build.yml](.github/workflows/
 | `settings_window.h` | Native Windows 11 Fluent dark-mode Settings & Profile Studio GUI |
 | `standalone_app.h` | Standalone entry point, single-instance guard, tray menu, first-run onboarding |
 | `standalone_shim.h` | Standalone settings persistence and logging (`%APPDATA%\DynamicIsland\settings.ini`) |
-| `tests/standalone_stub_check.cpp` | Comprehensive 11-suite unit & regression test runner |
+| `tests/standalone_stub_check.cpp` | Comprehensive 12-suite unit & regression test runner |
 | `.github/workflows/build.yml` | Automated GitHub Actions CI/CD workflow |
 
 ---

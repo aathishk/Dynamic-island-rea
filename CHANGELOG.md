@@ -34,7 +34,25 @@
 - **Settings & Profile Studio Redesign (`settings_window.h`):**
   - Upgraded to 6 comprehensive Fluent dark tabs: Overview & Profiles, Personalisation, Behaviour & Gestures, Notifications & History, Performance & Diagnostics, and Productivity & Modules.
   - Integrated 30-second first-run onboarding setup dialog.
-- **Comprehensive 11-Group Unit & Regression Test Suite:**
+- **Single Authoritative Dashboard Navigation Model (island_layout.h, dynamic-island-ultra.cpp):**
+  - Unified DashboardPageId navigation model (Overview, Media, Calendar, Weather, HardwareMonitor, FileTray, Lyrics, QuickControls, GameOverlay).
+  - Single authoritative collection BuildActiveDashboardPages(...) driving expanded rendering, tab transitions, pagination dots, mouse wheel, and keyboard arrow/Tab navigation with zero index drifting.
+  - Eliminated phantom tabs by strictly gating Lyrics and Media tab availability on unblocked media sessions (!MediaExpandBlocked).
+- **Glanceable Overview Dashboard (DrawOverviewDashboard):**
+  - Integrated typographic Clock and Date with radial accent bloom.
+  - Glanceable status chips row: Battery level / charging state, live Weather summary, and real-time CPU/RAM telemetry chip.
+  - Contextual compact media line or active camera/microphone privacy indicators.
+- **Game Overlay Mode & Hover Overhaul (Modules.GameOverlayMode):**
+  - Prevented hover expansion suppression when Game Overlay is active.
+  - Added user-selectable GameOverlayMode: DashboardOnly (tab only), CollapsedHud (persistent HUD strip), or GamingContextOnly (HUD strip only during gaming context/fullscreen).
+  - Renamed metrics to clear standard definitions: Overlay FPS and C: STORAGE.
+- **Media Session Arbitration & Idle Timeout (Modules.MediaPausedTimeoutSeconds):**
+  - Monotonic paused timestamp tracking (pausedAt) with configurable fallback timeout (default 300s) returning cleanly to Idle Clock state.
+- **Category-Specific Notification Debouncing:**
+  - Separated Notifications.SuppressBleSensorDuplicates (BLE connection/sensor spams) from Notifications.GenericDuplicateDebounce (generic application toasts).
+- **Theme System Single Source of Truth (island_policy::kAllThemePalettes):**
+  - Direct consumption of unified palette definitions across runtime, right-click context menu, settings UI, and unit test suites.
+- **Comprehensive 12-Group Unit & Regression Test Suite:**
   - Expanded `tests/standalone_stub_check.cpp` from 5 to 11 test suites covering all policies with 100% test pass.
 
 ## 1.5.5

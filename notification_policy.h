@@ -82,7 +82,9 @@ struct NotificationPolicySettings {
     bool allowCriticalInQuietHours = true;
     bool suppressInFullscreen = true;
     bool suppressInPresentation = true;
-    bool duplicateDebounceEnabled = true;
+    bool duplicateDebounceEnabled = true;       // Legacy compatibility flag
+    bool genericDuplicateDebounce = true;       // Generic Windows toast duplicate debounce (Directive Section 6.1)
+    bool suppressBleSensorDuplicates = true;    // BLE / Bluetooth peripheral duplicate suppression (Directive Section 6.1)
     DWORD duplicateDebounceMs = 3000;
 };
 
@@ -152,8 +154,13 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         ULONGLONG now = GetTickCount64();
 
-        // Duplicate de-bounce check
-        if (settings.duplicateDebounceEnabled) {
+        // Distinct duplicate suppression policies per category (Directive Section 6.1)
+        const bool isBleOrDevice = (incoming.category == NotificationCategory::Bluetooth ||
+                                    incoming.category == NotificationCategory::Battery);
+        const bool shouldDebounce = isBleOrDevice ? settings.suppressBleSensorDuplicates
+                                                 : settings.genericDuplicateDebounce;
+
+        if (shouldDebounce && settings.duplicateDebounceEnabled) {
             if (incoming.title == lastTitle_ && incoming.message == lastMessage_) {
                 if (now - lastEventTick_ < settings.duplicateDebounceMs) {
                     return false; // Suppress duplicate

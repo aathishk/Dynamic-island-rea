@@ -191,6 +191,7 @@ enum CtrlId : int {
     ID_CHK_NOTIF_CRITICAL,
     ID_CHK_NOTIF_FS_SUPPRESS,
     ID_CHK_NOTIF_BLE_FILTER,
+    ID_CHK_NOTIF_GENERIC_DEBOUNCE,
     ID_CHK_NOTIF_HISTORY,
     ID_BTN_CLEAR_HISTORY,
     ID_BTN_BROWSE_NOTIF_HISTORY,
@@ -211,6 +212,7 @@ enum CtrlId : int {
     ID_CHK_MOD_LOOKUP,
     ID_CHK_MOD_FOCUS_TIMER,
     ID_CHK_MOD_CLIPBOARD,
+    ID_COMBO_GAME_OVERLAY_MODE,
     ID_BTN_CLEAR_CLIPBOARD,
     ID_BTN_BROWSE_CLIPBOARD,
     ID_CHK_STARTUP,
@@ -692,6 +694,7 @@ inline void ShowNotificationHistoryDialog(HWND hwndParent) {
     }
 }
 
+inline HWND hLblAppliedProfile = nullptr;
 inline HWND hComboActiveProfile = nullptr;
 inline HWND hComboActiveContext = nullptr;
 inline HWND hChkContextLock = nullptr;
@@ -727,6 +730,7 @@ inline HWND hComboQuietEnd = nullptr;
 inline HWND hChkNotifCritical = nullptr;
 inline HWND hChkNotifFsSuppress = nullptr;
 inline HWND hChkNotifBleFilter = nullptr;
+inline HWND hChkNotifGenericDebounce = nullptr;
 inline HWND hChkNotifHistory = nullptr;
 
 // Page 4 controls
@@ -744,7 +748,14 @@ inline HWND hChkModTray = nullptr;
 inline HWND hChkModLookup = nullptr;
 inline HWND hChkModFocusTimer = nullptr;
 inline HWND hChkModClipboard = nullptr;
+inline HWND hComboGameOverlayMode = nullptr;
 inline HWND hChkStartup = nullptr;
+
+inline const SettingOption kGameOverlayModeOptions[] = {
+    {L"Expanded Tab Only (Default)", L"dashboard_only"},
+    {L"Collapsed HUD Strip (Always)", L"collapsed_hud"},
+    {L"Gaming Context Only (Automatic)", L"gaming_context_only"},
+};
 inline HWND hChkLog = nullptr;
 
 inline std::wstring ReadIniString(const wchar_t* section, const wchar_t* key, const wchar_t* def) {
@@ -785,6 +796,10 @@ inline void PopulateProfilesCombo(HWND cb) {
     }
 
     std::wstring active = island_profile::ProfileManager::GetActiveProfileName(GetIniFilePath());
+    if (hLblAppliedProfile) {
+        std::wstring text = L"Currently Applied Profile: " + (active.empty() ? L"Obsidian" : active);
+        SetWindowTextW(hLblAppliedProfile, text.c_str());
+    }
     for (size_t i = 0; i < profiles.size(); ++i) {
         if (_wcsicmp(profiles[i].name.c_str(), active.c_str()) == 0) {
             SendMessageW(cb, CB_SETCURSEL, i, 0);
@@ -853,6 +868,7 @@ inline void LoadValuesIntoUi() {
     SendMessageW(hChkNotifCritical, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.AllowCriticalInQuietHours", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkNotifFsSuppress, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.SuppressInFullscreen", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkNotifBleFilter, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.SuppressBleSensorDuplicates", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkNotifGenericDebounce, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.GenericDuplicateDebounce", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkNotifHistory, BM_SETCHECK, ReadIniInt(L"Settings", L"Notifications.HistoryEnabled", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
 
     // Page 4: Performance
@@ -870,6 +886,7 @@ inline void LoadValuesIntoUi() {
     SendMessageW(hChkModLookup, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.QuickLookup", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkModFocusTimer, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.FocusTimer", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkModClipboard, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.Clipboard", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
+    selectCombo(hComboGameOverlayMode, kGameOverlayModeOptions, ARRAYSIZE(kGameOverlayModeOptions), ReadIniString(L"Settings", L"Modules.GameOverlayMode", L"dashboard_only"));
     SendMessageW(hChkStartup, BM_SETCHECK, standalone_app::IsStartupEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkLog, BM_SETCHECK, ReadIniInt(L"Settings", L"Debug.Log", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
 }
@@ -945,6 +962,7 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniInt(L"Settings", L"Notifications.AllowCriticalInQuietHours", SendMessageW(hChkNotifCritical, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Notifications.SuppressInFullscreen", SendMessageW(hChkNotifFsSuppress, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Notifications.SuppressBleSensorDuplicates", SendMessageW(hChkNotifBleFilter, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Notifications.GenericDuplicateDebounce", SendMessageW(hChkNotifGenericDebounce, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Notifications.HistoryEnabled", SendMessageW(hChkNotifHistory, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
 
     // Page 4: Performance
@@ -967,6 +985,10 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniInt(L"Settings", L"Modules.QuickLookup", SendMessageW(hChkModLookup, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Modules.FocusTimer", SendMessageW(hChkModFocusTimer, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Modules.Clipboard", SendMessageW(hChkModClipboard, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    int curOv = static_cast<int>(SendMessageW(hComboGameOverlayMode, CB_GETCURSEL, 0, 0));
+    if (curOv >= 0 && static_cast<size_t>(curOv) < ARRAYSIZE(kGameOverlayModeOptions)) {
+        WriteIniString(L"Settings", L"Modules.GameOverlayMode", kGameOverlayModeOptions[curOv].val);
+    }
 
     // Flush Windows INI cache
     WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
@@ -1104,7 +1126,8 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             };
 
             // ── PAGE 0: Overview & Profiles ─────────────────────────────────────
-            makeLabel(32, 55, 200, 20, L"Active Personalisation Profile:", 0);
+            hLblAppliedProfile = makeLabel(32, 26, 560, 20, L"Currently Applied Profile: Obsidian", 0);
+            makeLabel(32, 55, 200, 20, L"Select Profile to Apply / Edit:", 0);
             hComboActiveProfile = CreateWindowExW(0, WC_COMBOBOXW, L"", WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL, 240, 52, 240, 240, hwnd, reinterpret_cast<HMENU>(ID_COMBO_ACTIVE_PROFILE), nullptr, nullptr);
             SendMessageW(hComboActiveProfile, WM_SETFONT, reinterpret_cast<WPARAM>(hFont), TRUE);
             SetWindowTheme(hComboActiveProfile, L"DarkMode_Explorer", nullptr);
@@ -1202,10 +1225,11 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             hChkNotifCritical = makeCheck(32, 130, 540, 24, ID_CHK_NOTIF_CRITICAL, L"⚡ Allow Critical Battery & System Alerts during Quiet Hours", 3);
             hChkNotifFsSuppress = makeCheck(32, 165, 540, 24, ID_CHK_NOTIF_FS_SUPPRESS, L"🚫 Suppress Non-Critical Cards while in Fullscreen or Gaming", 3);
             hChkNotifBleFilter = makeCheck(32, 200, 540, 24, ID_CHK_NOTIF_BLE_FILTER, L"🔍 Suppress Duplicate BLE Peripheral Connection Spams", 3);
-            hChkNotifHistory = makeCheck(32, 240, 540, 24, ID_CHK_NOTIF_HISTORY, L"📜 Enable Notification History (Bounded Local Storage, Opt-In)", 3);
+            hChkNotifGenericDebounce = makeCheck(32, 230, 540, 24, ID_CHK_NOTIF_GENERIC_DEBOUNCE, L"⚡ Generic Toast Duplicate Debounce (suppress rapid repeated alerts)", 3);
+            hChkNotifHistory = makeCheck(32, 265, 540, 24, ID_CHK_NOTIF_HISTORY, L"📜 Enable Notification History (Bounded Local Storage, Opt-In)", 3);
 
-            makeBtn(32, 280, 220, 30, ID_BTN_CLEAR_HISTORY, L"🗑️ Clear Notification History", 3);
-            makeBtn(270, 280, 220, 30, ID_BTN_BROWSE_NOTIF_HISTORY, L"📜 Browse Notifications...", 3);
+            makeBtn(32, 305, 220, 30, ID_BTN_CLEAR_HISTORY, L"🗑️ Clear Notification History", 3);
+            makeBtn(270, 305, 220, 30, ID_BTN_BROWSE_NOTIF_HISTORY, L"📜 Browse Notifications...", 3);
 
             // ── PAGE 4: Performance & Diagnostics ───────────────────────────────
             makeLabel(32, 55, 180, 20, L"Power & Rendering Policy:", 4);
@@ -1235,8 +1259,11 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             hChkModTray = makeCheck(320, 155, 280, 24, ID_CHK_MOD_TRAY, L"📁 File Tray Shelf (Drag & Drop)", 5);
             hChkModLookup = makeCheck(32, 190, 540, 24, ID_CHK_MOD_LOOKUP, L"🔍 Quick Lookup & App Launcher (Ctrl+Alt+Space)", 5);
 
-            hChkStartup = makeCheck(32, 235, 300, 24, ID_CHK_STARTUP, L"🚀 Launch automatically on Windows Startup", 5);
-            hChkLog = makeCheck(320, 235, 280, 24, ID_CHK_LOG, L"📝 Enable Debug Log (%APPDATA%)", 5);
+            makeLabel(32, 222, 160, 20, L"Game Overlay Mode:", 5);
+            hComboGameOverlayMode = makeCombo(195, 219, 405, 150, ID_COMBO_GAME_OVERLAY_MODE, kGameOverlayModeOptions, ARRAYSIZE(kGameOverlayModeOptions), 5);
+
+            hChkStartup = makeCheck(32, 252, 300, 24, ID_CHK_STARTUP, L"🚀 Launch automatically on Windows Startup", 5);
+            hChkLog = makeCheck(320, 252, 280, 24, ID_CHK_LOG, L"📝 Enable Debug Log (%APPDATA%)", 5);
 
             makeBtn(32, 280, 240, 30, ID_BTN_ONBOARDING, L"✨ Re-run First-Run Onboarding...", 5);
             makeBtn(320, 280, 220, 30, ID_BTN_CLEAR_CLIPBOARD, L"🗑️ Clear Clipboard History", 5);

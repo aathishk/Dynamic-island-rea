@@ -1123,37 +1123,13 @@ enum class ThemePreset {
     Custom,
 };
 
-// One table drives the settings dropdown, the right-click menu labels and the
-// resolved colors.
-struct ThemePalette {
-    const wchar_t* id;      // value stored in Themes.ThemePreset
-    const wchar_t* label;   // right-click menu label
-    const wchar_t* bg;
-    const wchar_t* fg;
-    const wchar_t* sec;
-    const wchar_t* border;
-};
-
-static constexpr ThemePalette kThemePalettes[] = {
-    {L"obsidian",    L"Obsidian (Default)",          L"#08080A",   L"#FFFFFF", L"#9B9BA5", L"#1E1E22"},
-    {L"graphite",    L"Graphite",                    L"#1C1C1E",   L"#FFFFFF", L"#A8A8AE", L"#323236"},
-    {L"slate",       L"Slate",                       L"#111721",   L"#E9EEF6", L"#92A2B8", L"#232C3A"},
-    {L"nord",        L"Nord",                        L"#2E3440",   L"#ECEFF4", L"#A7B0C0", L"#3B4252"},
-    {L"evergreen",   L"Evergreen",                   L"#0C1512",   L"#E4F1EA", L"#8CAE9D", L"#1A2A23"},
-    {L"espresso",    L"Espresso",                    L"#1A1512",   L"#F6EEE7", L"#B7A395", L"#2E2420"},
-    {L"plum",        L"Plum",                        L"#16111C",   L"#F1EAF6", L"#AC9BB9", L"#281F33"},
-    {L"porcelain",   L"Porcelain (Light)",           L"#F5F6F8",   L"#14161A", L"#5B6270", L"#D8DBE1"},
-    {L"transparent", L"Transparent Liquid Glass",    L"#08080A26", L"#FFFFFF", L"#C8C8D0", L"#FFFFFF20"},
-    {L"acrylic",     L"Acrylic Glass (Legacy)",      L"#1A1E24D0", L"#F0F3F8", L"#94A3B8", L"#334155"},
-    {L"fluent",      L"Fluent Mica (Legacy)",        L"#20232A",   L"#FFFFFF", L"#9DA5B4", L"#2D323F"},
-    {L"colorful",    L"Colorful Vibrant (Legacy)",    L"#180E29",   L"#FAF5FF", L"#C084FC", L"#3B184C"},
-    {L"classic",     L"Classic Dark (Legacy)",       L"#181818",   L"#F0F0F0", L"#9E9E9E", L"#2C2C2C"},
-    {L"minimal",     L"Minimal Monochrome (Legacy)", L"#000000",   L"#FFFFFF", L"#808080", L"#1F1F1F"},
-};
+// Authoritative single source of truth for themes (island_policy::kAllThemePalettes).
+using ThemePalette = island_policy::PaletteDefinition;
+static constexpr const auto& kThemePalettes = island_policy::kAllThemePalettes;
 
 // Custom sits one past the last real palette. Derived, so adding a palette
 // cannot leave a stale literal behind.
-static constexpr int kCustomThemeIndex = static_cast<int>(ARRAYSIZE(kThemePalettes));
+static constexpr int kCustomThemeIndex = static_cast<int>(ARRAYSIZE(island_policy::kAllThemePalettes));
 
 // Persisted under a new key. Retiring the original palettes renumbered these
 // integers, and reusing "ColorTheme" would have silently reinterpreted a saved
@@ -1165,9 +1141,7 @@ static constexpr const wchar_t* kLegacyThemeValueName = L"ColorTheme";
 // [kThemeMenuIdBase, kThemeMenuIdBase + kCustomThemeIndex].
 static constexpr UINT kThemeMenuIdBase = 20;
 
-// Maps a preset id to its palette index, accepting the retired ids too: a
-// user's stored setting keeps its old string after the option disappears from
-// the dropdown, so each legacy id is pointed at the new palette closest to it.
+// Maps a preset id to its palette index, accepting legacy aliases via island_policy::ResolveThemePalette.
 inline int ThemeIndexFromId(std::wstring_view id) {
     auto iequals = [](std::wstring_view a, std::wstring_view b) {
         if (a.size() != b.size()) return false;
@@ -1177,16 +1151,11 @@ inline int ThemeIndexFromId(std::wstring_view id) {
         return true;
     };
 
-    for (int i = 0; i < kCustomThemeIndex; ++i) {
-        if (iequals(id, kThemePalettes[i].id)) return i;
-    }
     if (iequals(id, L"custom")) return kCustomThemeIndex;
-
-    if (iequals(id, L"oled-black")) return 0;     // -> Obsidian
-    if (iequals(id, L"mica") ||
-        iequals(id, L"dark-gray")) return 1;      // -> Graphite
-    if (iequals(id, L"midnight-blue")) return 2;  // -> Slate
-    if (iequals(id, L"deep-purple")) return 6;    // -> Plum
+    const auto* pal = island_policy::ResolveThemePalette(id);
+    if (pal) {
+        return static_cast<int>(pal - &island_policy::kAllThemePalettes[0]);
+    }
     return -1;
 }
 
@@ -1262,6 +1231,7 @@ struct Settings {
     float tintOpacity = 0.72f;
     float pillOpacity = 0.96f;
     bool gameOverlay = false;
+    island_layout::GameOverlayMode gameOverlayMode = island_layout::GameOverlayMode::DashboardOnly;
     bool showMetricText = true;
     bool weather = true;
     std::wstring weatherCity;
@@ -1290,6 +1260,7 @@ struct Settings {
     bool bladeStyle = false;
     bool calendar = true;
     bool suppressBleSensorDuplicates = true;
+    bool genericDuplicateDebounce = true;
     bool stripMode = false;  // thin resting strip, opens on hover (independent of the shape)
     int stripSensitivity = 2;  // 0 = Minimum, 1 = Low, 2 = Medium, 3 = High, 4 = Maximum
     // Color customization
@@ -1361,6 +1332,8 @@ struct Settings {
     int quietHoursStart = 22;
     int quietHoursEnd = 7;
     bool quickControlsModule = true;
+    bool rememberLastPage = true;
+    int mediaPausedTimeoutSeconds = 300;
 };
 
 struct BitmapPixels {
@@ -1412,6 +1385,7 @@ struct MediaSnapshot {
     int64_t positionTicks = 0;
     int64_t endTicks = 0;
     int64_t lastUpdatedTicks = 0;
+    double pausedAt = 0.0;
 };
 
 // One SMTC media session the dock can switch to.
@@ -2017,62 +1991,78 @@ std::wstring FormatWithName(const wchar_t* format, const std::wstring& name) {
     return out;
 }
 
+// Forward declaration
+bool MediaExpandBlocked(const MediaSnapshot& media);
+
 // ── Dashboard tab loop ───────────────────────────────────────────────────────
-// Single source of truth for how many tabs are in the mouse-wheel scroll loop.
-// The first tab's meaning depends on context -- the media view when something is
-// playing, the clock when idle -- but the *count* is identical, which is why the
-// renderer, the scroll handler and the hit tests can all share this. That
-// arithmetic used to be copy-pasted in seven places, which is exactly how they
-// drifted out of sync.
-int ActiveTabCount(const Settings& settings) {
-    return island_policy::CalculateActiveTabCount(
+// Single authoritative source of truth for dashboard pages and indices.
+// Driven directly by island_layout::BuildActiveDashboardPages.
+inline std::vector<island_layout::DashboardPageDescriptor> GetActiveDashboardPages(
+    const Settings& settings,
+    bool mediaAvailable,
+    bool mediaBlocked,
+    bool lyricsAvailable) {
+    return island_layout::BuildActiveDashboardPages(
+        true, // overview always available
+        settings.media,
+        mediaAvailable,
+        mediaBlocked,
         settings.calendar,
         settings.weather,
         settings.hardwareMonitorModule,
         settings.fileTrayModule,
-        settings.lyrics && g_lyricsTabAvailable.load(std::memory_order_relaxed),
+        settings.lyrics,
+        lyricsAvailable,
+        settings.lyricsPinnedFirst,
         settings.quickControlsModule,
         settings.gameOverlay || g_gameOverlayPinned.load(std::memory_order_relaxed)
     );
 }
 
+inline std::vector<island_layout::DashboardPageDescriptor> GetCurrentActivePages(const Settings& settings) {
+    bool mediaAvail = false;
+    bool mediaBlocked = false;
+    {
+        std::lock_guard lock(g_stateMutex);
+        mediaAvail = g_state.media.available;
+        mediaBlocked = MediaExpandBlocked(g_state.media);
+    }
+    return GetActiveDashboardPages(
+        settings,
+        mediaAvail,
+        mediaBlocked,
+        g_lyricsTabAvailable.load(std::memory_order_relaxed)
+    );
+}
+
+int ActiveTabCount(const Settings& settings) {
+    auto pages = GetCurrentActivePages(settings);
+    return static_cast<int>(pages.size());
+}
+
 inline int QuickControlsTabIndex(const Settings& settings) {
-    if (!settings.quickControlsModule) return -1;
-    return ActiveTabCount(settings) - 1;
+    auto pages = GetCurrentActivePages(settings);
+    return island_layout::FindPageIndex(pages, island_layout::DashboardPageId::QuickControls);
 }
 
 int NormalizedTabIndex(const Settings& settings) {
     const int total = std::max(1, ActiveTabCount(settings));
-    const int raw = g_idleTab.load(std::memory_order_relaxed);
-    return ((raw % total) + total) % total;
+    return island_layout::NormalizePageIndex(g_idleTab.load(std::memory_order_relaxed), total);
 }
 
-// Tab order is always: primary, calendar?, weather?, hardware?, file tray?
-// The expensive GPU / network counters are only sampled while the hardware card
-// is actually on screen, so that check needs the card's real index rather than
-// assuming it is the last tab -- which stopped being true once the File Tray
-// was added after it.
-// With "Pin lyrics as first tab" on (and a Lyrics tab present), the media view's
-// order is: lyrics, media, calendar, ... so the media tab and every tab after it
-// sit one position later. Returns the media tab's index: 0 normally, 1 when pinned.
 int MediaTabIndex(const Settings& settings) {
-    return (settings.lyricsPinnedFirst && settings.lyrics &&
-            g_lyricsTabAvailable.load(std::memory_order_relaxed)) ? 1 : 0;
+    auto pages = GetCurrentActivePages(settings);
+    return island_layout::FindPageIndex(pages, island_layout::DashboardPageId::Media);
 }
 
 int HardwareMonitorTabIndex(const Settings& settings) {
-    if (!settings.hardwareMonitorModule) {
-        return -1;
-    }
-    return 1 + (settings.calendar ? 1 : 0) + (settings.weather ? 1 : 0) + MediaTabIndex(settings);
+    auto pages = GetCurrentActivePages(settings);
+    return island_layout::FindPageIndex(pages, island_layout::DashboardPageId::HardwareMonitor);
 }
 
 int FileTrayTabIndex(const Settings& settings) {
-    if (!settings.fileTrayModule) {
-        return -1;
-    }
-    return 1 + (settings.calendar ? 1 : 0) + (settings.weather ? 1 : 0) + (settings.hardwareMonitorModule ? 1 : 0) +
-           MediaTabIndex(settings);
+    auto pages = GetCurrentActivePages(settings);
+    return island_layout::FindPageIndex(pages, island_layout::DashboardPageId::FileTray);
 }
 
 // Moves the dashboard one tab (+1 = next, -1 = previous). Clamped at both ends:
@@ -3170,6 +3160,7 @@ void LoadSettings() {
     next.allowCriticalInQuietHours = Wh_GetIntSetting(L"Notifications.AllowCriticalInQuietHours") != 0;
     next.suppressInFullscreen = Wh_GetIntSetting(L"Notifications.SuppressInFullscreen") != 0;
     next.suppressBleSensorDuplicates = Wh_GetIntSetting(L"Notifications.SuppressBleSensorDuplicates") != 0;
+    next.genericDuplicateDebounce = Wh_GetIntSetting(L"Notifications.GenericDuplicateDebounce") != 0;
     next.quickControlsModule = Wh_GetIntSetting(L"Modules.QuickControls") != 0;
 
     std::wstring sClick = GetStringSettingCopy(L"Gestures.SingleClick");
@@ -3387,6 +3378,16 @@ void LoadSettings() {
     g_pinnedExpanded.store(Wh_GetIntValue(L"PinnedExpanded", 0) != 0);
     next.pillOpacity = island_policy::CalculatePillOpacity(localOpacity >= 0 ? localOpacity : settingOpacity);
     next.gameOverlay = Wh_GetIntSetting(L"Modules.GameOverlay") != 0;
+    {
+        const std::wstring overlayModeStr = GetStringSettingCopy(L"Modules.GameOverlayMode");
+        if (_wcsicmp(overlayModeStr.c_str(), L"collapsed_hud") == 0 || _wcsicmp(overlayModeStr.c_str(), L"collapsedhud") == 0 || overlayModeStr == L"1") {
+            next.gameOverlayMode = island_layout::GameOverlayMode::CollapsedHud;
+        } else if (_wcsicmp(overlayModeStr.c_str(), L"gaming_context_only") == 0 || _wcsicmp(overlayModeStr.c_str(), L"gamingcontextonly") == 0 || overlayModeStr == L"2") {
+            next.gameOverlayMode = island_layout::GameOverlayMode::GamingContextOnly;
+        } else {
+            next.gameOverlayMode = island_layout::GameOverlayMode::DashboardOnly;
+        }
+    }
     next.showMetricText = Wh_GetIntSetting(L"Modules.ShowMetricText") != 0;
     next.weather = Wh_GetIntSetting(L"Modules.Weather") != 0;
     next.weatherCity = GetStringSettingWithFallback(L"Modules.WeatherCity", L"Weather.WeatherCity", L"CalendarWeather.WeatherCity");
@@ -3419,6 +3420,9 @@ void LoadSettings() {
     next.alwaysOnTop = Wh_GetIntSetting(L"Behavior.AlwaysOnTop") != 0;
     const int localExpandOnHover = Wh_GetIntValue(L"ExpandOnHoverOverride", -1);
     next.expandOnHover = localExpandOnHover >= 0 ? (localExpandOnHover != 0) : (Wh_GetIntSetting(L"Behavior.ExpandOnHover") != 0);
+    next.rememberLastPage = Wh_GetIntSetting(L"Behavior.RememberLastPage") != 0;
+    int pauseTimeout = Wh_GetIntSetting(L"Modules.MediaPausedTimeoutSeconds");
+    next.mediaPausedTimeoutSeconds = (pauseTimeout > 0) ? pauseTimeout : 300;
     // Right-click toggle; stored with Wh_SetIntValue so it survives restarts.
     next.collapsedLyrics = Wh_GetIntValue(L"CollapsedLyrics", 0) != 0;
     next.lyricsPinnedFirst = Wh_GetIntValue(L"LyricsPinnedFirst", 0) != 0;
@@ -5807,6 +5811,7 @@ DWORD WINAPI MediaThreadProc(void*) {
                     double prevTitleChangedAt = 0.0;
 
                     bool prevPlaying = false;
+                    double prevPausedAt = 0.0;
                     {
                         std::lock_guard lock(g_stateMutex);
                         prevSourceAppUserModelId = g_state.media.sourceAppUserModelId;
@@ -5822,6 +5827,7 @@ DWORD WINAPI MediaThreadProc(void*) {
                         prevArtChangedAt = g_state.media.artChangedAt;
                         prevTitleChangedAt = g_state.media.titleChangedAt;
                         prevPlaying = g_state.media.playing;
+                        prevPausedAt = g_state.media.pausedAt;
                     }
 
                     if (next.sourceAppUserModelId == prevSourceAppUserModelId) {
@@ -5923,6 +5929,14 @@ DWORD WINAPI MediaThreadProc(void*) {
                 next.sourceAppUserModelId == g_state.media.sourceAppUserModelId) {
                 next.sourceIcon = g_state.media.sourceIcon;
                 next.sourceIconGeneration = g_state.media.sourceIconGeneration;
+            }
+
+            if (next.playing) {
+                next.pausedAt = 0.0;
+            } else if (g_state.media.playing) {
+                next.pausedAt = NowSeconds();
+            } else {
+                next.pausedAt = (g_state.media.pausedAt > 0.0) ? g_state.media.pausedAt : NowSeconds();
             }
 
             g_state.media = std::move(next);
@@ -6211,6 +6225,8 @@ DWORD WINAPI NotificationThreadProc(void*) {
                                 nItem.priority = island_notification::DeterminePriority(nItem.category);
                                 nItem.iconRef = snapshot.icon.shared();
                                 island_notification::NotificationPolicySettings nPolicy;
+                                nPolicy.suppressBleSensorDuplicates = g_settings.suppressBleSensorDuplicates;
+                                nPolicy.genericDuplicateDebounce = g_settings.genericDuplicateDebounce;
                                 nPolicy.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
                                 island_globals::g_notificationHistory.Record(nItem);
                                 island_globals::g_notificationQueue.Enqueue(nItem, nPolicy);
@@ -9775,6 +9791,8 @@ void CaptureShellNotification(HWND hwnd) {
         nItem.priority = island_notification::DeterminePriority(nItem.category);
         nItem.iconRef = notification.icon.shared();
         island_notification::NotificationPolicySettings nPolicy;
+        nPolicy.suppressBleSensorDuplicates = g_settings.suppressBleSensorDuplicates;
+        nPolicy.genericDuplicateDebounce = g_settings.genericDuplicateDebounce;
         nPolicy.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
         island_globals::g_notificationHistory.Record(nItem);
         island_globals::g_notificationQueue.Enqueue(nItem, nPolicy);
@@ -15201,7 +15219,7 @@ class Renderer {
             {5, L"GPU",      gpuBuf,  state.system.gpuPercent >= 0
                                           ? Clamp(state.system.gpuPercent / 100.0f, 0.0f, 1.0f)
                                           : -1.0f},
-            {8, L"DISK",     diskBuf, Clamp(diskUsed / 100.0f, 0.0f, 1.0f)},
+            {8, L"C: STORAGE", diskBuf, Clamp(diskUsed / 100.0f, 0.0f, 1.0f)},
         };
 
         // 2 x 3 grid of cards. Cards give the grid its structure, so the old
@@ -16024,6 +16042,182 @@ class Renderer {
         mutedBrush_->SetOpacity(0.75f);
     }
 
+    void DrawOverviewDashboard(const SharedState& state, D2D1_RECT_F rect, const Settings& settings,
+                               double now, float scale, SYSTEMTIME& local) {
+        (void)now;
+        const float cx = (rect.left + rect.right) * 0.5f;
+        const float cy = (rect.top + rect.bottom) * 0.5f;
+
+        // 1. Radial glow with accent color
+        if (settings.clockAccentGlow) {
+            D2D1_COLOR_F accentColor = accentBrush_ ? accentBrush_->GetColor() : D2D1::ColorF(0x4cc9f0);
+            D2D1_GRADIENT_STOP stops[2] = {
+                {0.0f, D2D1::ColorF(accentColor.r, accentColor.g, accentColor.b, 0.22f)},
+                {1.0f, D2D1::ColorF(accentColor.r, accentColor.g, accentColor.b, 0.0f)},
+            };
+            ComPtr<ID2D1GradientStopCollection> glowStops;
+            target_->CreateGradientStopCollection(stops, 2, &glowStops);
+            if (glowStops) {
+                const D2D1_POINT_2F glowCenter = D2D1::Point2F(cx, cy - 14.0f * scale);
+                ComPtr<ID2D1RadialGradientBrush> glowBrush;
+                target_->CreateRadialGradientBrush(
+                    D2D1::RadialGradientBrushProperties(glowCenter, D2D1::Point2F(0, 0),
+                                                         160.0f * scale, 75.0f * scale),
+                    glowStops.Get(), &glowBrush);
+                if (glowBrush) {
+                    target_->FillEllipse(D2D1::Ellipse(glowCenter, 160.0f * scale, 75.0f * scale), glowBrush.Get());
+                }
+            }
+        }
+
+        // 2. Formatted Time & Date
+        const std::wstring timeText = FormatIslandTime(local, settings.clockFollowSystem,
+                                                       settings.use24HourClock, settings.showSeconds);
+        const std::wstring dateText = FormatIslandDate(local, settings.dateFormat, L"dddd, MMMM d");
+
+        IDWriteTextFormat* bigFmt = timeDashboardFormat_ ? timeDashboardFormat_.Get() : hugeTextFormat_.Get();
+        IDWriteTextFormat* smallFmt = dateDashboardFormat_ ? dateDashboardFormat_.Get() : boldTextFormat_.Get();
+
+        const std::wstring& headline = settings.dateFirst ? dateText : timeText;
+        const std::wstring& subline = settings.dateFirst ? timeText : dateText;
+        IDWriteTextFormat* headlineFmt = settings.dateFirst ? smallFmt : bigFmt;
+        IDWriteTextFormat* sublineFmt = settings.dateFirst ? bigFmt : smallFmt;
+
+        // Headline & Subline
+        const D2D1_RECT_F headRect = D2D1::RectF(rect.left, cy - 64.0f * scale, rect.right, cy - 20.0f * scale);
+        textBrush_->SetOpacity(0.98f);
+        target_->DrawTextW(headline.c_str(), static_cast<UINT32>(headline.size()), headlineFmt,
+                           headRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+
+        const D2D1_RECT_F subRect = D2D1::RectF(rect.left, cy - 22.0f * scale, rect.right, cy - 2.0f * scale);
+        mutedBrush_->SetOpacity(0.85f);
+        target_->DrawTextW(subline.c_str(), static_cast<UINT32>(subline.size()), sublineFmt,
+                           subRect, mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+
+        // 3. Glanceable Status Chips row (Battery, Weather, CPU/RAM)
+        const float chipY = cy + 4.0f * scale;
+        const float chipH = 24.0f * scale;
+        const float chipGap = 8.0f * scale;
+        const float chipRadius = 12.0f * scale;
+
+        // Collect chip strings
+        std::wstring batStr = L"";
+        if (state.battery.active || settings.battery) {
+            batStr = (state.battery.charging ? L"⚡ " : L"🔋 ") + std::to_wstring(state.battery.percent) + L"%";
+        }
+
+        std::wstring weatherStr = L"";
+        if (settings.weather && state.weather.hasData) {
+            weatherStr = state.weather.weatherDesc;
+            wchar_t wTemp[32] = {};
+            swprintf_s(wTemp, L"%.0f B0", state.weather.temperature);
+            if (!weatherStr.empty()) {
+                weatherStr += L" " + std::wstring(wTemp);
+            } else {
+                weatherStr = wTemp;
+            }
+        }
+
+        wchar_t sysBuf[48] = {};
+        swprintf_s(sysBuf, L"CPU %d%%  RAM %.0f%%", state.system.cpuPercent, state.system.memoryPercent);
+        std::wstring sysStr = sysBuf;
+
+        std::vector<std::wstring> chips;
+        if (!batStr.empty()) chips.push_back(batStr);
+        if (!weatherStr.empty()) chips.push_back(weatherStr);
+        chips.push_back(sysStr);
+
+        IDWriteTextFormat* chipFmt = smallTextFormat_ ? smallTextFormat_.Get() : textFormat_.Get();
+        if (chipFmt && dwriteFactory_) {
+            // Measure chips
+            std::vector<float> chipWidths;
+            float totalChipsW = 0.0f;
+            for (const auto& c : chips) {
+                ComPtr<IDWriteTextLayout> tl;
+                dwriteFactory_->CreateTextLayout(c.c_str(), static_cast<UINT32>(c.size()), chipFmt, 400.0f, 30.0f, &tl);
+                float w = 60.0f * scale;
+                if (tl) {
+                    DWRITE_TEXT_METRICS tm = {};
+                    tl->GetMetrics(&tm);
+                    w = tm.width + 18.0f * scale;
+                }
+                chipWidths.push_back(w);
+                totalChipsW += w;
+            }
+            totalChipsW += chipGap * static_cast<float>(chips.size() - 1);
+
+            float chipX = cx - totalChipsW * 0.5f;
+            ComPtr<ID2D1SolidColorBrush> chipBgBrush;
+            target_->CreateSolidColorBrush(WithAlpha(material_.raised, material_.raised.a * settingsOpacity_), &chipBgBrush);
+
+            for (size_t i = 0; i < chips.size(); ++i) {
+                const float cw = chipWidths[i];
+                const D2D1_RECT_F cr = D2D1::RectF(chipX, chipY, chipX + cw, chipY + chipH);
+                if (chipBgBrush) {
+                    target_->FillRoundedRectangle(D2D1::RoundedRect(cr, chipRadius, chipRadius), chipBgBrush.Get());
+                }
+                mutedBrush_->SetOpacity(0.92f);
+                target_->DrawTextW(chips[i].c_str(), static_cast<UINT32>(chips[i].size()), chipFmt,
+                                   D2D1::RectF(cr.left + 9.0f * scale, cr.top + 3.0f * scale, cr.right - 9.0f * scale, cr.bottom),
+                                   mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                chipX += cw + chipGap;
+            }
+        }
+
+        // 4. Compact Media Line or Privacy Indicators at bottom
+        const bool micActive = state.system.micActive && settings.privacyDots && settings.privacyDotsMic;
+        const bool camActive = state.system.cameraActive && settings.privacyDots && settings.privacyDotsCam;
+
+        if (camActive || micActive) {
+            // Render privacy indicator pill
+            std::wstring label = (camActive && micActive) ? L"Camera & microphone in use" :
+                                 (camActive ? L"Camera in use" : L"Microphone in use");
+            D2D1_COLOR_F dotColor = camActive ? settings.privacyDotsCamHex : settings.privacyDotsMicHex;
+
+            IDWriteTextFormat* fmt = smallTextFormat_ ? smallTextFormat_.Get() : textFormat_.Get();
+            if (fmt && dwriteFactory_) {
+                ComPtr<IDWriteTextLayout> tl;
+                if (SUCCEEDED(dwriteFactory_->CreateTextLayout(label.c_str(), static_cast<UINT32>(label.size()), fmt, 500.0f, 30.0f, &tl)) && tl) {
+                    DWRITE_TEXT_METRICS tm = {};
+                    tl->GetMetrics(&tm);
+                    const float pillH = 20.0f * scale;
+                    const float pillW = tm.width + 26.0f * scale;
+                    const float pillX = cx - pillW * 0.5f;
+                    const float pillY = rect.bottom - 16.0f * scale - pillH;
+
+                    ComPtr<ID2D1SolidColorBrush> badgeBg;
+                    target_->CreateSolidColorBrush(WithAlpha(material_.raised, material_.raised.a * settingsOpacity_), &badgeBg);
+                    if (badgeBg) {
+                        target_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(pillX, pillY, pillX + pillW, pillY + pillH), pillH * 0.5f, pillH * 0.5f), badgeBg.Get());
+                    }
+                    ComPtr<ID2D1SolidColorBrush> dotBrush;
+                    dotColor.a = settingsOpacity_;
+                    target_->CreateSolidColorBrush(dotColor, &dotBrush);
+                    if (dotBrush) {
+                        target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(pillX + 9.0f * scale, pillY + pillH * 0.5f), 3.0f * scale, 3.0f * scale), dotBrush.Get());
+                    }
+                    mutedBrush_->SetOpacity(0.90f);
+                    target_->DrawTextLayout(D2D1::Point2F(pillX + 16.0f * scale, pillY + (pillH - tm.height) * 0.5f), tl.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                }
+            }
+        } else if (settings.media && state.media.available && !state.media.title.empty()) {
+            // Render compact media line
+            std::wstring mediaLine = (state.media.playing ? L"▶  " : L"⏸  ") + state.media.title;
+            if (!state.media.artist.empty()) {
+                mediaLine += L" — " + state.media.artist;
+            }
+            IDWriteTextFormat* fmt = smallTextFormat_ ? smallTextFormat_.Get() : textFormat_.Get();
+            if (fmt) {
+                const D2D1_RECT_F mr = D2D1::RectF(rect.left + 24.0f * scale, rect.bottom - 28.0f * scale, rect.right - 24.0f * scale, rect.bottom - 8.0f * scale);
+                accentBrush_->SetOpacity(0.85f * settingsOpacity_);
+                target_->DrawTextW(mediaLine.c_str(), static_cast<UINT32>(mediaLine.size()), fmt, mr, accentBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+        }
+
+        textBrush_->SetOpacity(0.96f);
+        mutedBrush_->SetOpacity(0.75f);
+    }
+
     void DrawIdleDashboard(const SharedState& state, D2D1_RECT_F rect, const Settings& settings,
                            double now) {
         if (!clockFormat_) return;
@@ -16092,7 +16286,13 @@ class Renderer {
                                    dashFadeLayer);
             }
 
-            if (settings.gameOverlay || g_gameOverlayPinned.load(std::memory_order_relaxed)) {
+            const bool inGamingContext = (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Gaming);
+            const bool showCollapsedGameHud = g_gameOverlayPinned.load(std::memory_order_relaxed) ||
+                (settings.gameOverlay && (
+                    settings.gameOverlayMode == island_layout::GameOverlayMode::CollapsedHud ||
+                    (settings.gameOverlayMode == island_layout::GameOverlayMode::GamingContextOnly && inGamingContext)
+                ));
+            if (showCollapsedGameHud) {
                 DrawGameOverlay(state, rect, 1.0f);
             } else {
                 // Collapsed Mode (Apple Dynamic Island status bar).
@@ -16180,19 +16380,15 @@ class Renderer {
                                    dashFadeLayer);
             }
 
-            // Expanded Mode. Order must match ActiveTabCount()/FileTrayTabIndex().
-            std::vector<int> activeTabs;
-            activeTabs.push_back(3); // Time (shown first when the island expands/on hover)
-            if (settings.calendar) activeTabs.push_back(0); // Calendar
-            if (settings.weather) activeTabs.push_back(1);
-            if (settings.hardwareMonitorModule) activeTabs.push_back(2);
-            if (settings.fileTrayModule) activeTabs.push_back(4);
-            if (settings.quickControlsModule) activeTabs.push_back(5);
-            if (settings.gameOverlay || g_gameOverlayPinned.load(std::memory_order_relaxed)) activeTabs.push_back(6); // Game Overlay
-
-            int maxTabs = static_cast<int>(activeTabs.size());
-            int tabIdx = NormalizedTabIndex(settings);
-            if (tabIdx >= maxTabs) tabIdx = maxTabs - 1;
+            // Expanded Mode: single authoritative dashboard page collection
+            auto activePages = GetActiveDashboardPages(
+                settings,
+                state.media.available,
+                MediaExpandBlocked(state.media),
+                g_lyricsTabAvailable.load(std::memory_order_relaxed)
+            );
+            int maxTabs = static_cast<int>(activePages.size());
+            int tabIdx = island_layout::NormalizePageIndex(g_idleTab.load(std::memory_order_relaxed), maxTabs);
 
             // Lay the expanded view out at its final size, centred horizontally and
             // pinned to the top, so growing the pill only reveals it (same as media)
@@ -16203,27 +16399,41 @@ class Renderer {
             const D2D1_RECT_F fullRect = D2D1::RectF(fullCx - fullW * 0.5f, rect.top,
                                                      fullCx + fullW * 0.5f, rect.top + fullH);
 
-            DrawTabTransition(1, tabIdx, activeTabs, fullRect, now, [&](int activeTabId) {
-                if (activeTabId == 3) DrawTimeDashboard(state, fullRect, settings, now, scale, local);
-                else if (activeTabId == 0) DrawCalendarDashboard(state, fullRect, settings, now, scale, local);
-                else if (activeTabId == 1) DrawWeatherDashboard(state, fullRect, settings, now, scale, hasWeather, wIcon, wText);
-                else if (activeTabId == 2) DrawHardwareMonitorDashboard(state, fullRect, settings, scale);
-                else if (activeTabId == 4) DrawFileTrayDashboard(state, fullRect, settings, scale);
-                else if (activeTabId == 5) DrawQuickControlsDashboard(state, fullRect, settings, scale);
-                else if (activeTabId == 6) DrawGameOverlay(state, fullRect, scale);
+            DrawTabTransition(1, tabIdx, activePages, fullRect, now, [&](const island_layout::DashboardPageDescriptor& page) {
+                switch (page.id) {
+                    case island_layout::DashboardPageId::Overview:
+                        DrawOverviewDashboard(state, fullRect, settings, now, scale, local);
+                        break;
+                    case island_layout::DashboardPageId::Media:
+                        DrawOverviewDashboard(state, fullRect, settings, now, scale, local);
+                        break;
+                    case island_layout::DashboardPageId::Calendar:
+                        DrawCalendarDashboard(state, fullRect, settings, now, scale, local);
+                        break;
+                    case island_layout::DashboardPageId::Weather:
+                        DrawWeatherDashboard(state, fullRect, settings, now, scale, hasWeather, wIcon, wText);
+                        break;
+                    case island_layout::DashboardPageId::HardwareMonitor:
+                        DrawHardwareMonitorDashboard(state, fullRect, settings, scale);
+                        break;
+                    case island_layout::DashboardPageId::FileTray:
+                        DrawFileTrayDashboard(state, fullRect, settings, scale);
+                        break;
+                    case island_layout::DashboardPageId::Lyrics:
+                        DrawLyricsDashboard(state, fullRect, settings, 1.0f);
+                        break;
+                    case island_layout::DashboardPageId::QuickControls:
+                        DrawQuickControlsDashboard(state, fullRect, settings, scale);
+                        break;
+                    case island_layout::DashboardPageId::GameOverlay:
+                        DrawGameOverlay(state, fullRect, scale);
+                        break;
+                    default:
+                        break;
+                }
             });
 
-            const wchar_t* tabName = L"";
-            if (tabIdx >= 0 && tabIdx < maxTabs) {
-                int tid = activeTabs[tabIdx];
-                if (tid == 3) tabName = L"Time";
-                else if (tid == 0) tabName = L"Calendar";
-                else if (tid == 1) tabName = L"Weather";
-                else if (tid == 2) tabName = L"Hardware";
-                else if (tid == 4) tabName = L"File Tray";
-                else if (tid == 5) tabName = L"Controls";
-                else if (tid == 6) tabName = L"Game Overlay";
-            }
+            const wchar_t* tabName = (tabIdx >= 0 && tabIdx < maxTabs) ? activePages[tabIdx].name : L"";
             DrawTabPagination(fullRect, maxTabs, tabIdx, tabName);
 
             if (dashFadeLayer) {
@@ -16315,7 +16525,7 @@ class Renderer {
             {L"CPU", state.system.cpuPercent,              3, g_settings.gameOverlayShowCpu},
             {L"RAM", state.system.memoryPercent,           4, g_settings.gameOverlayShowRam},
             {L"GPU", state.system.gpuPercent,              5, g_settings.gameOverlayShowGpu},
-            {L"DISK", 100 - state.system.diskFreePercent,  8, g_settings.gameOverlayShowDisk},
+            {L"C: STORAGE", 100 - state.system.diskFreePercent,  8, g_settings.gameOverlayShowDisk},
         };
 
         for (const GameCard& card : cards) {
@@ -16429,8 +16639,8 @@ class Renderer {
         g_tabEdgeBump.store(0, std::memory_order_relaxed);
     }
 
-    template <typename DrawFn>
-    void DrawTabTransition(int context, int tabIdx, const std::vector<int>& tabIds,
+    template <typename T, typename DrawFn>
+    void DrawTabTransition(int context, int tabIdx, const std::vector<T>& tabIds,
                            D2D1_RECT_F rect, double now, DrawFn&& drawTab) {
         const int count = static_cast<int>(tabIds.size());
         if (count <= 0) {
@@ -16785,28 +16995,17 @@ class Renderer {
         if (expandedAlpha > 0.01f && mask && layer) {
             target_->PushLayer(D2D1::LayerParameters(rect, mask.Get(), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), expandedAlpha, nullptr, D2D1_LAYER_OPTIONS_NONE), layer);
 
-            // Order must match ActiveTabCount()/FileTrayTabIndex().
-            std::vector<int> activeTabs;
-            // Lyrics goes first when pinned; otherwise it stays last. Must match MediaTabIndex().
-            const bool lyricsFirst = settings.lyricsPinnedFirst && settings.lyrics;
-            if (lyricsFirst) activeTabs.push_back(5);  // Lyrics (pinned first)
-            activeTabs.push_back(0); // Media
-            if (settings.calendar) activeTabs.push_back(1); // Calendar
-            if (settings.weather) activeTabs.push_back(2);
-            if (settings.hardwareMonitorModule) activeTabs.push_back(3);
-            if (settings.fileTrayModule) activeTabs.push_back(4);
-            if (settings.lyrics && !lyricsFirst) activeTabs.push_back(5);  // Lyrics (last)
-            if (settings.quickControlsModule) activeTabs.push_back(6); // Quick Controls
-            if (settings.gameOverlay || g_gameOverlayPinned.load(std::memory_order_relaxed)) activeTabs.push_back(7); // Game Overlay
+            auto activePages = GetActiveDashboardPages(
+                settings,
+                state.media.available,
+                MediaExpandBlocked(state.media),
+                g_lyricsTabAvailable.load(std::memory_order_relaxed)
+            );
+            int maxTabs = static_cast<int>(activePages.size());
+            int tabIdx = island_layout::NormalizePageIndex(g_idleTab.load(std::memory_order_relaxed), maxTabs);
 
-            // Same settings object as the list above, so the index can't be
-            // normalised against a tab set that no longer matches.
-            int maxTabs = static_cast<int>(activeTabs.size());
-            int tabIdx = NormalizedTabIndex(settings);
-            if (tabIdx >= maxTabs) tabIdx = maxTabs - 1;
-
-            auto drawTabContent = [&](int activeTabId) {
-            if (activeTabId == 0) {
+            auto drawTabContent = [&](const island_layout::DashboardPageDescriptor& page) {
+            if (page.id == island_layout::DashboardPageId::Media) {
                 // With side lyrics on, the player lives in the left part of the island and
                 // the rest of this branch (which uses `rect`) lays out exactly as before.
                 const D2D1_RECT_F fullIslandRect = rect;
@@ -17031,10 +17230,13 @@ class Renderer {
                                                     fullIslandRect.right, fullIslandRect.bottom),
                                         settings, now);
                 }
-            } else if (activeTabId == 1) {
+            } else if (page.id == island_layout::DashboardPageId::Overview) {
+                SYSTEMTIME local = {}; GetLocalTime(&local);
+                DrawOverviewDashboard(state, rect, settings, now, 1.0f, local);
+            } else if (page.id == island_layout::DashboardPageId::Calendar) {
                 SYSTEMTIME local = {}; GetLocalTime(&local);
                 DrawCalendarDashboard(state, rect, settings, now, 1.0f, local);
-            } else if (activeTabId == 2) {
+            } else if (page.id == island_layout::DashboardPageId::Weather) {
                 bool hasWeather = state.weather.hasData && (now - state.weather.lastUpdated < 3600.0);
                 std::wstring wIcon = L"🌡️"; std::wstring wText = Loc(L"Loading...");
                 if (hasWeather) {
@@ -17042,11 +17244,11 @@ class Renderer {
                     GetWeatherIconAndText(state.weather.weatherCode, wIcon, wText);
                 }
                 DrawWeatherDashboard(state, rect, settings, now, 1.0f, hasWeather, wIcon, wText);
-            } else if (activeTabId == 3) {
+            } else if (page.id == island_layout::DashboardPageId::HardwareMonitor) {
                 DrawHardwareMonitorDashboard(state, rect, settings, 1.0f);
-            } else if (activeTabId == 4) {
+            } else if (page.id == island_layout::DashboardPageId::FileTray) {
                 DrawFileTrayDashboard(state, rect, settings, 1.0f);
-            } else if (activeTabId == 5) {
+            } else if (page.id == island_layout::DashboardPageId::Lyrics) {
                 // Laid out at the final expanded size and pinned to the top, so growing
                 // the island only reveals the lyrics instead of sliding them around.
                 // Resting expanded size (380x184 times the hover scale), so the layout never
@@ -17058,27 +17260,16 @@ class Renderer {
                                     D2D1::RectF(lyricsCx - lyricsW * 0.5f, rect.top,
                                                 lyricsCx + lyricsW * 0.5f, rect.top + lyricsH),
                                     settings, 1.0f);
-            } else if (activeTabId == 6) {
+            } else if (page.id == island_layout::DashboardPageId::QuickControls) {
                 DrawQuickControlsDashboard(state, rect, settings, 1.0f);
-            } else if (activeTabId == 7) {
+            } else if (page.id == island_layout::DashboardPageId::GameOverlay) {
                 DrawGameOverlay(state, rect, 1.0f);
             }
             };  // end drawTabContent
 
-            DrawTabTransition(0, tabIdx, activeTabs, rect, now, drawTabContent);
+            DrawTabTransition(0, tabIdx, activePages, rect, now, drawTabContent);
 
-            const wchar_t* tabName = L"";
-            if (tabIdx >= 0 && tabIdx < maxTabs) {
-                int tid = activeTabs[tabIdx];
-                if (tid == 0) tabName = L"Media";
-                else if (tid == 1) tabName = L"Calendar";
-                else if (tid == 2) tabName = L"Weather";
-                else if (tid == 3) tabName = L"Hardware";
-                else if (tid == 4) tabName = L"File Tray";
-                else if (tid == 5) tabName = L"Lyrics";
-                else if (tid == 6) tabName = L"Controls";
-                else if (tid == 7) tabName = L"Game Overlay";
-            }
+            const wchar_t* tabName = (tabIdx >= 0 && tabIdx < maxTabs) ? activePages[tabIdx].name : L"";
             DrawTabPagination(rect, maxTabs, tabIdx, tabName);
 
             target_->PopLayer();
@@ -21919,7 +22110,13 @@ std::vector<IslandKind> ChooseActivities(const SharedState& state, const Setting
     // already gated on MediaExpandBlocked, but with MediaAutoExpand off by
     // default that gate never fired — so "firefox.exe" in the list looked like
     // a no-op while the pill still switched to music mode.
-    if (settings.media && state.media.available && !MediaExpandBlocked(state.media)) {
+    bool mediaTimedOut = false;
+    if (!state.media.playing && state.media.pausedAt > 0.0 && settings.mediaPausedTimeoutSeconds > 0) {
+        if ((now - state.media.pausedAt) > static_cast<double>(settings.mediaPausedTimeoutSeconds)) {
+            mediaTimedOut = true;
+        }
+    }
+    if (settings.media && state.media.available && !MediaExpandBlocked(state.media) && !mediaTimedOut) {
         activities.push_back(IslandKind::Media);
     }
 
@@ -23293,6 +23490,21 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 
         case WM_KEYDOWN:
             if (HandleLookupKeyDown(hwnd, wParam)) return 0;
+            if (wParam == VK_LEFT || wParam == VK_UP) {
+                StepIdleTab(-1);
+                TriggerNudge();
+                return 0;
+            } else if (wParam == VK_RIGHT || wParam == VK_DOWN || wParam == VK_TAB) {
+                StepIdleTab(1);
+                TriggerNudge();
+                return 0;
+            } else if (wParam == VK_ESCAPE) {
+                if (g_pinnedExpanded.load()) {
+                    g_pinnedExpanded = false;
+                    TriggerNudge();
+                    return 0;
+                }
+            }
             break;
 
         case WM_CHAR:
@@ -24571,6 +24783,8 @@ DWORD WINAPI RenderThreadProc(void*) {
                 nSettings.allowCriticalInQuietHours = g_settings.allowCriticalInQuietHours;
                 nSettings.suppressInFullscreen = g_settings.suppressInFullscreen;
                 nSettings.suppressInPresentation = true;
+                nSettings.suppressBleSensorDuplicates = g_settings.suppressBleSensorDuplicates;
+                nSettings.genericDuplicateDebounce = g_settings.genericDuplicateDebounce;
                 nSettings.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
 
                 bool isFs = g_isFullscreen.load(std::memory_order_relaxed) ||
@@ -24632,7 +24846,7 @@ DWORD WINAPI RenderThreadProc(void*) {
 
         const std::vector<IslandKind> kinds = ChooseActivities(snapshot, g_settings, now);
         g_lyricsTabAvailable.store(
-            g_settings.lyrics && g_settings.media && snapshot.media.available,
+            g_settings.lyrics && g_settings.media && snapshot.media.available && !MediaExpandBlocked(snapshot.media),
             std::memory_order_relaxed);
         Activity primary = ActivityForKind(kinds[0], g_settings, snapshot);
         std::optional<Activity> secondary;
@@ -24749,9 +24963,6 @@ DWORD WINAPI RenderThreadProc(void*) {
         bool isHoverExpanded = g_settings.expandOnHover ? hover : (hover && g_clickExpanded.load());
         const bool gameMetricsPresent = primary.kind == IslandKind::Idle &&
             (g_settings.gameOverlay || g_gameOverlayPinned.load());
-        if (gameMetricsPresent) {
-            isHoverExpanded = false;
-        }
 
         if (currentlyHidden && !g_settings.unhideOnHover) {
             isHoverExpanded = false;
@@ -24920,13 +25131,15 @@ DWORD WINAPI RenderThreadProc(void*) {
             primary.width = timerDims.width;
             primary.height = timerDims.height;
         }
-        if (!isFullscreen && primary.kind == IslandKind::Idle &&
-            (g_settings.gameOverlay || g_gameOverlayPinned.load())) {
-            // Width follows the metrics actually enabled (#25) so switching some
-            // off shrinks the strip instead of leaving empty space, and compact
-            // mode narrows it enough to sit neatly in the taskbar area. Both the
-            // size and the painting come from GameOverlayLayout, so the strip
-            // cannot end up sized for a card width DrawGameOverlay no longer uses.
+        const bool inGamingContext = (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Gaming);
+        const bool showCollapsedGameHud = !isFullscreen && primary.kind == IslandKind::Idle &&
+            !(pinned || isHoverExpanded) &&
+            (g_gameOverlayPinned.load(std::memory_order_relaxed) ||
+             (g_settings.gameOverlay && (
+                 g_settings.gameOverlayMode == island_layout::GameOverlayMode::CollapsedHud ||
+                 (g_settings.gameOverlayMode == island_layout::GameOverlayMode::GamingContextOnly && inGamingContext)
+             )));
+        if (showCollapsedGameHud) {
             const int metricCount = (g_settings.gameOverlayShowCpu ? 1 : 0) +
                                     (g_settings.gameOverlayShowRam ? 1 : 0) +
                                     (g_settings.gameOverlayShowGpu ? 1 : 0) +

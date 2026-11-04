@@ -61,6 +61,7 @@ public:
         writeFloat(L"Appearance", L"SizeScale", p.sizeScale);
         writeInt(L"Appearance", L"PillOpacity", p.pillOpacity);
         writeInt(L"Appearance", L"MonitorIndex", p.monitorIndex);
+        writeKey(L"Appearance", L"TargetMonitor", p.monitorIndex == 0 ? L"primary" : std::to_wstring(p.monitorIndex));
 
         // Animation
         writeKey(L"Animations", L"AnimationStyle", p.animationStyle);
@@ -70,6 +71,7 @@ public:
         // Effects
         writeInt(L"Themes", L"RealLiquidGlass", p.realLiquidGlass ? 1 : 0);
         writeInt(L"Themes", L"DynamicAlbumBloom", p.dynamicAlbumBloom ? 1 : 0);
+        writeInt(L"Themes", L"MaterialDepth", p.dynamicAlbumBloom ? 1 : 0);
         writeInt(L"Themes", L"TintIntensity", p.tintIntensity);
 
         // Performance & Context
@@ -145,7 +147,16 @@ public:
         outProfile.shapeStyle = readStr(L"Appearance", L"ShapeStyle", L"notch");
         outProfile.sizeScale = readFloat(L"Appearance", L"SizeScale", 1.0f);
         outProfile.pillOpacity = readInt(L"Appearance", L"PillOpacity", 16);
-        outProfile.monitorIndex = readInt(L"Appearance", L"MonitorIndex", 0);
+        std::wstring monStr = readStr(L"Appearance", L"TargetMonitor", L"");
+        if (!monStr.empty()) {
+            if (_wcsicmp(monStr.c_str(), L"primary") == 0) outProfile.monitorIndex = 0;
+            else if (_wcsicmp(monStr.c_str(), L"follow") == 0) outProfile.monitorIndex = 0;
+            else {
+                try { outProfile.monitorIndex = std::stoi(monStr); } catch (...) { outProfile.monitorIndex = 0; }
+            }
+        } else {
+            outProfile.monitorIndex = readInt(L"Appearance", L"MonitorIndex", 0);
+        }
 
         // Animation
         outProfile.animationStyle = readStr(L"Animations", L"AnimationStyle", L"applespring");
@@ -154,7 +165,7 @@ public:
 
         // Effects
         outProfile.realLiquidGlass = (readInt(L"Themes", L"RealLiquidGlass", 0) != 0);
-        outProfile.dynamicAlbumBloom = (readInt(L"Themes", L"DynamicAlbumBloom", 1) != 0);
+        outProfile.dynamicAlbumBloom = (readInt(L"Themes", L"MaterialDepth", readInt(L"Themes", L"DynamicAlbumBloom", 1)) != 0);
         outProfile.tintIntensity = readInt(L"Themes", L"TintIntensity", 0);
 
         // Performance & Context
@@ -253,6 +264,7 @@ public:
         setFloat(L"Appearance.SizeScale", p.sizeScale);
         setInt(L"Themes.PillOpacity", p.pillOpacity);
         setInt(L"Appearance.MonitorIndex", p.monitorIndex);
+        setStr(L"Appearance.TargetMonitor", p.monitorIndex == 0 ? L"primary" : std::to_wstring(p.monitorIndex));
 
         // Animations
         setStr(L"Animations.AnimationStyle", p.animationStyle);
@@ -262,6 +274,7 @@ public:
         // Themes & Glass
         setInt(L"Themes.RealLiquidGlass", p.realLiquidGlass ? 1 : 0);
         setInt(L"Themes.DynamicAlbumBloom", p.dynamicAlbumBloom ? 1 : 0);
+        setInt(L"Themes.MaterialDepth", p.dynamicAlbumBloom ? 1 : 0);
         setInt(L"Themes.TintIntensity", p.tintIntensity);
 
         // Performance & Context

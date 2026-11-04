@@ -1114,16 +1114,17 @@ enum class ThemePreset {
     Espresso,
     Plum,
     Porcelain,
+    Transparent,
+    Acrylic,
+    Fluent,
+    Colorful,
+    Classic,
+    Minimal,
     Custom,
 };
 
 // One table drives the settings dropdown, the right-click menu labels and the
-// resolved colors. It used to be three separate lists, which is how the menu
-// ended up carrying special cases for palette indexes that no longer matched.
-//
-// Secondary text is held at roughly 4.5:1 against its own background in every
-// row, because no edge highlight is left to help muted labels separate from the
-// surface behind them.
+// resolved colors.
 struct ThemePalette {
     const wchar_t* id;      // value stored in Themes.ThemePreset
     const wchar_t* label;   // right-click menu label
@@ -1134,14 +1135,20 @@ struct ThemePalette {
 };
 
 static constexpr ThemePalette kThemePalettes[] = {
-    {L"obsidian",  L"Obsidian (Default)", L"#08080A", L"#FFFFFF", L"#9B9BA5", L"#1E1E22"},
-    {L"graphite",  L"Graphite",           L"#1C1C1E", L"#FFFFFF", L"#A8A8AE", L"#323236"},
-    {L"slate",     L"Slate",              L"#111721", L"#E9EEF6", L"#92A2B8", L"#232C3A"},
-    {L"nord",      L"Nord",               L"#2E3440", L"#ECEFF4", L"#A7B0C0", L"#3B4252"},
-    {L"evergreen", L"Evergreen",          L"#0C1512", L"#E4F1EA", L"#8CAE9D", L"#1A2A23"},
-    {L"espresso",  L"Espresso",           L"#1A1512", L"#F6EEE7", L"#B7A395", L"#2E2420"},
-    {L"plum",      L"Plum",               L"#16111C", L"#F1EAF6", L"#AC9BB9", L"#281F33"},
-    {L"porcelain", L"Porcelain (Light)",  L"#F5F6F8", L"#14161A", L"#5B6270", L"#D8DBE1"},
+    {L"obsidian",    L"Obsidian (Default)",          L"#08080A",   L"#FFFFFF", L"#9B9BA5", L"#1E1E22"},
+    {L"graphite",    L"Graphite",                    L"#1C1C1E",   L"#FFFFFF", L"#A8A8AE", L"#323236"},
+    {L"slate",       L"Slate",                       L"#111721",   L"#E9EEF6", L"#92A2B8", L"#232C3A"},
+    {L"nord",        L"Nord",                        L"#2E3440",   L"#ECEFF4", L"#A7B0C0", L"#3B4252"},
+    {L"evergreen",   L"Evergreen",                   L"#0C1512",   L"#E4F1EA", L"#8CAE9D", L"#1A2A23"},
+    {L"espresso",    L"Espresso",                    L"#1A1512",   L"#F6EEE7", L"#B7A395", L"#2E2420"},
+    {L"plum",        L"Plum",                        L"#16111C",   L"#F1EAF6", L"#AC9BB9", L"#281F33"},
+    {L"porcelain",   L"Porcelain (Light)",           L"#F5F6F8",   L"#14161A", L"#5B6270", L"#D8DBE1"},
+    {L"transparent", L"Transparent Liquid Glass",    L"#08080A26", L"#FFFFFF", L"#C8C8D0", L"#FFFFFF20"},
+    {L"acrylic",     L"Acrylic Glass (Legacy)",      L"#1A1E24D0", L"#F0F3F8", L"#94A3B8", L"#334155"},
+    {L"fluent",      L"Fluent Mica (Legacy)",        L"#20232A",   L"#FFFFFF", L"#9DA5B4", L"#2D323F"},
+    {L"colorful",    L"Colorful Vibrant (Legacy)",    L"#180E29",   L"#FAF5FF", L"#C084FC", L"#3B184C"},
+    {L"classic",     L"Classic Dark (Legacy)",       L"#181818",   L"#F0F0F0", L"#9E9E9E", L"#2C2C2C"},
+    {L"minimal",     L"Minimal Monochrome (Legacy)", L"#000000",   L"#FFFFFF", L"#808080", L"#1F1F1F"},
 };
 
 // Custom sits one past the last real palette. Derived, so adding a palette
@@ -1176,8 +1183,7 @@ inline int ThemeIndexFromId(std::wstring_view id) {
     if (iequals(id, L"custom")) return kCustomThemeIndex;
 
     if (iequals(id, L"oled-black")) return 0;     // -> Obsidian
-    if (iequals(id, L"fluent") ||
-        iequals(id, L"mica") ||
+    if (iequals(id, L"mica") ||
         iequals(id, L"dark-gray")) return 1;      // -> Graphite
     if (iequals(id, L"midnight-blue")) return 2;  // -> Slate
     if (iequals(id, L"deep-purple")) return 6;    // -> Plum
@@ -1281,6 +1287,9 @@ struct Settings {
     bool autoDpiScale = true;
     bool w11Style = false;
     bool notchStyle = false;
+    bool bladeStyle = false;
+    bool calendar = true;
+    bool suppressBleSensorDuplicates = true;
     bool stripMode = false;  // thin resting strip, opens on hover (independent of the shape)
     int stripSensitivity = 2;  // 0 = Minimum, 1 = Low, 2 = Medium, 3 = High, 4 = Maximum
     // Color customization
@@ -2016,13 +2025,15 @@ std::wstring FormatWithName(const wchar_t* format, const std::wstring& name) {
 // arithmetic used to be copy-pasted in seven places, which is exactly how they
 // drifted out of sync.
 int ActiveTabCount(const Settings& settings) {
-    int count = 2;  // primary (media or clock) + calendar
-    if (settings.weather) ++count;
-    if (settings.hardwareMonitorModule) ++count;
-    if (settings.fileTrayModule) ++count;
-    if (settings.lyrics && g_lyricsTabAvailable.load(std::memory_order_relaxed)) ++count;
-    if (settings.quickControlsModule) ++count;
-    return count;
+    return island_policy::CalculateActiveTabCount(
+        settings.calendar,
+        settings.weather,
+        settings.hardwareMonitorModule,
+        settings.fileTrayModule,
+        settings.lyrics && g_lyricsTabAvailable.load(std::memory_order_relaxed),
+        settings.quickControlsModule,
+        settings.gameOverlay || g_gameOverlayPinned.load(std::memory_order_relaxed)
+    );
 }
 
 inline int QuickControlsTabIndex(const Settings& settings) {
@@ -2036,7 +2047,7 @@ int NormalizedTabIndex(const Settings& settings) {
     return ((raw % total) + total) % total;
 }
 
-// Tab order is always: primary, calendar, weather?, hardware?, file tray?
+// Tab order is always: primary, calendar?, weather?, hardware?, file tray?
 // The expensive GPU / network counters are only sampled while the hardware card
 // is actually on screen, so that check needs the card's real index rather than
 // assuming it is the last tab -- which stopped being true once the File Tray
@@ -2053,14 +2064,14 @@ int HardwareMonitorTabIndex(const Settings& settings) {
     if (!settings.hardwareMonitorModule) {
         return -1;
     }
-    return 2 + (settings.weather ? 1 : 0) + MediaTabIndex(settings);
+    return 1 + (settings.calendar ? 1 : 0) + (settings.weather ? 1 : 0) + MediaTabIndex(settings);
 }
 
 int FileTrayTabIndex(const Settings& settings) {
     if (!settings.fileTrayModule) {
         return -1;
     }
-    return 2 + (settings.weather ? 1 : 0) + (settings.hardwareMonitorModule ? 1 : 0) +
+    return 1 + (settings.calendar ? 1 : 0) + (settings.weather ? 1 : 0) + (settings.hardwareMonitorModule ? 1 : 0) +
            MediaTabIndex(settings);
 }
 
@@ -3137,6 +3148,7 @@ void LoadSettings() {
     int ft = Wh_GetIntSetting(L"Modules.FocusTimer");
     int tm = Wh_GetIntSetting(L"Modules.TimerModule");
     next.timerEnabled = (ft != 0) || (tm != 0);
+    next.calendar = Wh_GetIntSetting(L"Modules.Calendar") != 0;
 
     next.performanceMode = GetStringSettingCopy(L"Performance.PerformanceMode");
     if (next.performanceMode.empty()) next.performanceMode = L"balanced";
@@ -3157,6 +3169,7 @@ void LoadSettings() {
     next.quietHoursEnd = Wh_GetIntSetting(L"Notifications.QuietHoursEnd");
     next.allowCriticalInQuietHours = Wh_GetIntSetting(L"Notifications.AllowCriticalInQuietHours") != 0;
     next.suppressInFullscreen = Wh_GetIntSetting(L"Notifications.SuppressInFullscreen") != 0;
+    next.suppressBleSensorDuplicates = Wh_GetIntSetting(L"Notifications.SuppressBleSensorDuplicates") != 0;
     next.quickControlsModule = Wh_GetIntSetting(L"Modules.QuickControls") != 0;
 
     std::wstring sClick = GetStringSettingCopy(L"Gestures.SingleClick");
@@ -3434,15 +3447,20 @@ void LoadSettings() {
         s_lastConfiguredShape = shapeStr;
         Wh_SetIntValue(L"W11StyleOverride", -1);
         Wh_SetIntValue(L"NotchStyleOverride", -1);
+        Wh_SetIntValue(L"BladeStyleOverride", -1);
     }
     bool baseW11 = EqualsNoCase(shapeStr, L"w11");
     bool baseNotch = EqualsNoCase(shapeStr, L"notch");
+    bool baseBlade = EqualsNoCase(shapeStr, L"blade");
 
     const int localW11Style = Wh_GetIntValue(L"W11StyleOverride", -1);
     next.w11Style = localW11Style >= 0 ? (localW11Style != 0) : baseW11;
 
     const int localNotchStyle = Wh_GetIntValue(L"NotchStyleOverride", -1);
     next.notchStyle = localNotchStyle >= 0 ? (localNotchStyle != 0) : baseNotch;
+
+    const int localBladeStyle = Wh_GetIntValue(L"BladeStyleOverride", -1);
+    next.bladeStyle = localBladeStyle >= 0 ? (localBladeStyle != 0) : baseBlade;
 
     // A bottom-anchored island cannot be a top-edge macOS notch.
     if (IsBottomPosition(next.position)) {
@@ -3592,12 +3610,15 @@ void LoadSettings() {
     // a little. The rest of the palettes are opaque unless the user says so.
     if (next.themePreset == ThemePreset::Graphite && localOpacity < 0) {
         next.pillOpacity = 0.88f;
+    } else if (next.themePreset == ThemePreset::Transparent && localOpacity < 0) {
+        next.pillOpacity = 0.16f;
     }
 
     next.borderMergedMode = Wh_GetIntSetting(L"Appearance.BorderMergedMode") != 0;
     next.autoHideFullscreen = Wh_GetIntSetting(L"Behavior.AutoHideFullscreen") != 0;
     next.hardwareMonitorModule = Wh_GetIntSetting(L"Modules.HardwareMonitorModule") != 0;
     const std::wstring borderModeStr = GetStringSettingCopy(L"Themes.ContourBorderMode");
+    const int borderEnabledSetting = Wh_GetIntSetting(L"Themes.ContourBorderEnabled");
     if (EqualsNoCase(borderModeStr, L"borderless")) {
         next.contourBorderMode = ContourBorderMode::Borderless;
         next.contourBorderEnabled = false;
@@ -3607,9 +3628,12 @@ void LoadSettings() {
     } else if (EqualsNoCase(borderModeStr, L"default")) {
         next.contourBorderMode = ContourBorderMode::Default;
         next.contourBorderEnabled = true;
+    } else if (borderEnabledSetting == 0) {
+        next.contourBorderMode = ContourBorderMode::Borderless;
+        next.contourBorderEnabled = false;
     } else {
-        next.contourBorderEnabled = true;  // no such setting; the mode dropdown drives this
-        next.contourBorderMode = next.contourBorderEnabled ? ContourBorderMode::Default : ContourBorderMode::Borderless;
+        next.contourBorderEnabled = true;
+        next.contourBorderMode = ContourBorderMode::Default;
     }
     next.clockAccentGlow = Wh_GetIntSetting(L"Themes.ClockAccentGlow") != 0;
     bool settingsChangedWhileHidden = (g_autoHiddenParked.load() || g_manuallyHidden.load());
@@ -6186,8 +6210,10 @@ DWORD WINAPI NotificationThreadProc(void*) {
                                 nItem.category = island_notification::ClassifyNotification(snapshot.app, snapshot.title);
                                 nItem.priority = island_notification::DeterminePriority(nItem.category);
                                 nItem.iconRef = snapshot.icon.shared();
+                                island_notification::NotificationPolicySettings nPolicy;
+                                nPolicy.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
                                 island_globals::g_notificationHistory.Record(nItem);
-                                island_globals::g_notificationQueue.Enqueue(nItem);
+                                island_globals::g_notificationQueue.Enqueue(nItem, nPolicy);
                             }
                         } catch (const winrt::hresult_error& nex) {
                             if (nex.to_abi() == static_cast<int32_t>(0x80004001) || nex.to_abi() == static_cast<int32_t>(0x80040154)) { // E_NOTIMPL or REGDB_E_CLASSNOTREG
@@ -9748,8 +9774,10 @@ void CaptureShellNotification(HWND hwnd) {
         nItem.category = island_notification::ClassifyNotification(notification.app, notification.title);
         nItem.priority = island_notification::DeterminePriority(nItem.category);
         nItem.iconRef = notification.icon.shared();
+        island_notification::NotificationPolicySettings nPolicy;
+        nPolicy.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
         island_globals::g_notificationHistory.Record(nItem);
-        island_globals::g_notificationQueue.Enqueue(nItem);
+        island_globals::g_notificationQueue.Enqueue(nItem, nPolicy);
     }
 
     // Spawn a background thread to extract the full rich text body of the toast using UI Automation.
@@ -11754,7 +11782,7 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
     {
         // g_settings already reflects any right-click override, so it is the
         // source of truth for which style is active.
-        const int currentShape = g_settings.notchStyle ? 2 : (g_settings.w11Style ? 1 : 0);
+        const int currentShape = g_settings.bladeStyle ? 3 : (g_settings.notchStyle ? 2 : (g_settings.w11Style ? 1 : 0));
         HMENU shapeMenu = CreatePopupMenu();
         AppendMenuW(shapeMenu, MF_STRING, kShapeMenuIdBase, L"iPhone Pill");
         AppendMenuW(shapeMenu, MF_STRING, kShapeMenuIdBase + 1, L"Windows 11 Flyout");
@@ -11764,12 +11792,13 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
         } else {
             AppendMenuW(shapeMenu, MF_STRING, kShapeMenuIdBase + 2, L"macOS Notch");
         }
-        CheckMenuRadioItem(shapeMenu, kShapeMenuIdBase, kShapeMenuIdBase + 2,
+        AppendMenuW(shapeMenu, MF_STRING, kShapeMenuIdBase + 3, L"Edge Blade");
+        CheckMenuRadioItem(shapeMenu, kShapeMenuIdBase, kShapeMenuIdBase + 3,
                            kShapeMenuIdBase + static_cast<UINT>(currentShape), MF_BYCOMMAND);
-        // Strip mode is a plain on/off toggle, not one of the three shapes.
+        // Strip mode is a plain on/off toggle, not one of the shapes.
         AppendMenuW(shapeMenu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(shapeMenu, MF_STRING | (g_settings.stripMode ? MF_CHECKED : 0),
-                    kShapeMenuIdBase + 3, L"Strip mode");
+                    kShapeMenuIdBase + 4, L"Strip mode");
         AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(shapeMenu), L"Shape style");
     }
     const int activeExpandOnHover = Wh_GetIntValue(L"ExpandOnHoverOverride", -1) >= 0
@@ -12032,21 +12061,24 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
         }
         case kShapeMenuIdBase:
         case kShapeMenuIdBase + 1:
-        case kShapeMenuIdBase + 2: {
+        case kShapeMenuIdBase + 2:
+        case kShapeMenuIdBase + 3: {
             const bool wantW11 = (cmd == kShapeMenuIdBase + 1);
             const bool wantNotch = (cmd == kShapeMenuIdBase + 2);
+            const bool wantBlade = (cmd == kShapeMenuIdBase + 3);
             if (wantNotch && IsBottomPosition(g_settings.position)) {
                 break;  // a bottom-anchored island can't be a top-edge notch
             }
-            // Both overrides are written every time, so exactly one style is active.
+            // Overrides are written every time, so exactly one style is active.
             Wh_SetIntValue(L"W11StyleOverride", wantW11 ? 1 : 0);
             Wh_SetIntValue(L"NotchStyleOverride", wantNotch ? 1 : 0);
+            Wh_SetIntValue(L"BladeStyleOverride", wantBlade ? 1 : 0);
             LoadSettings();
             g_layoutDirty = true;
             TriggerNudge();
             break;
         }
-        case kShapeMenuIdBase + 3: {
+        case kShapeMenuIdBase + 4: {
             const int stripSetting = Wh_GetIntSetting(L"Appearance.StripMode") != 0 ? 1 : 0;
             Wh_SetIntValue(L"StripModeOverride", g_settings.stripMode ? 0 : 1);
             Wh_SetIntValue(L"StripModeOverrideBase", stripSetting);
@@ -13142,9 +13174,10 @@ class Renderer {
     struct ShapeKey {
         float l = 0, t = 0, r = 0, b = 0, radius = 0;
         bool notch = false;
+        bool blade = false;
         bool operator==(const ShapeKey& o) const {
             return l == o.l && t == o.t && r == o.r && b == o.b &&
-                   radius == o.radius && notch == o.notch;
+                   radius == o.radius && notch == o.notch && blade == o.blade;
         }
     };
     struct ShapeEntry {
@@ -13263,10 +13296,10 @@ class Renderer {
         return slot.brush.Get();
     }
 
-    // Rounded-rect or notch geometry, cached by rect + radius. Returns a ref-counted
+    // Rounded-rect, blade, or notch geometry, cached by rect + radius. Returns a ref-counted
     // pointer, so a caller holding it is safe even if the entry is evicted meanwhile.
-    ComPtr<ID2D1Geometry> GetShapeGeometry(D2D1_RECT_F rect, float radius, bool notch) {
-        const ShapeKey key{rect.left, rect.top, rect.right, rect.bottom, radius, notch};
+    ComPtr<ID2D1Geometry> GetShapeGeometry(D2D1_RECT_F rect, float radius, bool notch, bool blade = false) {
+        const ShapeKey key{rect.left, rect.top, rect.right, rect.bottom, radius, notch, blade};
         ShapeEntry* victim = &shapeCache_[0];
         for (ShapeEntry& e : shapeCache_) {
             if (e.geom && e.key == key) {
@@ -13282,8 +13315,11 @@ class Renderer {
         if (notch) {
             ComPtr<ID2D1PathGeometry> path = CreateNotchGeometry(rect, radius);
             if (path) path.As(&geom);
+        } else if (blade) {
+            ComPtr<ID2D1PathGeometry> path = CreateBladeGeometry(rect, radius);
+            if (path) path.As(&geom);
         }
-        if (!geom) {  // not a notch, or the notch failed: same fallback as before
+        if (!geom) {  // not a notch or blade, or geometry failed: same fallback as before
             ComPtr<ID2D1RoundedRectangleGeometry> rr;
             if (SUCCEEDED(d2dFactory_->CreateRoundedRectangleGeometry(
                     D2D1::RoundedRect(rect, radius, radius), &rr)) && rr) {
@@ -13401,6 +13437,8 @@ class Renderer {
         float radius = settings.w11Style ? 8.0f * settings.sizeScale : (rect.bottom - rect.top) * 0.5f;
         if (settings.notchStyle) {
             radius = 16.0f * settings.sizeScale;
+        } else if (settings.bladeStyle) {
+            radius = 14.0f * settings.sizeScale;
         } else if (!settings.w11Style) {
             radius = std::min(radius, 44.0f * settings.sizeScale);
         }
@@ -13535,7 +13573,7 @@ class Renderer {
             return;
         }
         const float h = rect.bottom - rect.top;
-        if (!g_settings.w11Style && !g_settings.notchStyle) {
+        if (!g_settings.w11Style && !g_settings.notchStyle && !g_settings.bladeStyle) {
             if (h < 56.0f) {
                 radius = h * 0.5f;
             } else {
@@ -13545,6 +13583,8 @@ class Renderer {
             radius = 16.0f * g_settings.sizeScale;
         } else if (g_settings.w11Style) {
             radius = 8.0f * g_settings.sizeScale;
+        } else if (g_settings.bladeStyle) {
+            radius = 14.0f * g_settings.sizeScale;
         }
 
         const float spread = Clamp(14.0f * g_settings.sizeScale, 6.0f, kRenderPadY - 4.0f);
@@ -13570,7 +13610,7 @@ class Renderer {
                 rect.left - grow, rect.top - grow * 0.55f + yOffset,
                 rect.right + grow, rect.bottom + grow + yOffset);
             FillIslandShape(shadowRect, radius + grow, g_settings.w11Style,
-                            g_settings.notchStyle, brush);
+                            g_settings.notchStyle, brush, g_settings.bladeStyle);
         }
         brush->SetOpacity(1.0f);
     }
@@ -13605,7 +13645,7 @@ class Renderer {
             return;
         }
         brush->SetOpacity(Clamp(botA, 0.0f, 1.0f));
-        FillIslandShape(rect, radius, g_settings.w11Style, g_settings.notchStyle, brush);
+        FillIslandShape(rect, radius, g_settings.w11Style, g_settings.notchStyle, brush, g_settings.bladeStyle);
     }
 
     // A wide, very soft accent wash bled in from the top of the surface. Driven
@@ -13636,7 +13676,7 @@ class Renderer {
             return;
         }
         brush->SetOpacity(Clamp(strength * settingsOpacity_, 0.0f, 1.0f));
-        FillIslandShape(rect, radius, g_settings.w11Style, g_settings.notchStyle, brush);
+        FillIslandShape(rect, radius, g_settings.w11Style, g_settings.notchStyle, brush, g_settings.bladeStyle);
     }
 
     // Rounded inner card used by every dashboard, so panels across the media,
@@ -13747,14 +13787,38 @@ class Renderer {
         return geom;
     }
 
-    ComPtr<ID2D1Geometry> CreateIslandMaskGeometry(D2D1_RECT_F rect, float radius, bool notchStyle) {
-        return GetShapeGeometry(rect, radius, notchStyle);
+    ComPtr<ID2D1PathGeometry> CreateBladeGeometry(D2D1_RECT_F rect, float radius) {
+        ComPtr<ID2D1PathGeometry> geom;
+        if (FAILED(d2dFactory_->CreatePathGeometry(&geom))) return nullptr;
+
+        ComPtr<ID2D1GeometrySink> sink;
+        if (FAILED(geom->Open(&sink))) return nullptr;
+
+        float c = std::min({radius, (rect.right - rect.left) * 0.25f, (rect.bottom - rect.top) * 0.5f});
+        if (c < 0.0f) c = 0.0f;
+
+        sink->BeginFigure(D2D1::Point2F(rect.left + c, rect.top), D2D1_FIGURE_BEGIN_FILLED);
+        sink->AddLine(D2D1::Point2F(rect.right - c, rect.top));
+        sink->AddLine(D2D1::Point2F(rect.right, rect.top + c));
+        sink->AddLine(D2D1::Point2F(rect.right, rect.bottom - c));
+        sink->AddLine(D2D1::Point2F(rect.right - c, rect.bottom));
+        sink->AddLine(D2D1::Point2F(rect.left + c, rect.bottom));
+        sink->AddLine(D2D1::Point2F(rect.left, rect.bottom - c));
+        sink->AddLine(D2D1::Point2F(rect.left, rect.top + c));
+        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink->Close();
+
+        return geom;
     }
 
-    void FillIslandShape(D2D1_RECT_F rect, float radius, bool w11Style, bool notchStyle, ID2D1Brush* brush) {
+    ComPtr<ID2D1Geometry> CreateIslandMaskGeometry(D2D1_RECT_F rect, float radius, bool notchStyle, bool bladeStyle = false) {
+        return GetShapeGeometry(rect, radius, notchStyle, bladeStyle);
+    }
+
+    void FillIslandShape(D2D1_RECT_F rect, float radius, bool w11Style, bool notchStyle, ID2D1Brush* brush, bool bladeStyle = false) {
         if (!brush) return;
-        if (notchStyle) {
-            ComPtr<ID2D1Geometry> geom = GetShapeGeometry(rect, radius, true);
+        if (notchStyle || bladeStyle) {
+            ComPtr<ID2D1Geometry> geom = GetShapeGeometry(rect, radius, notchStyle, bladeStyle);
             if (geom) {
                 target_->FillGeometry(geom.Get(), brush);
                 return;
@@ -13763,10 +13827,17 @@ class Renderer {
         target_->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), brush);
     }
 
-    void DrawIslandShape(D2D1_RECT_F rect, float radius, bool w11Style, bool notchStyle, ID2D1Brush* brush, float strokeWidth) {
+    void DrawIslandShape(D2D1_RECT_F rect, float radius, bool w11Style, bool notchStyle, ID2D1Brush* brush, float strokeWidth, bool bladeStyle = false) {
         if (!brush) return;
         if (notchStyle) {
             auto geom = CreateNotchGeometry(rect, radius);
+            if (geom) {
+                target_->DrawGeometry(geom.Get(), brush, strokeWidth);
+                return;
+            }
+        }
+        if (bladeStyle) {
+            auto geom = CreateBladeGeometry(rect, radius);
             if (geom) {
                 target_->DrawGeometry(geom.Get(), brush, strokeWidth);
                 return;
@@ -13786,7 +13857,7 @@ class Renderer {
         if (w <= 2.0f || h <= 2.0f) return;
 
         // Smart radius: semicircular pill caps when compact (< 56px); comfortable squircle (26px) when expanded
-        if (!settings.w11Style && !settings.notchStyle) {
+        if (!settings.w11Style && !settings.notchStyle && !settings.bladeStyle) {
             if (h < 56.0f) {
                 radius = h * 0.5f;
             } else {
@@ -13796,6 +13867,8 @@ class Renderer {
             radius = 16.0f * settings.sizeScale;
         } else if (settings.w11Style) {
             radius = 8.0f * settings.sizeScale;
+        } else if (settings.bladeStyle) {
+            radius = 14.0f * settings.sizeScale;
         }
 
         // ── 0. Real Optical Liquid Glass (Backdrop Capture & Refraction) ──────
@@ -13813,7 +13886,7 @@ class Renderer {
                     D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
                 if (SUCCEEDED(target_->CreateBitmapBrush(glassBmp, bbp, &bmpBrush))) {
                     bmpBrush->SetTransform(D2D1::Matrix3x2F::Translation(rect.left, rect.top));
-                    FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, bmpBrush.Get());
+                    FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, bmpBrush.Get(), settings.bladeStyle);
                 }
             }
         }
@@ -13824,7 +13897,7 @@ class Renderer {
         const float glassAlpha = 0.16f;
         D2D1_COLOR_F glassBase = D2D1::ColorF(0.04f, 0.04f, 0.06f, glassAlpha * settingsOpacity_);
         if (ID2D1SolidColorBrush* baseBrush = AcquireBrush(glassBase)) {
-            FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, baseBrush);
+            FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, baseBrush, settings.bladeStyle);
         }
 
         // ── 2. Subtle Liquid-Glass Specular Gradient (Refraction & Depth) ──────
@@ -13839,7 +13912,7 @@ class Renderer {
             D2D1::Point2F(rect.left, rect.top), D2D1::Point2F(rect.left, rect.bottom));
         if (glassGradBrush) {
             glassGradBrush->SetOpacity(Clamp(settingsOpacity_, 0.0f, 1.0f));
-            FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, glassGradBrush);
+            FillIslandShape(rect, radius, settings.w11Style, settings.notchStyle, glassGradBrush, settings.bladeStyle);
         }
 
         // ── 3. Dynamic Ambient Album Art & Accent Bloom ────────────────────────
@@ -13876,7 +13949,7 @@ class Renderer {
             D2D1_RECT_F borderRect = D2D1::RectF(rect.left + 0.5f, rect.top + 0.5f,
                                                  rect.right - 0.5f, rect.bottom - 0.5f);
             if (borderGradBrush) {
-                DrawIslandShape(borderRect, radius, settings.w11Style, settings.notchStyle, borderGradBrush, strokeWidth);
+                DrawIslandShape(borderRect, radius, settings.w11Style, settings.notchStyle, borderGradBrush, strokeWidth, settings.bladeStyle);
             }
         }
     }
@@ -15953,10 +16026,6 @@ class Renderer {
 
     void DrawIdleDashboard(const SharedState& state, D2D1_RECT_F rect, const Settings& settings,
                            double now) {
-        if (settings.gameOverlay || g_gameOverlayPinned.load()) {
-            DrawGameOverlay(state, rect, 1.0f);
-            return;
-        }
         if (!clockFormat_) return;
 
         // Clip to the island's real silhouette (pill / notch / w11 rounded
@@ -15969,7 +16038,7 @@ class Renderer {
 
         const float dashHeight = rect.bottom - rect.top;
         const float dashRadius = ContentIslandRadius(dashHeight);
-        ComPtr<ID2D1Geometry> dashMask = CreateIslandMaskGeometry(rect, dashRadius, g_settings.notchStyle);
+        ComPtr<ID2D1Geometry> dashMask = CreateIslandMaskGeometry(rect, dashRadius, g_settings.notchStyle, g_settings.bladeStyle);
         ID2D1Layer* dashLayer = AcquireLayer();
         const bool haveDashMask = dashMask && dashLayer;
         if (haveDashMask) {
@@ -16023,76 +16092,80 @@ class Renderer {
                                    dashFadeLayer);
             }
 
-            // Collapsed Mode (Apple Dynamic Island status bar).
-            //
-            // Slots are placed from the same measurements that sized the pill, so
-            // the clock gets exactly the room it needs and the divider sits between
-            // the two strings instead of at an arbitrary geometric centre. The old
-            // version split the pill 50/50 at centerX and padded both ends by 6px,
-            // which is what produced the dead air on short strings
-            // (windhawk-mods#5086).
-            const IdleStripMetrics idleMetrics = MeasureIdleStrip(state, settings, now);
-            IDWriteTextFormat* idleFmt =
-                idleTextFormat_ ? idleTextFormat_.Get() : smallTextFormat_.Get();
+            if (settings.gameOverlay || g_gameOverlayPinned.load(std::memory_order_relaxed)) {
+                DrawGameOverlay(state, rect, 1.0f);
+            } else {
+                // Collapsed Mode (Apple Dynamic Island status bar).
+                //
+                // Slots are placed from the same measurements that sized the pill, so
+                // the clock gets exactly the room it needs and the divider sits between
+                // the two strings instead of at an arbitrary geometric centre. The old
+                // version split the pill 50/50 at centerX and padded both ends by 6px,
+                // which is what produced the dead air on short strings
+                // (windhawk-mods#5086).
+                const IdleStripMetrics idleMetrics = MeasureIdleStrip(state, settings, now);
+                IDWriteTextFormat* idleFmt =
+                    idleTextFormat_ ? idleTextFormat_.Get() : smallTextFormat_.Get();
 
-            // The dot is anchored to the right edge by DrawPrivacyDots, so reserve
-            // its lane rather than shrinking the text box out from under the clock.
-            const float privacyReserve =
-                idleMetrics.hasPrivacy ? IdleStripLayout::kPrivacyReserve * scale : 0.0f;
-            const float innerLeft = rect.left + IdleStripLayout::kPadX * scale;
-            const float innerRight =
-                rect.right - IdleStripLayout::kPadX * scale - privacyReserve;
+                // The dot is anchored to the right edge by DrawPrivacyDots, so reserve
+                // its lane rather than shrinking the text box out from under the clock.
+                const float privacyReserve =
+                    idleMetrics.hasPrivacy ? IdleStripLayout::kPrivacyReserve * scale : 0.0f;
+                const float innerLeft = rect.left + IdleStripLayout::kPadX * scale;
+                const float innerRight =
+                    rect.right - IdleStripLayout::kPadX * scale - privacyReserve;
 
-            float blockWidth = idleMetrics.clockWidth;
-            if (idleMetrics.hasWeather) {
-                blockWidth += (IdleStripLayout::kSlotGap * 2.0f +
-                               IdleStripLayout::kDividerWidth) * scale +
-                              idleMetrics.weatherWidth;
-            }
-
-            // Centre the block in whatever room the pill currently has. Mid-spring
-            // the rect is wider or narrower than the natural width, and clamping
-            // the slack at zero stops the slots from inverting when it is narrower.
-            const float slack = std::max(0.0f, (innerRight - innerLeft) - blockWidth);
-            float slotX = innerLeft + slack * 0.5f;
-
-            // Each slot is exactly its measured width, and the measurement used the
-            // widest-digit form, so the live string is centred inside a box it is
-            // guaranteed to fit rather than drifting as the digits change.
-            textBrush_->SetOpacity(0.96f);
-            const D2D1_RECT_F timeRect =
-                D2D1::RectF(slotX, rect.top, slotX + idleMetrics.clockWidth, rect.bottom);
-            target_->DrawTextW(timeBuf, static_cast<UINT32>(wcslen(timeBuf)), idleFmt,
-                               timeRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-            slotX += idleMetrics.clockWidth;
-
-            if (idleMetrics.hasWeather) {
-                slotX += IdleStripLayout::kSlotGap * scale;
-
-                ComPtr<ID2D1SolidColorBrush> divider;
-                target_->CreateSolidColorBrush(
-                    WithAlpha(material_.hairline, material_.hairline.a * settingsOpacity_),
-                    &divider);
-                if (divider) {
-                    const float divW = IdleStripLayout::kDividerWidth * scale;
-                    const float divTop = rect.top + IdleStripLayout::kDividerInsetY * scale;
-                    const float divBottom = rect.bottom - IdleStripLayout::kDividerInsetY * scale;
-                    target_->FillRoundedRectangle(
-                        D2D1::RoundedRect(D2D1::RectF(slotX, divTop, slotX + divW, divBottom),
-                                          divW * 0.5f, divW * 0.5f), divider.Get());
+                float blockWidth = idleMetrics.clockWidth;
+                if (idleMetrics.hasWeather) {
+                    blockWidth += (IdleStripLayout::kSlotGap * 2.0f +
+                                   IdleStripLayout::kDividerWidth) * scale +
+                                  idleMetrics.weatherWidth;
                 }
-                slotX += (IdleStripLayout::kDividerWidth + IdleStripLayout::kSlotGap) * scale;
 
-                wchar_t weatherLabel[32] = {};
-                if (hasWeather) swprintf_s(weatherLabel, L"%s %.0f\x00B0", wIcon.c_str(), state.weather.temperature);
-                else wcscpy_s(weatherLabel, ARRAYSIZE(weatherLabel), L"\U0001F321\uFE0F --\x00B0");
+                // Centre the block in whatever room the pill currently has. Mid-spring
+                // the rect is wider or narrower than the natural width, and clamping
+                // the slack at zero stops the slots from inverting when it is narrower.
+                const float slack = std::max(0.0f, (innerRight - innerLeft) - blockWidth);
+                float slotX = innerLeft + slack * 0.5f;
 
-                const D2D1_RECT_F wRect =
-                    D2D1::RectF(slotX, rect.top, slotX + idleMetrics.weatherWidth, rect.bottom);
-                target_->DrawTextW(weatherLabel, static_cast<UINT32>(wcslen(weatherLabel)), idleFmt,
-                                   wRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+                // Each slot is exactly its measured width, and the measurement used the
+                // widest-digit form, so the live string is centred inside a box it is
+                // guaranteed to fit rather than drifting as the digits change.
+                textBrush_->SetOpacity(0.96f);
+                const D2D1_RECT_F timeRect =
+                    D2D1::RectF(slotX, rect.top, slotX + idleMetrics.clockWidth, rect.bottom);
+                target_->DrawTextW(timeBuf, static_cast<UINT32>(wcslen(timeBuf)), idleFmt,
+                                   timeRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                slotX += idleMetrics.clockWidth;
+
+                if (idleMetrics.hasWeather) {
+                    slotX += IdleStripLayout::kSlotGap * scale;
+
+                    ComPtr<ID2D1SolidColorBrush> divider;
+                    target_->CreateSolidColorBrush(
+                        WithAlpha(material_.hairline, material_.hairline.a * settingsOpacity_),
+                        &divider);
+                    if (divider) {
+                        const float divW = IdleStripLayout::kDividerWidth * scale;
+                        const float divTop = rect.top + IdleStripLayout::kDividerInsetY * scale;
+                        const float divBottom = rect.bottom - IdleStripLayout::kDividerInsetY * scale;
+                        target_->FillRoundedRectangle(
+                            D2D1::RoundedRect(D2D1::RectF(slotX, divTop, slotX + divW, divBottom),
+                                              divW * 0.5f, divW * 0.5f), divider.Get());
+                    }
+                    slotX += (IdleStripLayout::kDividerWidth + IdleStripLayout::kSlotGap) * scale;
+
+                    wchar_t weatherLabel[32] = {};
+                    if (hasWeather) swprintf_s(weatherLabel, L"%s %.0f\x00B0", wIcon.c_str(), state.weather.temperature);
+                    else wcscpy_s(weatherLabel, ARRAYSIZE(weatherLabel), L"\U0001F321\uFE0F --\x00B0");
+
+                    const D2D1_RECT_F wRect =
+                        D2D1::RectF(slotX, rect.top, slotX + idleMetrics.weatherWidth, rect.bottom);
+                    target_->DrawTextW(weatherLabel, static_cast<UINT32>(wcslen(weatherLabel)), idleFmt,
+                                       wRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+                }
+                textBrush_->SetOpacity(1.0f);
             }
-            textBrush_->SetOpacity(1.0f);
 
             if (dashFadeLayer) {
                 target_->PopLayer();
@@ -16110,11 +16183,12 @@ class Renderer {
             // Expanded Mode. Order must match ActiveTabCount()/FileTrayTabIndex().
             std::vector<int> activeTabs;
             activeTabs.push_back(3); // Time (shown first when the island expands/on hover)
-            activeTabs.push_back(0); // Calendar
+            if (settings.calendar) activeTabs.push_back(0); // Calendar
             if (settings.weather) activeTabs.push_back(1);
             if (settings.hardwareMonitorModule) activeTabs.push_back(2);
             if (settings.fileTrayModule) activeTabs.push_back(4);
             if (settings.quickControlsModule) activeTabs.push_back(5);
+            if (settings.gameOverlay || g_gameOverlayPinned.load(std::memory_order_relaxed)) activeTabs.push_back(6); // Game Overlay
 
             int maxTabs = static_cast<int>(activeTabs.size());
             int tabIdx = NormalizedTabIndex(settings);
@@ -16136,9 +16210,21 @@ class Renderer {
                 else if (activeTabId == 2) DrawHardwareMonitorDashboard(state, fullRect, settings, scale);
                 else if (activeTabId == 4) DrawFileTrayDashboard(state, fullRect, settings, scale);
                 else if (activeTabId == 5) DrawQuickControlsDashboard(state, fullRect, settings, scale);
+                else if (activeTabId == 6) DrawGameOverlay(state, fullRect, scale);
             });
 
-            DrawTabPagination(fullRect, maxTabs);
+            const wchar_t* tabName = L"";
+            if (tabIdx >= 0 && tabIdx < maxTabs) {
+                int tid = activeTabs[tabIdx];
+                if (tid == 3) tabName = L"Time";
+                else if (tid == 0) tabName = L"Calendar";
+                else if (tid == 1) tabName = L"Weather";
+                else if (tid == 2) tabName = L"Hardware";
+                else if (tid == 4) tabName = L"File Tray";
+                else if (tid == 5) tabName = L"Controls";
+                else if (tid == 6) tabName = L"Game Overlay";
+            }
+            DrawTabPagination(fullRect, maxTabs, tabIdx, tabName);
 
             if (dashFadeLayer) {
                 target_->PopLayer();
@@ -16185,7 +16271,7 @@ class Renderer {
                 smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                 mutedBrush_->SetOpacity(0.58f);
-                target_->DrawTextW(L"FPS", 3, smallTextFormat_.Get(),
+                target_->DrawTextW(L"Overlay FPS", 11, smallTextFormat_.Get(),
                                    D2D1::RectF(textLeft, fpsCard.top + 2.0f * scale,
                                                textRight, fpsCard.top + 16.0f * scale),
                                    mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
@@ -16480,7 +16566,7 @@ class Renderer {
 
     // Vertical pagination dots on the right edge. The active dot stretches into a
     // pill and slides with the transition instead of jumping.
-    void DrawTabPagination(D2D1_RECT_F rect, int tabCount) {
+    void DrawTabPagination(D2D1_RECT_F rect, int tabCount, int currentTab = 0, const wchar_t* tabName = nullptr) {
         if (tabCount <= 1) {
             return;
         }
@@ -16490,9 +16576,27 @@ class Renderer {
         }
 
         const float dotX = rect.right - 10.0f;
-        const float spacing = 9.0f;
+        const float spacing = 11.0f;
         const float r = 2.5f;
         const float startY = (rect.top + rect.bottom) * 0.5f - spacing * (tabCount - 1) * 0.5f;
+
+        // Header / Indicator text (e.g. "Tab · 1 of 5" or "Calendar · 2 of 5")
+        if (smallTextFormat_ && mutedBrush_) {
+            wchar_t headerBuf[64];
+            const int displayIdx = std::clamp(currentTab + 1, 1, tabCount);
+            if (tabName && tabName[0] != L'\0') {
+                swprintf_s(headerBuf, L"%ls · %d of %d", tabName, displayIdx, tabCount);
+            } else {
+                swprintf_s(headerBuf, L"Tab · %d of %d", displayIdx, tabCount);
+            }
+            const D2D1_RECT_F headerRect = D2D1::RectF(rect.right - 140.0f, rect.top + 8.0f, rect.right - 14.0f, rect.top + 24.0f);
+            mutedBrush_->SetOpacity(0.55f * settingsOpacity_);
+            smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            target_->DrawTextW(headerBuf, static_cast<UINT32>(wcslen(headerBuf)), smallTextFormat_.Get(), headerRect, mutedBrush_.Get());
+            smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            smallTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        }
 
         // Resting dots. The one under the indicator fades out, so the pill reads
         // as travelling over the track instead of sitting on top of a dot.
@@ -16550,6 +16654,9 @@ class Renderer {
         if (g_settings.w11Style) {
             return 8.0f;
         }
+        if (g_settings.bladeStyle) {
+            return 12.0f;
+        }
         return std::min(contentHeight * 0.5f, 44.0f);
     }
 
@@ -16590,7 +16697,7 @@ class Renderer {
         PublishContentGeometry(rect, sideLyricsExtra);
 
         const float radius = ContentIslandRadius(height);
-        ComPtr<ID2D1Geometry> mask = CreateIslandMaskGeometry(rect, radius, settings.notchStyle);
+        ComPtr<ID2D1Geometry> mask = CreateIslandMaskGeometry(rect, radius, settings.notchStyle, settings.bladeStyle);
         ID2D1Layer* layer = AcquireLayer();
 
         float expandedAlpha = std::clamp((height - MediaLayout::kExpandedMinHeight) / 60.0f, 0.0f, 1.0f);
@@ -16684,12 +16791,13 @@ class Renderer {
             const bool lyricsFirst = settings.lyricsPinnedFirst && settings.lyrics;
             if (lyricsFirst) activeTabs.push_back(5);  // Lyrics (pinned first)
             activeTabs.push_back(0); // Media
-            activeTabs.push_back(1); // Calendar
+            if (settings.calendar) activeTabs.push_back(1); // Calendar
             if (settings.weather) activeTabs.push_back(2);
             if (settings.hardwareMonitorModule) activeTabs.push_back(3);
             if (settings.fileTrayModule) activeTabs.push_back(4);
             if (settings.lyrics && !lyricsFirst) activeTabs.push_back(5);  // Lyrics (last)
             if (settings.quickControlsModule) activeTabs.push_back(6); // Quick Controls
+            if (settings.gameOverlay || g_gameOverlayPinned.load(std::memory_order_relaxed)) activeTabs.push_back(7); // Game Overlay
 
             // Same settings object as the list above, so the index can't be
             // normalised against a tab set that no longer matches.
@@ -16952,11 +17060,26 @@ class Renderer {
                                     settings, 1.0f);
             } else if (activeTabId == 6) {
                 DrawQuickControlsDashboard(state, rect, settings, 1.0f);
+            } else if (activeTabId == 7) {
+                DrawGameOverlay(state, rect, 1.0f);
             }
             };  // end drawTabContent
 
             DrawTabTransition(0, tabIdx, activeTabs, rect, now, drawTabContent);
-            DrawTabPagination(rect, maxTabs);
+
+            const wchar_t* tabName = L"";
+            if (tabIdx >= 0 && tabIdx < maxTabs) {
+                int tid = activeTabs[tabIdx];
+                if (tid == 0) tabName = L"Media";
+                else if (tid == 1) tabName = L"Calendar";
+                else if (tid == 2) tabName = L"Weather";
+                else if (tid == 3) tabName = L"Hardware";
+                else if (tid == 4) tabName = L"File Tray";
+                else if (tid == 5) tabName = L"Lyrics";
+                else if (tid == 6) tabName = L"Controls";
+                else if (tid == 7) tabName = L"Game Overlay";
+            }
+            DrawTabPagination(rect, maxTabs, tabIdx, tabName);
 
             target_->PopLayer();
         }
@@ -21259,7 +21382,7 @@ class Renderer {
         if (alpha <= 0.01f) return;  // island still too small; content fades in as it opens
 
         ComPtr<ID2D1Geometry> mask =
-            CreateIslandMaskGeometry(rect, ContentIslandRadius(h), settings.notchStyle);
+            CreateIslandMaskGeometry(rect, ContentIslandRadius(h), settings.notchStyle, settings.bladeStyle);
         ID2D1Layer* layer = AcquireLayer();
         const bool masked = mask && layer;
         if (masked) {
@@ -23232,6 +23355,23 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     SetCursor(LoadCursorW(nullptr, IDC_HAND));
                     return TRUE;
                 }
+
+                // Clickable pagination dots on the right edge
+                const MediaContentPoint pcpCursor = MediaContentFromClient(pt.x, pt.y);
+                if (pcpCursor.valid) {
+                    const int tabCount = ActiveTabCount(g_settings);
+                    if (tabCount > 1 && pcpCursor.x >= pcpCursor.width - 24.0f) {
+                        const float spacing = 11.0f;
+                        const float startY = pcpCursor.height * 0.5f - spacing * (tabCount - 1) * 0.5f;
+                        for (int i = 0; i < tabCount; ++i) {
+                            float dotY = startY + spacing * static_cast<float>(i);
+                            if (std::abs(pcpCursor.y - dotY) <= 6.5f) {
+                                SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                                return TRUE;
+                            }
+                        }
+                    }
+                }
             }
             break;
 
@@ -23273,6 +23413,24 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                                 } else {
                                     island_controls::ExecuteControlAction(tiles[i].action, hwnd, &island_globals::g_contextEngine);
                                 }
+                                TriggerNudge();
+                                return 0;
+                            }
+                        }
+                    }
+                }
+
+                // Clickable pagination dots on the right edge
+                const MediaContentPoint pcp = MediaContentFromClient(xPos, yPos);
+                if (pcp.valid) {
+                    const int tabCount = ActiveTabCount(g_settings);
+                    if (tabCount > 1 && pcp.x >= pcp.width - 24.0f) {
+                        const float spacing = 11.0f;
+                        const float startY = pcp.height * 0.5f - spacing * (tabCount - 1) * 0.5f;
+                        for (int i = 0; i < tabCount; ++i) {
+                            float dotY = startY + spacing * static_cast<float>(i);
+                            if (std::abs(pcp.y - dotY) <= 6.5f) {
+                                g_idleTab = i;
                                 TriggerNudge();
                                 return 0;
                             }
@@ -24413,6 +24571,7 @@ DWORD WINAPI RenderThreadProc(void*) {
                 nSettings.allowCriticalInQuietHours = g_settings.allowCriticalInQuietHours;
                 nSettings.suppressInFullscreen = g_settings.suppressInFullscreen;
                 nSettings.suppressInPresentation = true;
+                nSettings.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
 
                 bool isFs = g_isFullscreen.load(std::memory_order_relaxed) ||
                             (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Gaming);

@@ -151,6 +151,42 @@ int RunOpacityPolicyTest() {
     unsigned char alpha100 = island_policy::PillOpacityToAlphaByte(1.0f);
     if (alpha100 != 255) return 105;
 
+    // Theme palette resolution checks (all 14 presets)
+    static const wchar_t* const kExpectedPalettes[] = {
+        L"obsidian", L"graphite", L"slate", L"nord", L"evergreen",
+        L"espresso", L"plum", L"porcelain", L"transparent",
+        L"acrylic", L"fluent", L"colorful", L"classic", L"minimal"
+    };
+    for (const wchar_t* themeId : kExpectedPalettes) {
+        const auto* pal = island_policy::ResolveThemePalette(themeId);
+        if (!pal) {
+            printf("FAIL: ResolveThemePalette failed for theme: %ls\n", themeId);
+            return 106;
+        }
+        if (_wcsicmp(pal->id, themeId) != 0) {
+            printf("FAIL: Theme ID mismatch: expected %ls, got %ls\n", themeId, pal->id);
+            return 107;
+        }
+    }
+    // Verify legacy aliases
+    if (!island_policy::ResolveThemePalette(L"oled-black") ||
+        _wcsicmp(island_policy::ResolveThemePalette(L"oled-black")->id, L"obsidian") != 0) return 108;
+    if (!island_policy::ResolveThemePalette(L"mica") ||
+        _wcsicmp(island_policy::ResolveThemePalette(L"mica")->id, L"graphite") != 0) return 109;
+    if (!island_policy::ResolveThemePalette(L"deep-purple") ||
+        _wcsicmp(island_policy::ResolveThemePalette(L"deep-purple")->id, L"plum") != 0) return 110;
+    // Unknown ID returns nullptr
+    if (island_policy::ResolveThemePalette(L"invalid_nonexistent_theme") != nullptr) return 111;
+
+    // Active Tab Count calculation & Calendar toggle checks
+    const int tabWithCal = island_policy::CalculateActiveTabCount(true, true, true, true, true, true, false);
+    const int tabWithoutCal = island_policy::CalculateActiveTabCount(false, true, true, true, true, true, false);
+    if (tabWithCal != 7) return 112;
+    if (tabWithoutCal != 6) return 113;
+    if (tabWithCal - tabWithoutCal != 1) return 114;
+    const int tabWithGame = island_policy::CalculateActiveTabCount(true, true, true, true, true, true, true);
+    if (tabWithGame != 8) return 115;
+
     return 0;
 }
 
@@ -512,7 +548,7 @@ int RunNotificationPolicyTest() {
 
         // Test saving to custom file
         wchar_t tempFile[MAX_PATH];
-        GetTempPathW(MAX_PATH, tempFile);
+        if (GetTempPathW(MAX_PATH, tempFile) == 0) return 727;
         wcscat_s(tempFile, L"test_notif_hist.txt");
         if (!nh.SaveToFile(tempFile)) return 728;
 
@@ -649,7 +685,7 @@ int RunNotificationPolicyTest() {
         {
             wchar_t cleanMain[MAX_PATH];
             wchar_t cleanTmp[MAX_PATH];
-            GetTempPathW(MAX_PATH, cleanMain);
+            if (GetTempPathW(MAX_PATH, cleanMain) == 0) return 771;
             wcscat_s(cleanMain, L"test_cleanup_stale.txt");
             wcscpy_s(cleanTmp, cleanMain);
             wcscat_s(cleanTmp, L".tmp");
@@ -657,10 +693,10 @@ int RunNotificationPolicyTest() {
             // Part A: ClearAll removes both main file and stale .tmp companion
             FILE* fMain = nullptr;
             FILE* fTmp = nullptr;
-            _wfopen_s(&fMain, cleanMain, L"w");
-            if (fMain) { fputws(L"dummy", fMain); fclose(fMain); }
-            _wfopen_s(&fTmp, cleanTmp, L"w");
-            if (fTmp) { fputws(L"stale_tmp_content", fTmp); fclose(fTmp); }
+            if (_wfopen_s(&fMain, cleanMain, L"w") != 0 || !fMain) return 765;
+            fputws(L"dummy", fMain); fclose(fMain);
+            if (_wfopen_s(&fTmp, cleanTmp, L"w") != 0 || !fTmp) return 766;
+            fputws(L"stale_tmp_content", fTmp); fclose(fTmp);
 
             NotificationHistory nhCleanup;
             nhCleanup.SetEnabled(true);
@@ -669,10 +705,10 @@ int RunNotificationPolicyTest() {
             if (GetFileAttributesW(cleanTmp) != INVALID_FILE_ATTRIBUTES) return 760; // Stale .tmp file MUST be removed!
 
             // Part B: SetEnabled(false) removes both main file and stale .tmp companion
-            _wfopen_s(&fMain, cleanMain, L"w");
-            if (fMain) { fputws(L"dummy", fMain); fclose(fMain); }
-            _wfopen_s(&fTmp, cleanTmp, L"w");
-            if (fTmp) { fputws(L"stale_tmp_content", fTmp); fclose(fTmp); }
+            if (_wfopen_s(&fMain, cleanMain, L"w") != 0 || !fMain) return 767;
+            fputws(L"dummy", fMain); fclose(fMain);
+            if (_wfopen_s(&fTmp, cleanTmp, L"w") != 0 || !fTmp) return 768;
+            fputws(L"stale_tmp_content", fTmp); fclose(fTmp);
 
             NotificationHistory nhDisableCleanup;
             nhDisableCleanup.SetEnabled(true);
@@ -681,17 +717,16 @@ int RunNotificationPolicyTest() {
             if (GetFileAttributesW(cleanTmp) != INVALID_FILE_ATTRIBUTES) return 763; // Stale .tmp file MUST be removed!
 
             // Part C: Cleanup failure propagation when a file is exclusively locked
-            _wfopen_s(&fMain, cleanMain, L"w");
-            if (fMain) { fputws(L"dummy", fMain); fclose(fMain); }
+            if (_wfopen_s(&fMain, cleanMain, L"w") != 0 || !fMain) return 769;
+            fputws(L"dummy", fMain); fclose(fMain);
             HANDLE hLock = CreateFileW(cleanMain, GENERIC_READ, 0 /* NO SHARE = EXCLUSIVE LOCK */, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (hLock != INVALID_HANDLE_VALUE) {
-                NotificationHistory nhLockTest;
-                nhLockTest.SetEnabled(true);
-                bool clearRes = nhLockTest.ClearAll(cleanMain);
-                CloseHandle(hLock);
-                DeleteFileW(cleanMain);
-                if (clearRes) return 764; // ClearAll MUST return false when file cannot be deleted!
-            }
+            if (hLock == INVALID_HANDLE_VALUE) return 770;
+            NotificationHistory nhLockTest;
+            nhLockTest.SetEnabled(true);
+            bool clearRes = nhLockTest.ClearAll(cleanMain);
+            CloseHandle(hLock);
+            DeleteFileW(cleanMain);
+            if (clearRes) return 764; // ClearAll MUST return false when file cannot be deleted!
         }
 
         DeleteFileW(tempFile);

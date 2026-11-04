@@ -118,4 +118,62 @@ inline bool ShouldCloseWorkerHandle(WorkerWaitResult res) {
     return res == WorkerWaitResult::Exited;
 }
 
+// ── Shared Themes & Palettes ──────────────────────────────────────────────
+struct PaletteDefinition {
+    const wchar_t* id;
+    const wchar_t* label;
+    const wchar_t* bg;
+    const wchar_t* fg;
+    const wchar_t* sec;
+    const wchar_t* border;
+};
+
+inline constexpr PaletteDefinition kAllThemePalettes[] = {
+    {L"obsidian",    L"Obsidian (Default)",          L"#08080A",   L"#FFFFFF", L"#9B9BA5", L"#1E1E22"},
+    {L"graphite",    L"Graphite",                    L"#1C1C1E",   L"#FFFFFF", L"#A8A8AE", L"#323236"},
+    {L"slate",       L"Slate",                       L"#111721",   L"#E9EEF6", L"#92A2B8", L"#232C3A"},
+    {L"nord",        L"Nord",                        L"#2E3440",   L"#ECEFF4", L"#A7B0C0", L"#3B4252"},
+    {L"evergreen",   L"Evergreen",                   L"#0C1512",   L"#E4F1EA", L"#8CAE9D", L"#1A2A23"},
+    {L"espresso",    L"Espresso",                    L"#1A1512",   L"#F6EEE7", L"#B7A395", L"#2E2420"},
+    {L"plum",        L"Plum",                        L"#16111C",   L"#F1EAF6", L"#AC9BB9", L"#281F33"},
+    {L"porcelain",   L"Porcelain (Light)",           L"#F5F6F8",   L"#14161A", L"#5B6270", L"#D8DBE1"},
+    {L"transparent", L"Transparent Liquid Glass",    L"#08080A26", L"#FFFFFF", L"#C8C8D0", L"#FFFFFF20"},
+    {L"acrylic",     L"Acrylic Glass (Legacy)",      L"#1A1E24D0", L"#F0F3F8", L"#94A3B8", L"#334155"},
+    {L"fluent",      L"Fluent Mica (Legacy)",        L"#20232A",   L"#FFFFFF", L"#9DA5B4", L"#2D323F"},
+    {L"colorful",    L"Colorful Vibrant (Legacy)",    L"#180E29",   L"#FAF5FF", L"#C084FC", L"#3B184C"},
+    {L"classic",     L"Classic Dark (Legacy)",       L"#181818",   L"#F0F0F0", L"#9E9E9E", L"#2C2C2C"},
+    {L"minimal",     L"Minimal Monochrome (Legacy)", L"#000000",   L"#FFFFFF", L"#808080", L"#1F1F1F"},
+};
+
+inline const PaletteDefinition* ResolveThemePalette(std::wstring_view id) {
+    auto iequals = [](std::wstring_view a, std::wstring_view b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (towlower(a[i]) != towlower(b[i])) return false;
+        }
+        return true;
+    };
+    for (const auto& pal : kAllThemePalettes) {
+        if (iequals(id, pal.id)) return &pal;
+    }
+    if (iequals(id, L"oled-black")) return &kAllThemePalettes[0]; // obsidian
+    if (iequals(id, L"mica") || iequals(id, L"dark-gray")) return &kAllThemePalettes[1]; // graphite
+    if (iequals(id, L"midnight-blue")) return &kAllThemePalettes[2]; // slate
+    if (iequals(id, L"deep-purple")) return &kAllThemePalettes[6]; // plum
+    return nullptr;
+}
+
+// ── Active Dashboard Tab Calculation ──────────────────────────────────────
+inline int CalculateActiveTabCount(bool hasCalendar, bool hasWeather, bool hasHardware, bool hasFileTray, bool hasLyrics, bool hasQuickControls, bool hasGameOverlay = false) {
+    int count = 1; // Primary tab (Clock or Media)
+    if (hasCalendar) ++count;
+    if (hasWeather) ++count;
+    if (hasHardware) ++count;
+    if (hasFileTray) ++count;
+    if (hasLyrics) ++count;
+    if (hasQuickControls) ++count;
+    if (hasGameOverlay) ++count;
+    return count;
+}
+
 }  // namespace island_policy

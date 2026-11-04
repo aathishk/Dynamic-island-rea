@@ -605,15 +605,23 @@ namespace dynamic_notif_dlg {
             } else if (id == 403) { // Dismiss
                 int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
                 if (cur >= 0 && static_cast<size_t>(cur) < s_items.size()) {
-                    island_globals::g_notificationHistory.DismissEntry(s_items[cur].id);
-                    RefreshList();
-                    SendMessageW(s_hList, LB_SETCURSEL, cur, 0);
+                    if (island_globals::g_notificationHistory.DismissEntry(s_items[cur].id)) {
+                        RefreshList();
+                        SendMessageW(s_hList, LB_SETCURSEL, cur, 0);
+                    } else {
+                        MessageBoxW(hwnd, L"Failed to persist history changes to disk.", L"Error", MB_OK | MB_ICONERROR);
+                        RefreshList();
+                    }
                 }
             } else if (id == 404) { // Delete
                 int cur = static_cast<int>(SendMessageW(s_hList, LB_GETCURSEL, 0, 0));
                 if (cur >= 0 && static_cast<size_t>(cur) < s_items.size()) {
-                    island_globals::g_notificationHistory.DeleteEntry(static_cast<size_t>(cur));
-                    RefreshList();
+                    if (island_globals::g_notificationHistory.DeleteEntry(static_cast<size_t>(cur))) {
+                        RefreshList();
+                    } else {
+                        MessageBoxW(hwnd, L"Failed to persist history changes to disk.", L"Error", MB_OK | MB_ICONERROR);
+                        RefreshList();
+                    }
                 }
             } else if (id == 405) { // Clear All
                 if (MessageBoxW(hwnd, L"Clear all notification history?", L"Confirm Clear", MB_YESNO | MB_ICONQUESTION) == IDYES) {
@@ -814,7 +822,17 @@ inline void LoadValuesIntoUi() {
     SendMessageW(hChkRealGlass, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.RealLiquidGlass", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkBloom, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.MaterialDepth", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkShadow, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.DropShadow", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(hChkBorder, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.ContourBorderEnabled", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    std::wstring bMode = ReadIniString(L"Settings", L"Themes.ContourBorderMode", L"");
+    int bEnabled = ReadIniInt(L"Settings", L"Themes.ContourBorderEnabled", -1);
+    bool borderOn = true;
+    if (_wcsicmp(bMode.c_str(), L"borderless") == 0) {
+        borderOn = false;
+    } else if (_wcsicmp(bMode.c_str(), L"default") == 0 || _wcsicmp(bMode.c_str(), L"auto") == 0) {
+        borderOn = true;
+    } else if (bEnabled >= 0) {
+        borderOn = (bEnabled != 0);
+    }
+    SendMessageW(hChkBorder, BM_SETCHECK, borderOn ? BST_CHECKED : BST_UNCHECKED, 0);
 
     // Page 2: Behaviour & Gestures
     SendMessageW(hChkHover, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.ExpandOnHover", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -878,7 +896,9 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniInt(L"Settings", L"Themes.RealLiquidGlass", SendMessageW(hChkRealGlass, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Themes.MaterialDepth", SendMessageW(hChkBloom, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Themes.DropShadow", SendMessageW(hChkShadow, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
-    WriteIniInt(L"Settings", L"Themes.ContourBorderEnabled", SendMessageW(hChkBorder, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    bool borderOn = (SendMessageW(hChkBorder, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    WriteIniInt(L"Settings", L"Themes.ContourBorderEnabled", borderOn ? 1 : 0);
+    WriteIniString(L"Settings", L"Themes.ContourBorderMode", borderOn ? L"default" : L"borderless");
 
     // Page 2: Behaviour & Gestures
     const wchar_t* sClickVal = getComboVal(hComboGestureSingle, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions));
@@ -1376,14 +1396,23 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     std::wstring scStr = ReadIniString(L"Settings", L"Appearance.SizeScale", L"1.0");
                     try { current.sizeScale = std::stof(scStr); } catch (...) { current.sizeScale = 1.0f; }
                     current.pillOpacity = ReadIniInt(L"Settings", L"Themes.PillOpacity", 16);
-                    current.monitorIndex = ReadIniInt(L"Settings", L"Appearance.MonitorIndex", 0);
+                    std::wstring monStr = ReadIniString(L"Settings", L"Appearance.TargetMonitor", L"");
+                    if (!monStr.empty()) {
+                        if (_wcsicmp(monStr.c_str(), L"primary") == 0) current.monitorIndex = 0;
+                        else if (_wcsicmp(monStr.c_str(), L"follow") == 0) current.monitorIndex = 0;
+                        else {
+                            try { current.monitorIndex = std::stoi(monStr); } catch (...) { current.monitorIndex = 0; }
+                        }
+                    } else {
+                        current.monitorIndex = ReadIniInt(L"Settings", L"Appearance.MonitorIndex", 0);
+                    }
 
                     current.animationStyle = ReadIniString(L"Settings", L"Animations.AnimationStyle", L"applespring");
                     current.animationSpeed = ReadIniString(L"Settings", L"Animations.AnimationSpeed", L"normal");
                     current.reducedMotion = (ReadIniInt(L"Settings", L"Animations.ReducedMotion", 0) != 0);
 
                     current.realLiquidGlass = (ReadIniInt(L"Settings", L"Themes.RealLiquidGlass", 0) != 0);
-                    current.dynamicAlbumBloom = (ReadIniInt(L"Settings", L"Themes.DynamicAlbumBloom", 1) != 0);
+                    current.dynamicAlbumBloom = (ReadIniInt(L"Settings", L"Themes.MaterialDepth", ReadIniInt(L"Settings", L"Themes.DynamicAlbumBloom", 1)) != 0);
                     current.tintIntensity = ReadIniInt(L"Settings", L"Themes.TintIntensity", 0);
 
                     current.performanceMode = ReadIniString(L"Settings", L"Performance.PerformanceMode", L"balanced");

@@ -152,13 +152,15 @@ public:
         std::wstring tempPath = path + L".tmp";
         bool allOk = true;
 
-        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            if (!DeleteFileW(path.c_str())) {
+        if (!DeleteFileW(path.c_str())) {
+            DWORD err = GetLastError();
+            if (err != ERROR_FILE_NOT_FOUND && err != ERROR_PATH_NOT_FOUND) {
                 allOk = false;
             }
         }
-        if (GetFileAttributesW(tempPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            if (!DeleteFileW(tempPath.c_str())) {
+        if (!DeleteFileW(tempPath.c_str())) {
+            DWORD err = GetLastError();
+            if (err != ERROR_FILE_NOT_FOUND && err != ERROR_PATH_NOT_FOUND) {
                 allOk = false;
             }
         }

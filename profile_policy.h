@@ -61,6 +61,14 @@ struct ProfileData {
     bool suppressBleSensorDuplicates = true;
     int notificationDurationMs = 3500;
 
+    // Media & Dashboard Navigation Policy
+    int mediaPausedTimeoutSeconds = 30; // 0 = no timeout / infinite grace period
+    bool rememberLastPage = false;
+    std::wstring defaultDashboardPage = L"overview";
+
+    // Extended Notification Policy
+    bool genericDuplicateDebounce = true;
+
     // Active Modules
     bool moduleMedia = true;
     bool moduleVolume = true;
@@ -74,6 +82,9 @@ struct ProfileData {
     bool moduleClipboard = false; // Opt-in privacy default
     bool moduleQuickLookup = true;
     bool moduleLyrics = true;
+    bool moduleQuickControls = true;
+    bool moduleGameOverlay = false;
+    std::wstring gameOverlayMode = L"dashboard_only";
 };
 
 // Sanitizes a profile name for safe file naming on Windows (letters, digits, spaces, dashes, underscores)
@@ -125,6 +136,9 @@ inline void ValidateProfile(ProfileData& p) {
     p.animationSpeed = validOr(p.animationSpeed, {L"normal", L"fast", L"relaxed"}, L"normal");
     p.performanceMode = validOr(p.performanceMode, {L"battery_saver", L"balanced", L"visual_quality", L"custom"}, L"balanced");
     p.contextMode = validOr(p.contextMode, {L"normal", L"focus", L"gaming", L"presentation", L"custom"}, L"normal");
+    p.gameOverlayMode = validOr(p.gameOverlayMode, {L"dashboard_only", L"collapsed_hud", L"gaming_context_only"}, L"dashboard_only");
+    p.defaultDashboardPage = validOr(p.defaultDashboardPage, {L"overview", L"media", L"calendar", L"weather", L"hardware", L"filetray", L"lyrics", L"controls", L"game_overlay"}, L"overview");
+    p.mediaPausedTimeoutSeconds = std::clamp(p.mediaPausedTimeoutSeconds, 0, 600);
 }
 
 inline ProfileData CreateBuiltInProfile(BuiltInProfileType type) {

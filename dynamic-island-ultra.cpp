@@ -1333,8 +1333,23 @@ struct Settings {
     int quietHoursEnd = 7;
     bool quickControlsModule = true;
     bool rememberLastPage = true;
-    int mediaPausedTimeoutSeconds = 300;
+    int mediaPausedTimeoutSeconds = 30;
 };
+
+inline island_notification::NotificationPolicySettings MakeNotificationPolicySettings(const Settings& settings) {
+    island_notification::NotificationPolicySettings nPolicy;
+    nPolicy.enabled = settings.notificationEnabled;
+    nPolicy.quietHoursEnabled = settings.quietHoursEnabled;
+    nPolicy.quietHoursStart = settings.quietHoursStart;
+    nPolicy.quietHoursEnd = settings.quietHoursEnd;
+    nPolicy.allowCriticalInQuietHours = settings.allowCriticalInQuietHours;
+    nPolicy.suppressInFullscreen = settings.suppressInFullscreen;
+    nPolicy.suppressInPresentation = true;
+    nPolicy.suppressBleSensorDuplicates = settings.suppressBleSensorDuplicates;
+    nPolicy.genericDuplicateDebounce = settings.genericDuplicateDebounce;
+    nPolicy.duplicateDebounceEnabled = true;
+    return nPolicy;
+}
 
 struct BitmapPixels {
     std::vector<uint8_t> bgra;
@@ -1996,17 +2011,27 @@ bool MediaExpandBlocked(const MediaSnapshot& media);
 
 // ── Dashboard tab loop ───────────────────────────────────────────────────────
 // Single authoritative source of truth for dashboard pages and indices.
-// Driven directly by island_layout::BuildActiveDashboardPages.
+// Driven directly by island_layout::BuildActiveDashboardPages and island_layout::EvaluateMediaPresentationState.
 inline std::vector<island_layout::DashboardPageDescriptor> GetActiveDashboardPages(
     const Settings& settings,
     bool mediaAvailable,
+    bool isPlaying,
     bool mediaBlocked,
+    double pausedAt,
+    double now,
     bool lyricsAvailable) {
-    return island_layout::BuildActiveDashboardPages(
-        true, // overview always available
+    island_layout::MediaPresentationState mediaState = island_layout::EvaluateMediaPresentationState(
         settings.media,
         mediaAvailable,
+        isPlaying,
         mediaBlocked,
+        pausedAt,
+        now,
+        settings.mediaPausedTimeoutSeconds
+    );
+    return island_layout::BuildActiveDashboardPages(
+        true, // overview always available
+        mediaState,
         settings.calendar,
         settings.weather,
         settings.hardwareMonitorModule,
@@ -2019,18 +2044,48 @@ inline std::vector<island_layout::DashboardPageDescriptor> GetActiveDashboardPag
     );
 }
 
+inline std::vector<island_layout::DashboardPageDescriptor> GetActiveDashboardPages(
+    const Settings& settings,
+    bool mediaAvailable,
+    bool mediaBlocked,
+    bool lyricsAvailable) {
+    bool isPlaying = false;
+    double pausedAt = 0.0;
+    {
+        std::lock_guard lock(g_stateMutex);
+        isPlaying = g_state.media.playing;
+        pausedAt = g_state.media.pausedAt;
+    }
+    return GetActiveDashboardPages(
+        settings,
+        mediaAvailable,
+        isPlaying,
+        mediaBlocked,
+        pausedAt,
+        NowSeconds(),
+        lyricsAvailable
+    );
+}
+
 inline std::vector<island_layout::DashboardPageDescriptor> GetCurrentActivePages(const Settings& settings) {
     bool mediaAvail = false;
+    bool isPlaying = false;
     bool mediaBlocked = false;
+    double pausedAt = 0.0;
     {
         std::lock_guard lock(g_stateMutex);
         mediaAvail = g_state.media.available;
+        isPlaying = g_state.media.playing;
         mediaBlocked = MediaExpandBlocked(g_state.media);
+        pausedAt = g_state.media.pausedAt;
     }
     return GetActiveDashboardPages(
         settings,
         mediaAvail,
+        isPlaying,
         mediaBlocked,
+        pausedAt,
+        NowSeconds(),
         g_lyricsTabAvailable.load(std::memory_order_relaxed)
     );
 }
@@ -6224,10 +6279,7 @@ DWORD WINAPI NotificationThreadProc(void*) {
                                 nItem.category = island_notification::ClassifyNotification(snapshot.app, snapshot.title);
                                 nItem.priority = island_notification::DeterminePriority(nItem.category);
                                 nItem.iconRef = snapshot.icon.shared();
-                                island_notification::NotificationPolicySettings nPolicy;
-                                nPolicy.suppressBleSensorDuplicates = g_settings.suppressBleSensorDuplicates;
-                                nPolicy.genericDuplicateDebounce = g_settings.genericDuplicateDebounce;
-                                nPolicy.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
+                                island_notification::NotificationPolicySettings nPolicy = MakeNotificationPolicySettings(g_settings);
                                 island_globals::g_notificationHistory.Record(nItem);
                                 island_globals::g_notificationQueue.Enqueue(nItem, nPolicy);
                             }
@@ -9790,10 +9842,7 @@ void CaptureShellNotification(HWND hwnd) {
         nItem.category = island_notification::ClassifyNotification(notification.app, notification.title);
         nItem.priority = island_notification::DeterminePriority(nItem.category);
         nItem.iconRef = notification.icon.shared();
-        island_notification::NotificationPolicySettings nPolicy;
-        nPolicy.suppressBleSensorDuplicates = g_settings.suppressBleSensorDuplicates;
-        nPolicy.genericDuplicateDebounce = g_settings.genericDuplicateDebounce;
-        nPolicy.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
+        island_notification::NotificationPolicySettings nPolicy = MakeNotificationPolicySettings(g_settings);
         island_globals::g_notificationHistory.Record(nItem);
         island_globals::g_notificationQueue.Enqueue(nItem, nPolicy);
     }
@@ -12713,9 +12762,9 @@ class Renderer {
                 std::wstring icon = L"\U0001F321\uFE0F";
                 std::wstring desc = state.weather.weatherDesc;
                 GetWeatherIconAndText(state.weather.weatherCode, icon, desc);
-                swprintf_s(label, L"%s %.0f\x00B0", icon.c_str(), state.weather.temperature);
+                swprintf_s(label, L"%s %.0f\u00B0", icon.c_str(), state.weather.temperature);
             } else {
-                wcscpy_s(label, ARRAYSIZE(label), L"\U0001F321\uFE0F --\x00B0");
+                wcscpy_s(label, ARRAYSIZE(label), L"\U0001F321\uFE0F --\u00B0");
             }
             metrics.weatherWidth =
                 MeasureTextWidthCached(WidestDigitForm(label), fmt, idleWeatherWidthCache_);
@@ -14499,8 +14548,8 @@ class Renderer {
 
     void DrawWeatherDashboard(const SharedState& state, D2D1_RECT_F rect, const Settings& settings, double now, float scale, bool hasWeather, const std::wstring& wIcon, const std::wstring& wText) {
         wchar_t wTemp[32] = {};
-        if (hasWeather) swprintf_s(wTemp, L"%.0f\x00B0", state.weather.temperature);
-        else wcscpy_s(wTemp, L"--\x00B0");
+        if (hasWeather) swprintf_s(wTemp, L"%.0f\u00B0", state.weather.temperature);
+        else wcscpy_s(wTemp, L"--\u00B0");
 
         std::wstring city = hasWeather ? state.weather.city : std::wstring(Loc(L"Locating..."));
         std::wstring desc = wText;
@@ -14640,7 +14689,7 @@ class Renderer {
              hasWeather ? state.weather.windSpeed + windUnit + L" " + WindDirToArrow(state.weather.windDir)
                         : std::wstring(L"--")},
             {1, Loc(L"Feels Like"),
-             hasWeather ? state.weather.feelsLike + L"\x00B0" : std::wstring(L"--")},
+             hasWeather ? state.weather.feelsLike + L"\u00B0" : std::wstring(L"--")},
             {2, Loc(L"Humidity"),
              hasWeather ? state.weather.humidity + L"%" : std::wstring(L"--")},
         };
@@ -16083,22 +16132,22 @@ class Renderer {
         IDWriteTextFormat* headlineFmt = settings.dateFirst ? smallFmt : bigFmt;
         IDWriteTextFormat* sublineFmt = settings.dateFirst ? bigFmt : smallFmt;
 
-        // Headline & Subline
-        const D2D1_RECT_F headRect = D2D1::RectF(rect.left, cy - 64.0f * scale, rect.right, cy - 20.0f * scale);
+        // Headline & Subline: clean, non-colliding vertical hierarchy
+        const D2D1_RECT_F headRect = D2D1::RectF(rect.left, cy - 64.0f * scale, rect.right, cy - 24.0f * scale);
         textBrush_->SetOpacity(0.98f);
         target_->DrawTextW(headline.c_str(), static_cast<UINT32>(headline.size()), headlineFmt,
                            headRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
 
-        const D2D1_RECT_F subRect = D2D1::RectF(rect.left, cy - 22.0f * scale, rect.right, cy - 2.0f * scale);
-        mutedBrush_->SetOpacity(0.85f);
+        const D2D1_RECT_F subRect = D2D1::RectF(rect.left, cy - 22.0f * scale, rect.right, cy - 1.0f * scale);
+        mutedBrush_->SetOpacity(0.88f);
         target_->DrawTextW(subline.c_str(), static_cast<UINT32>(subline.size()), sublineFmt,
                            subRect, mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
 
         // 3. Glanceable Status Chips row (Battery, Weather, CPU/RAM)
-        const float chipY = cy + 4.0f * scale;
-        const float chipH = 24.0f * scale;
+        const float chipY = cy + 10.0f * scale;
+        const float chipH = 26.0f * scale;
         const float chipGap = 8.0f * scale;
-        const float chipRadius = 12.0f * scale;
+        const float chipRadius = 13.0f * scale;
 
         // Collect chip strings
         std::wstring batStr = L"";
@@ -16110,7 +16159,7 @@ class Renderer {
         if (settings.weather && state.weather.hasData) {
             weatherStr = state.weather.weatherDesc;
             wchar_t wTemp[32] = {};
-            swprintf_s(wTemp, L"%.0f B0", state.weather.temperature);
+            swprintf_s(wTemp, L"%.0f\u00B0", state.weather.temperature);
             if (!weatherStr.empty()) {
                 weatherStr += L" " + std::wstring(wTemp);
             } else {
@@ -16139,16 +16188,25 @@ class Renderer {
                 if (tl) {
                     DWRITE_TEXT_METRICS tm = {};
                     tl->GetMetrics(&tm);
-                    w = tm.width + 18.0f * scale;
+                    w = tm.width + 20.0f * scale;
                 }
                 chipWidths.push_back(w);
                 totalChipsW += w;
             }
             totalChipsW += chipGap * static_cast<float>(chips.size() - 1);
 
+            const float availW = (rect.right - rect.left) - 32.0f * scale;
+            if (totalChipsW > availW && totalChipsW > 0.0f) {
+                float factor = availW / totalChipsW;
+                for (auto& w : chipWidths) w *= factor;
+                totalChipsW = availW;
+            }
+
             float chipX = cx - totalChipsW * 0.5f;
             ComPtr<ID2D1SolidColorBrush> chipBgBrush;
-            target_->CreateSolidColorBrush(WithAlpha(material_.raised, material_.raised.a * settingsOpacity_), &chipBgBrush);
+            target_->CreateSolidColorBrush(WithAlpha(material_.raised, std::clamp(material_.raised.a * 1.5f, 0.28f, 0.70f) * settingsOpacity_), &chipBgBrush);
+            ComPtr<ID2D1SolidColorBrush> chipStrokeBrush;
+            target_->CreateSolidColorBrush(WithAlpha(material_.stroke, 0.22f * settingsOpacity_), &chipStrokeBrush);
 
             for (size_t i = 0; i < chips.size(); ++i) {
                 const float cw = chipWidths[i];
@@ -16156,20 +16214,22 @@ class Renderer {
                 if (chipBgBrush) {
                     target_->FillRoundedRectangle(D2D1::RoundedRect(cr, chipRadius, chipRadius), chipBgBrush.Get());
                 }
-                mutedBrush_->SetOpacity(0.92f);
+                if (chipStrokeBrush) {
+                    target_->DrawRoundedRectangle(D2D1::RoundedRect(cr, chipRadius, chipRadius), chipStrokeBrush.Get(), 0.75f * scale);
+                }
+                mutedBrush_->SetOpacity(0.95f);
                 target_->DrawTextW(chips[i].c_str(), static_cast<UINT32>(chips[i].size()), chipFmt,
-                                   D2D1::RectF(cr.left + 9.0f * scale, cr.top + 3.0f * scale, cr.right - 9.0f * scale, cr.bottom),
+                                   D2D1::RectF(cr.left + 10.0f * scale, cr.top + 4.0f * scale, cr.right - 10.0f * scale, cr.bottom),
                                    mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 chipX += cw + chipGap;
             }
         }
 
-        // 4. Compact Media Line or Privacy Indicators at bottom
+        // 4. Privacy Indicators (Camera/Mic) if active. Ticker is cleanly removed from Overview.
         const bool micActive = state.system.micActive && settings.privacyDots && settings.privacyDotsMic;
         const bool camActive = state.system.cameraActive && settings.privacyDots && settings.privacyDotsCam;
 
         if (camActive || micActive) {
-            // Render privacy indicator pill
             std::wstring label = (camActive && micActive) ? L"Camera & microphone in use" :
                                  (camActive ? L"Camera in use" : L"Microphone in use");
             D2D1_COLOR_F dotColor = camActive ? settings.privacyDotsCamHex : settings.privacyDotsMicHex;
@@ -16183,7 +16243,7 @@ class Renderer {
                     const float pillH = 20.0f * scale;
                     const float pillW = tm.width + 26.0f * scale;
                     const float pillX = cx - pillW * 0.5f;
-                    const float pillY = rect.bottom - 16.0f * scale - pillH;
+                    const float pillY = rect.bottom - 22.0f * scale - pillH;
 
                     ComPtr<ID2D1SolidColorBrush> badgeBg;
                     target_->CreateSolidColorBrush(WithAlpha(material_.raised, material_.raised.a * settingsOpacity_), &badgeBg);
@@ -16199,18 +16259,6 @@ class Renderer {
                     mutedBrush_->SetOpacity(0.90f);
                     target_->DrawTextLayout(D2D1::Point2F(pillX + 16.0f * scale, pillY + (pillH - tm.height) * 0.5f), tl.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
                 }
-            }
-        } else if (settings.media && state.media.available && !state.media.title.empty()) {
-            // Render compact media line
-            std::wstring mediaLine = (state.media.playing ? L"▶  " : L"⏸  ") + state.media.title;
-            if (!state.media.artist.empty()) {
-                mediaLine += L" — " + state.media.artist;
-            }
-            IDWriteTextFormat* fmt = smallTextFormat_ ? smallTextFormat_.Get() : textFormat_.Get();
-            if (fmt) {
-                const D2D1_RECT_F mr = D2D1::RectF(rect.left + 24.0f * scale, rect.bottom - 28.0f * scale, rect.right - 24.0f * scale, rect.bottom - 8.0f * scale);
-                accentBrush_->SetOpacity(0.85f * settingsOpacity_);
-                target_->DrawTextW(mediaLine.c_str(), static_cast<UINT32>(mediaLine.size()), fmt, mr, accentBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
             }
         }
 
@@ -16356,8 +16404,8 @@ class Renderer {
                     slotX += (IdleStripLayout::kDividerWidth + IdleStripLayout::kSlotGap) * scale;
 
                     wchar_t weatherLabel[32] = {};
-                    if (hasWeather) swprintf_s(weatherLabel, L"%s %.0f\x00B0", wIcon.c_str(), state.weather.temperature);
-                    else wcscpy_s(weatherLabel, ARRAYSIZE(weatherLabel), L"\U0001F321\uFE0F --\x00B0");
+                    if (hasWeather) swprintf_s(weatherLabel, L"%s %.0f\u00B0", wIcon.c_str(), state.weather.temperature);
+                    else wcscpy_s(weatherLabel, ARRAYSIZE(weatherLabel), L"\U0001F321\uFE0F --\u00B0");
 
                     const D2D1_RECT_F wRect =
                         D2D1::RectF(slotX, rect.top, slotX + idleMetrics.weatherWidth, rect.bottom);
@@ -16405,7 +16453,7 @@ class Renderer {
                         DrawOverviewDashboard(state, fullRect, settings, now, scale, local);
                         break;
                     case island_layout::DashboardPageId::Media:
-                        DrawOverviewDashboard(state, fullRect, settings, now, scale, local);
+                        DrawMedia(state, fullRect, settings, now);
                         break;
                     case island_layout::DashboardPageId::Calendar:
                         DrawCalendarDashboard(state, fullRect, settings, now, scale, local);
@@ -16442,7 +16490,9 @@ class Renderer {
         }
 
         if (expandedAlpha <= 0.01f && !g_trayDragOver.load(std::memory_order_relaxed)) {
-            g_idleTab = 0;
+            if (!settings.rememberLastPage) {
+                g_idleTab = 0;
+            }
             ResetTabTransition();
         }
 
@@ -17277,7 +17327,16 @@ class Renderer {
 
         // Collapsed UI
         if (collapsedAlpha > 0.01f && mask && layer && !g_trayDragOver.load(std::memory_order_relaxed)) {
-            g_idleTab = 0;
+            if (!settings.rememberLastPage) {
+                auto pPages = GetActiveDashboardPages(
+                    settings,
+                    state.media.available,
+                    MediaExpandBlocked(state.media),
+                    g_lyricsTabAvailable.load(std::memory_order_relaxed)
+                );
+                int defMediaIdx = island_layout::FindPageIndex(pPages, island_layout::DashboardPageId::Media);
+                g_idleTab = (defMediaIdx >= 0) ? defMediaIdx : 0;
+            }
             ResetTabTransition();
             target_->PushLayer(D2D1::LayerParameters(rect, mask.Get(), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), collapsedAlpha, nullptr, D2D1_LAYER_OPTIONS_NONE), layer);;
 
@@ -22110,13 +22169,16 @@ std::vector<IslandKind> ChooseActivities(const SharedState& state, const Setting
     // already gated on MediaExpandBlocked, but with MediaAutoExpand off by
     // default that gate never fired — so "firefox.exe" in the list looked like
     // a no-op while the pill still switched to music mode.
-    bool mediaTimedOut = false;
-    if (!state.media.playing && state.media.pausedAt > 0.0 && settings.mediaPausedTimeoutSeconds > 0) {
-        if ((now - state.media.pausedAt) > static_cast<double>(settings.mediaPausedTimeoutSeconds)) {
-            mediaTimedOut = true;
-        }
-    }
-    if (settings.media && state.media.available && !MediaExpandBlocked(state.media) && !mediaTimedOut) {
+    island_layout::MediaPresentationState mediaPresState = island_layout::EvaluateMediaPresentationState(
+        settings.media,
+        state.media.available,
+        state.media.playing,
+        MediaExpandBlocked(state.media),
+        state.media.pausedAt,
+        now,
+        settings.mediaPausedTimeoutSeconds
+    );
+    if (island_layout::IsMediaActiveOrInGrace(mediaPresState)) {
         activities.push_back(IslandKind::Media);
     }
 
@@ -23954,12 +24016,8 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     TriggerNudge();
                     return 0;
                 }
-                const bool gameMetricsPresent =
-                    !kinds.empty() && kinds[0] == IslandKind::Idle &&
-                    (g_settings.gameOverlay || g_gameOverlayPinned.load());
-
                 bool expanded = g_pinnedExpanded.load() || g_clickExpanded.load();
-                if (!gameMetricsPresent && !g_settings.expandOnHover && !expanded) {
+                if (!g_settings.expandOnHover && !expanded) {
                     g_clickExpanded = true;
                     g_layoutDirty = true;
                     return 0; // consumed click to expand
@@ -24775,17 +24833,8 @@ DWORD WINAPI RenderThreadProc(void*) {
                 snapshot.notification.active = false;
             }
             if (!g_state.notification.active && island_globals::g_notificationQueue.Size() > 0) {
-                island_notification::NotificationPolicySettings nSettings;
+                island_notification::NotificationPolicySettings nSettings = MakeNotificationPolicySettings(g_settings);
                 nSettings.enabled = g_settings.notificationEnabled && (!g_settings.notificationRespectDnD || (!g_state.doNotDisturb.enabled && !g_isDnDActive.load()));
-                nSettings.quietHoursEnabled = g_settings.quietHoursEnabled;
-                nSettings.quietHoursStart = g_settings.quietHoursStart;
-                nSettings.quietHoursEnd = g_settings.quietHoursEnd;
-                nSettings.allowCriticalInQuietHours = g_settings.allowCriticalInQuietHours;
-                nSettings.suppressInFullscreen = g_settings.suppressInFullscreen;
-                nSettings.suppressInPresentation = true;
-                nSettings.suppressBleSensorDuplicates = g_settings.suppressBleSensorDuplicates;
-                nSettings.genericDuplicateDebounce = g_settings.genericDuplicateDebounce;
-                nSettings.duplicateDebounceEnabled = g_settings.suppressBleSensorDuplicates;
 
                 bool isFs = g_isFullscreen.load(std::memory_order_relaxed) ||
                             (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Gaming);
@@ -24845,9 +24894,33 @@ DWORD WINAPI RenderThreadProc(void*) {
         }
 
         const std::vector<IslandKind> kinds = ChooseActivities(snapshot, g_settings, now);
+        island_layout::MediaPresentationState curMediaState = island_layout::EvaluateMediaPresentationState(
+            g_settings.media,
+            snapshot.media.available,
+            snapshot.media.playing,
+            MediaExpandBlocked(snapshot.media),
+            snapshot.media.pausedAt,
+            now,
+            g_settings.mediaPausedTimeoutSeconds
+        );
+        const bool mediaActiveOrGrace = island_layout::IsMediaActiveOrInGrace(curMediaState);
         g_lyricsTabAvailable.store(
-            g_settings.lyrics && g_settings.media && snapshot.media.available && !MediaExpandBlocked(snapshot.media),
+            g_settings.lyrics && mediaActiveOrGrace && snapshot.media.available && !MediaExpandBlocked(snapshot.media),
             std::memory_order_relaxed);
+
+        static bool s_lastMediaActive = false;
+        if (mediaActiveOrGrace && !s_lastMediaActive) {
+            // New playback started: select Media page once
+            auto pList = GetCurrentActivePages(g_settings);
+            int mIdx = island_layout::FindPageIndex(pList, island_layout::DashboardPageId::Media);
+            if (mIdx >= 0) {
+                g_idleTab = mIdx;
+            }
+        } else if (!mediaActiveOrGrace && s_lastMediaActive) {
+            // Media ended / expired: fall back to Overview
+            g_idleTab = 0;
+        }
+        s_lastMediaActive = mediaActiveOrGrace;
         Activity primary = ActivityForKind(kinds[0], g_settings, snapshot);
         std::optional<Activity> secondary;
         if (kinds.size() >= 2) {
@@ -25062,8 +25135,19 @@ DWORD WINAPI RenderThreadProc(void*) {
         const int metricTabIdx = NormalizedTabIndex(g_settings);
         const bool onHardwareMonitorTab = (metricTabIdx == HardwareMonitorTabIndex(g_settings));
         const bool hwMonitorVisible = (primary.kind == IslandKind::Idle || primary.kind == IslandKind::Media) &&
-            !isFullscreen && !gameMetricsPresent && (pinned || isHoverExpanded) && onHardwareMonitorTab;
-        const bool gameOverlayVisible = gameMetricsPresent && !isFullscreen && !stripActive;
+            !isFullscreen && (pinned || isHoverExpanded) && onHardwareMonitorTab;
+        const bool inGamingContext = (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Gaming);
+        auto curMetricPages = GetCurrentActivePages(g_settings);
+        const island_layout::DashboardPageId curMetricPageId = (metricTabIdx >= 0 && metricTabIdx < static_cast<int>(curMetricPages.size())) ? curMetricPages[metricTabIdx].id : island_layout::DashboardPageId::Overview;
+        const bool gameOverlayVisible = island_layout::IsGameOverlayVisible(
+            g_settings.gameOverlay,
+            g_settings.gameOverlayMode,
+            pinned || isHoverExpanded,
+            curMetricPageId,
+            inGamingContext,
+            g_gameOverlayPinned.load(std::memory_order_relaxed),
+            isFullscreen
+        );
         const bool systemMetricsVisible = hwMonitorVisible || gameOverlayVisible;
 
         if (g_settings.brightness && !pollBusy && now >= nextBrightnessPoll) {
@@ -25131,7 +25215,6 @@ DWORD WINAPI RenderThreadProc(void*) {
             primary.width = timerDims.width;
             primary.height = timerDims.height;
         }
-        const bool inGamingContext = (island_globals::g_contextEngine.GetActiveMode() == island_context::ContextMode::Gaming);
         const bool showCollapsedGameHud = !isFullscreen && primary.kind == IslandKind::Idle &&
             !(pinned || isHoverExpanded) &&
             (g_gameOverlayPinned.load(std::memory_order_relaxed) ||

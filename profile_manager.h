@@ -81,12 +81,16 @@ public:
         writeInt(L"Context", L"AutoContextSwitching", p.autoContextSwitching ? 1 : 0);
         writeInt(L"Context", L"AutoHideFullscreen", p.autoHideFullscreen ? 1 : 0);
         writeInt(L"Behavior", L"AutoHideFullscreen", p.autoHideFullscreen ? 1 : 0);
+        writeInt(L"Behavior", L"RememberLastPage", p.rememberLastPage ? 1 : 0);
+        writeKey(L"Behavior", L"DefaultDashboardPage", p.defaultDashboardPage);
+        writeInt(L"Media", L"PausedTimeoutSeconds", p.mediaPausedTimeoutSeconds);
 
         // Notifications
         writeInt(L"Notifications", L"QuietHoursEnabled", p.quietHoursEnabled ? 1 : 0);
         writeInt(L"Notifications", L"QuietHoursStart", p.quietHoursStart);
         writeInt(L"Notifications", L"QuietHoursEnd", p.quietHoursEnd);
         writeInt(L"Notifications", L"SuppressBleSensorDuplicates", p.suppressBleSensorDuplicates ? 1 : 0);
+        writeInt(L"Notifications", L"GenericDuplicateDebounce", p.genericDuplicateDebounce ? 1 : 0);
         writeInt(L"Notifications", L"NotificationDurationMs", p.notificationDurationMs);
 
         // Modules
@@ -104,6 +108,9 @@ public:
         writeInt(L"Modules", L"Clipboard", p.moduleClipboard ? 1 : 0);
         writeInt(L"Modules", L"QuickLookup", p.moduleQuickLookup ? 1 : 0);
         writeInt(L"Modules", L"Lyrics", p.moduleLyrics ? 1 : 0);
+        writeInt(L"Modules", L"QuickControls", p.moduleQuickControls ? 1 : 0);
+        writeInt(L"Modules", L"GameOverlay", p.moduleGameOverlay ? 1 : 0);
+        writeKey(L"Modules", L"GameOverlayMode", p.gameOverlayMode);
 
         // Flush cache
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, tempPath.c_str());
@@ -174,12 +181,16 @@ public:
         outProfile.contextMode = readStr(L"Context", L"ContextMode", L"normal");
         outProfile.autoContextSwitching = (readInt(L"Context", L"AutoContextSwitching", 1) != 0);
         outProfile.autoHideFullscreen = (readInt(L"Behavior", L"AutoHideFullscreen", readInt(L"Context", L"AutoHideFullscreen", 1)) != 0);
+        outProfile.rememberLastPage = (readInt(L"Behavior", L"RememberLastPage", 0) != 0);
+        outProfile.defaultDashboardPage = readStr(L"Behavior", L"DefaultDashboardPage", L"overview");
+        outProfile.mediaPausedTimeoutSeconds = readInt(L"Media", L"PausedTimeoutSeconds", 30);
 
         // Notifications
         outProfile.quietHoursEnabled = (readInt(L"Notifications", L"QuietHoursEnabled", 0) != 0);
         outProfile.quietHoursStart = readInt(L"Notifications", L"QuietHoursStart", 22);
         outProfile.quietHoursEnd = readInt(L"Notifications", L"QuietHoursEnd", 7);
         outProfile.suppressBleSensorDuplicates = (readInt(L"Notifications", L"SuppressBleSensorDuplicates", 1) != 0);
+        outProfile.genericDuplicateDebounce = (readInt(L"Notifications", L"GenericDuplicateDebounce", 1) != 0);
         outProfile.notificationDurationMs = readInt(L"Notifications", L"NotificationDurationMs", 3500);
 
         // Modules
@@ -195,6 +206,9 @@ public:
         outProfile.moduleClipboard = (readInt(L"Modules", L"Clipboard", 0) != 0);
         outProfile.moduleQuickLookup = (readInt(L"Modules", L"QuickLookup", 1) != 0);
         outProfile.moduleLyrics = (readInt(L"Modules", L"Lyrics", 1) != 0);
+        outProfile.moduleQuickControls = (readInt(L"Modules", L"QuickControls", 1) != 0);
+        outProfile.moduleGameOverlay = (readInt(L"Modules", L"GameOverlay", 0) != 0);
+        outProfile.gameOverlayMode = readStr(L"Modules", L"GameOverlayMode", L"dashboard_only");
 
         ValidateProfile(outProfile);
         return true;
@@ -284,12 +298,16 @@ public:
         setInt(L"Context.AutoContextSwitching", p.autoContextSwitching ? 1 : 0);
         setInt(L"Context.AutoHideFullscreen", p.autoHideFullscreen ? 1 : 0);
         setInt(L"Behavior.AutoHideFullscreen", p.autoHideFullscreen ? 1 : 0);
+        setInt(L"Behavior.RememberLastPage", p.rememberLastPage ? 1 : 0);
+        setStr(L"Behavior.DefaultDashboardPage", p.defaultDashboardPage);
+        setInt(L"Media.PausedTimeoutSeconds", p.mediaPausedTimeoutSeconds);
 
         // Notifications
         setInt(L"Notifications.QuietHoursEnabled", p.quietHoursEnabled ? 1 : 0);
         setInt(L"Notifications.QuietHoursStart", p.quietHoursStart);
         setInt(L"Notifications.QuietHoursEnd", p.quietHoursEnd);
         setInt(L"Notifications.SuppressBleSensorDuplicates", p.suppressBleSensorDuplicates ? 1 : 0);
+        setInt(L"Notifications.GenericDuplicateDebounce", p.genericDuplicateDebounce ? 1 : 0);
         setInt(L"Notifications.NotificationDurationMs", p.notificationDurationMs);
 
         // Modules
@@ -307,6 +325,9 @@ public:
         setInt(L"Modules.Clipboard", p.moduleClipboard ? 1 : 0);
         setInt(L"Modules.QuickLookup", p.moduleQuickLookup ? 1 : 0);
         setInt(L"Modules.Lyrics", p.moduleLyrics ? 1 : 0);
+        setInt(L"Modules.QuickControls", p.moduleQuickControls ? 1 : 0);
+        setInt(L"Modules.GameOverlay", p.moduleGameOverlay ? 1 : 0);
+        setStr(L"Modules.GameOverlayMode", p.gameOverlayMode);
 
         // Flush
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, settingsIniPath.c_str());

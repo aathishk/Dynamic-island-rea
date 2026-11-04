@@ -193,6 +193,9 @@ enum CtrlId : int {
     ID_CHK_NOTIF_BLE_FILTER,
     ID_CHK_NOTIF_GENERIC_DEBOUNCE,
     ID_CHK_NOTIF_HISTORY,
+    ID_CHK_REMEMBER_LAST_PAGE,
+    ID_CHK_MOD_QUICK_CONTROLS,
+    ID_COMBO_MEDIA_PAUSED_TIMEOUT,
     ID_BTN_CLEAR_HISTORY,
     ID_BTN_BROWSE_NOTIF_HISTORY,
 
@@ -750,11 +753,22 @@ inline HWND hChkModFocusTimer = nullptr;
 inline HWND hChkModClipboard = nullptr;
 inline HWND hComboGameOverlayMode = nullptr;
 inline HWND hChkStartup = nullptr;
+inline HWND hChkRememberLastPage = nullptr;
+inline HWND hChkModQuickControls = nullptr;
+inline HWND hComboMediaPausedTimeout = nullptr;
 
 inline const SettingOption kGameOverlayModeOptions[] = {
     {L"Expanded Tab Only (Default)", L"dashboard_only"},
     {L"Collapsed HUD Strip (Always)", L"collapsed_hud"},
     {L"Gaming Context Only (Automatic)", L"gaming_context_only"},
+};
+
+inline const SettingOption kMediaPausedTimeoutOptions[] = {
+    {L"30 seconds (Default)", L"30"},
+    {L"60 seconds", L"60"},
+    {L"2 minutes", L"120"},
+    {L"5 minutes", L"300"},
+    {L"Never expire (Infinite)", L"0"},
 };
 inline HWND hChkLog = nullptr;
 
@@ -853,6 +867,7 @@ inline void LoadValuesIntoUi() {
     SendMessageW(hChkHover, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.ExpandOnHover", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkAutohideFs, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.AutoHideFullscreen", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkAutoContext, BM_SETCHECK, ReadIniInt(L"Settings", L"Context.AutoContextSwitching", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkRememberLastPage, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.RememberLastPage", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
 
     selectCombo(hComboGestureSingle, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), ReadIniString(L"Settings", L"Gestures.SingleClick", L"expand"));
     selectCombo(hComboGestureDouble, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), ReadIniString(L"Settings", L"Gestures.DoubleClick", L"controls"));
@@ -886,6 +901,8 @@ inline void LoadValuesIntoUi() {
     SendMessageW(hChkModLookup, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.QuickLookup", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkModFocusTimer, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.FocusTimer", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkModClipboard, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.Clipboard", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkModQuickControls, BM_SETCHECK, ReadIniInt(L"Settings", L"Modules.QuickControls", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    selectCombo(hComboMediaPausedTimeout, kMediaPausedTimeoutOptions, ARRAYSIZE(kMediaPausedTimeoutOptions), ReadIniString(L"Settings", L"Media.PausedTimeoutSeconds", L"30"));
     selectCombo(hComboGameOverlayMode, kGameOverlayModeOptions, ARRAYSIZE(kGameOverlayModeOptions), ReadIniString(L"Settings", L"Modules.GameOverlayMode", L"dashboard_only"));
     SendMessageW(hChkStartup, BM_SETCHECK, standalone_app::IsStartupEnabled() ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkLog, BM_SETCHECK, ReadIniInt(L"Settings", L"Debug.Log", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -943,7 +960,9 @@ inline void SaveValuesFromUi(HWND hwnd) {
 
     WriteIniInt(L"Settings", L"Behavior.ExpandOnHover", SendMessageW(hChkHover, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Behavior.AutoHideFullscreen", SendMessageW(hChkAutohideFs, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Context.AutoHideFullscreen", SendMessageW(hChkAutohideFs, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Context.AutoContextSwitching", SendMessageW(hChkAutoContext, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Behavior.RememberLastPage", SendMessageW(hChkRememberLastPage, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
 
     const wchar_t* curCtxMode = getComboVal(hComboActiveContext, kContextOptions, ARRAYSIZE(kContextOptions));
     const bool isCtxLocked = (SendMessageW(hChkContextLock, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -985,6 +1004,12 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniInt(L"Settings", L"Modules.QuickLookup", SendMessageW(hChkModLookup, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Modules.FocusTimer", SendMessageW(hChkModFocusTimer, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
     WriteIniInt(L"Settings", L"Modules.Clipboard", SendMessageW(hChkModClipboard, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    WriteIniInt(L"Settings", L"Modules.QuickControls", SendMessageW(hChkModQuickControls, BM_GETCHECK, 0, 0) == BST_CHECKED ? 1 : 0);
+    int curTimeout = static_cast<int>(SendMessageW(hComboMediaPausedTimeout, CB_GETCURSEL, 0, 0));
+    if (curTimeout >= 0 && static_cast<size_t>(curTimeout) < ARRAYSIZE(kMediaPausedTimeoutOptions)) {
+        WriteIniString(L"Settings", L"Media.PausedTimeoutSeconds", kMediaPausedTimeoutOptions[curTimeout].val);
+        WriteIniString(L"Settings", L"Modules.MediaPausedTimeoutSeconds", kMediaPausedTimeoutOptions[curTimeout].val);
+    }
     int curOv = static_cast<int>(SendMessageW(hComboGameOverlayMode, CB_GETCURSEL, 0, 0));
     if (curOv >= 0 && static_cast<size_t>(curOv) < ARRAYSIZE(kGameOverlayModeOptions)) {
         WriteIniString(L"Settings", L"Modules.GameOverlayMode", kGameOverlayModeOptions[curOv].val);
@@ -1182,21 +1207,22 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             hChkHover = makeCheck(32, 45, 540, 24, ID_CHK_HOVER, L"🖱️ Expand on Mouse Hover (vs Click to Expand)", 2);
             hChkAutohideFs = makeCheck(32, 75, 540, 24, ID_CHK_AUTOHIDE_FS, L"🖥️ Auto-hide when Fullscreen Apps/Games are active", 2);
             hChkAutoContext = makeCheck(32, 105, 540, 24, ID_CHK_AUTO_CONTEXT, L"🧠 Enable Application-Aware Context Rules (Code $\\rightarrow$ Focus, etc.)", 2);
+            hChkRememberLastPage = makeCheck(32, 135, 540, 24, ID_CHK_REMEMBER_LAST_PAGE, L"📌 Remember Last Selected Dashboard Page across collapse", 2);
 
-            makeLabel(32, 145, 190, 20, L"Single Click Gesture:", 2);
-            hComboGestureSingle = makeCombo(230, 142, 350, 180, ID_COMBO_GESTURE_SINGLE, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), 2);
+            makeLabel(32, 170, 190, 20, L"Single Click Gesture:", 2);
+            hComboGestureSingle = makeCombo(230, 167, 350, 180, ID_COMBO_GESTURE_SINGLE, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), 2);
 
-            makeLabel(32, 180, 190, 20, L"Double Click Gesture:", 2);
-            hComboGestureDouble = makeCombo(230, 177, 350, 180, ID_COMBO_GESTURE_DOUBLE, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), 2);
+            makeLabel(32, 202, 190, 20, L"Double Click Gesture:", 2);
+            hComboGestureDouble = makeCombo(230, 199, 350, 180, ID_COMBO_GESTURE_DOUBLE, kClickGestureOptions, ARRAYSIZE(kClickGestureOptions), 2);
 
-            makeLabel(32, 215, 190, 20, L"Middle Click Gesture:", 2);
-            hComboGestureMiddle = makeCombo(230, 212, 350, 180, ID_COMBO_GESTURE_MIDDLE, kMiddleGestureOptions, ARRAYSIZE(kMiddleGestureOptions), 2);
+            makeLabel(32, 234, 190, 20, L"Middle Click Gesture:", 2);
+            hComboGestureMiddle = makeCombo(230, 231, 350, 180, ID_COMBO_GESTURE_MIDDLE, kMiddleGestureOptions, ARRAYSIZE(kMiddleGestureOptions), 2);
 
-            makeLabel(32, 250, 190, 20, L"Mouse Wheel Up:", 2);
-            hComboGestureWheelUp = makeCombo(230, 247, 350, 180, ID_COMBO_GESTURE_WHEEL_UP, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions), 2);
+            makeLabel(32, 266, 190, 20, L"Mouse Wheel Up:", 2);
+            hComboGestureWheelUp = makeCombo(230, 263, 350, 180, ID_COMBO_GESTURE_WHEEL_UP, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions), 2);
 
-            makeLabel(32, 285, 190, 20, L"Mouse Wheel Down:", 2);
-            hComboGestureWheelDown = makeCombo(230, 282, 350, 180, ID_COMBO_GESTURE_WHEEL_DOWN, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions), 2);
+            makeLabel(32, 298, 190, 20, L"Mouse Wheel Down:", 2);
+            hComboGestureWheelDown = makeCombo(230, 295, 350, 180, ID_COMBO_GESTURE_WHEEL_DOWN, kWheelGestureOptions, ARRAYSIZE(kWheelGestureOptions), 2);
 
             // ── PAGE 3: Notifications & History ─────────────────────────────────
             hChkNotifEnabled = makeCheck(32, 55, 540, 24, ID_CHK_NOTIF_ENABLED, L"🔔 Enable Central Notification Engine", 3);
@@ -1259,16 +1285,20 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             hChkModTray = makeCheck(320, 155, 280, 24, ID_CHK_MOD_TRAY, L"📁 File Tray Shelf (Drag & Drop)", 5);
             hChkModLookup = makeCheck(32, 190, 540, 24, ID_CHK_MOD_LOOKUP, L"🔍 Quick Lookup & App Launcher (Ctrl+Alt+Space)", 5);
 
-            makeLabel(32, 222, 160, 20, L"Game Overlay Mode:", 5);
-            hComboGameOverlayMode = makeCombo(195, 219, 405, 150, ID_COMBO_GAME_OVERLAY_MODE, kGameOverlayModeOptions, ARRAYSIZE(kGameOverlayModeOptions), 5);
+            hChkModQuickControls = makeCheck(32, 218, 250, 24, ID_CHK_MOD_QUICK_CONTROLS, L"🎛️ Quick Controls", 5);
+            makeLabel(285, 220, 150, 20, L"Media Grace Timeout:", 5);
+            hComboMediaPausedTimeout = makeCombo(435, 217, 165, 150, ID_COMBO_MEDIA_PAUSED_TIMEOUT, kMediaPausedTimeoutOptions, ARRAYSIZE(kMediaPausedTimeoutOptions), 5);
 
-            hChkStartup = makeCheck(32, 252, 300, 24, ID_CHK_STARTUP, L"🚀 Launch automatically on Windows Startup", 5);
-            hChkLog = makeCheck(320, 252, 280, 24, ID_CHK_LOG, L"📝 Enable Debug Log (%APPDATA%)", 5);
+            makeLabel(32, 248, 160, 20, L"Game Overlay Mode:", 5);
+            hComboGameOverlayMode = makeCombo(195, 245, 405, 150, ID_COMBO_GAME_OVERLAY_MODE, kGameOverlayModeOptions, ARRAYSIZE(kGameOverlayModeOptions), 5);
 
-            makeBtn(32, 280, 240, 30, ID_BTN_ONBOARDING, L"✨ Re-run First-Run Onboarding...", 5);
-            makeBtn(320, 280, 220, 30, ID_BTN_CLEAR_CLIPBOARD, L"🗑️ Clear Clipboard History", 5);
-            makeBtn(320, 320, 220, 30, ID_BTN_BROWSE_CLIPBOARD, L"📋 Browse Clipboard...", 5);
-            makeBtn(32, 330, 240, 30, ID_BTN_RESET_DEFAULTS, L"⚠️ Restore All Factory Defaults", 5);
+            hChkStartup = makeCheck(32, 275, 300, 24, ID_CHK_STARTUP, L"🚀 Launch automatically on Windows Startup", 5);
+            hChkLog = makeCheck(320, 275, 280, 24, ID_CHK_LOG, L"📝 Enable Debug Log (%APPDATA%)", 5);
+
+            makeBtn(32, 305, 240, 30, ID_BTN_ONBOARDING, L"✨ Re-run First-Run Onboarding...", 5);
+            makeBtn(320, 305, 220, 30, ID_BTN_CLEAR_CLIPBOARD, L"🗑️ Clear Clipboard History", 5);
+            makeBtn(320, 340, 220, 30, ID_BTN_BROWSE_CLIPBOARD, L"📋 Browse Clipboard...", 5);
+            makeBtn(32, 340, 240, 30, ID_BTN_RESET_DEFAULTS, L"⚠️ Restore All Factory Defaults", 5);
 
             // ── Dialog Bottom Buttons ───────────────────────────────────────────
             HWND btnOpenIni = CreateWindowExW(0, L"BUTTON", L"Open INI", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,

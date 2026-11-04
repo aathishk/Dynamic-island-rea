@@ -154,15 +154,17 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         ULONGLONG now = GetTickCount64();
 
-        // Distinct duplicate suppression policies per category (Directive Section 6.1)
-        const bool isBleOrDevice = (incoming.category == NotificationCategory::Bluetooth ||
-                                    incoming.category == NotificationCategory::Battery);
-        const bool shouldDebounce = isBleOrDevice ? settings.suppressBleSensorDuplicates
-                                                 : settings.genericDuplicateDebounce;
+        // Distinct duplicate suppression policies per category
+        // Only Bluetooth/BLE sensors are debounced under suppressBleSensorDuplicates (15s window).
+        // Ordinary Windows battery warnings (NotificationCategory::Battery) and app toasts are debounced under genericDuplicateDebounce.
+        const bool isBleSensor = (incoming.category == NotificationCategory::Bluetooth);
+        const bool shouldDebounce = isBleSensor ? settings.suppressBleSensorDuplicates
+                                                : settings.genericDuplicateDebounce;
 
-        if (shouldDebounce && settings.duplicateDebounceEnabled) {
+        if (shouldDebounce) {
             if (incoming.title == lastTitle_ && incoming.message == lastMessage_) {
-                if (now - lastEventTick_ < settings.duplicateDebounceMs) {
+                const DWORD window = isBleSensor ? 15000 : settings.duplicateDebounceMs;
+                if (now - lastEventTick_ < window) {
                     return false; // Suppress duplicate
                 }
             }

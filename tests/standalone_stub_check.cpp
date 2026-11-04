@@ -362,6 +362,49 @@ int RunProfilePolicyTest() {
         if (behaviorFull != 1 || contextFull != 1) return 517;
     }
 
+    // 8. Full production profile round-trip for extended companion fields (Sprint Defect 4)
+    {
+        ProfileData full;
+        full.name = L"FullCompanion";
+        full.moduleGameOverlay = true;
+        full.gameOverlayMode = L"collapsed_hud";
+        full.genericDuplicateDebounce = true;
+        full.suppressBleSensorDuplicates = true;
+        full.mediaPausedTimeoutSeconds = 45;
+        full.rememberLastPage = true;
+        full.defaultDashboardPage = L"hardware";
+        full.moduleQuickControls = true;
+
+        std::wstring tempIni = ProfileManager::GetProfilesDirectory() + L"\\test_full_companion.ini";
+        if (!ProfileManager::SaveProfileToFile(full, tempIni)) return 518;
+
+        ProfileData loaded;
+        if (!ProfileManager::LoadProfileFromFile(tempIni, loaded)) return 519;
+        if (!loaded.moduleGameOverlay || loaded.gameOverlayMode != L"collapsed_hud") return 520;
+        if (!loaded.genericDuplicateDebounce || !loaded.suppressBleSensorDuplicates) return 521;
+        if (loaded.mediaPausedTimeoutSeconds != 45) return 522;
+        if (!loaded.rememberLastPage || loaded.defaultDashboardPage != L"hardware") return 523;
+        if (!loaded.moduleQuickControls) return 524;
+
+        std::wstring targetIni = ProfileManager::GetProfilesDirectory() + L"\\test_full_settings.ini";
+        ProfileManager::ApplyProfileToSettingsIni(loaded, targetIni);
+
+        int ovEnabled = GetPrivateProfileIntW(L"Settings", L"Modules.GameOverlay", 0, targetIni.c_str());
+        wchar_t ovModeBuf[64] = {};
+        GetPrivateProfileStringW(L"Settings", L"Modules.GameOverlayMode", L"", ovModeBuf, 64, targetIni.c_str());
+        int genDebounce = GetPrivateProfileIntW(L"Settings", L"Notifications.GenericDuplicateDebounce", 0, targetIni.c_str());
+        int pauseTimeout = GetPrivateProfileIntW(L"Settings", L"Media.PausedTimeoutSeconds", 0, targetIni.c_str());
+        int remPage = GetPrivateProfileIntW(L"Settings", L"Behavior.RememberLastPage", 0, targetIni.c_str());
+        int qc = GetPrivateProfileIntW(L"Settings", L"Modules.QuickControls", 0, targetIni.c_str());
+
+        DeleteFileW(tempIni.c_str());
+        DeleteFileW(targetIni.c_str());
+        DeleteFileW((targetIni + L".bak").c_str());
+
+        if (ovEnabled != 1 || _wcsicmp(ovModeBuf, L"collapsed_hud") != 0) return 525;
+        if (genDebounce != 1 || pauseTimeout != 45 || remPage != 1 || qc != 1) return 526;
+    }
+
     return 0;
 }
 
@@ -461,40 +504,70 @@ int RunNotificationPolicyTest() {
     if (!ShouldPresentNotification(critItem, settings, true, false, 14)) return 715;
     if (!ShouldPresentNotification(critItem, settings, false, true, 14)) return 716;
 
-    // 5. Arbitration queue de-duplication & priority with category differentiation
+    // 5. Arbitration queue de-duplication & priority with category differentiation (Sprint Defect 1)
     NotificationQueue q;
-    settings.genericDuplicateDebounce = true;
-    settings.suppressBleSensorDuplicates = false;
 
     NotificationItem bleItem;
     bleItem.category = NotificationCategory::Bluetooth;
     bleItem.title = L"Headphones Connected";
     bleItem.message = L"Battery 90%";
 
-    // When suppressBleSensorDuplicates is false, repeated BLE item is NOT suppressed
-    q.Enqueue(bleItem, settings);
-    bool bleDupeAdded = q.Enqueue(bleItem, settings);
-    if (!bleDupeAdded) return 7171;
+    NotificationItem batItem;
+    batItem.category = NotificationCategory::Battery;
+    batItem.title = L"Low Battery";
+    batItem.message = L"15% battery remaining";
 
-    // When suppressBleSensorDuplicates is true, repeated BLE item IS suppressed
+    // Matrix Case 1: generic=true, ble=false
+    // Generic toast suppressed; BLE item NOT suppressed; Battery alert suppressed under generic toast window
+    settings.genericDuplicateDebounce = true;
+    settings.suppressBleSensorDuplicates = false;
+    q.Clear();
+    q.Enqueue(normItem, settings);
+    if (q.Enqueue(normItem, settings)) return 7171; // generic must be suppressed
+
+    q.Clear();
+    q.Enqueue(bleItem, settings);
+    if (!q.Enqueue(bleItem, settings)) return 7172; // BLE must NOT be suppressed
+
+    q.Clear();
+    q.Enqueue(batItem, settings);
+    if (q.Enqueue(batItem, settings)) return 7173; // battery must be debounced under generic debounce
+
+    // Matrix Case 2: generic=false, ble=true
+    // Generic toast NOT suppressed; BLE item IS suppressed
+    settings.genericDuplicateDebounce = false;
     settings.suppressBleSensorDuplicates = true;
     q.Clear();
+    q.Enqueue(normItem, settings);
+    if (!q.Enqueue(normItem, settings)) return 7174; // generic must NOT be suppressed
+
+    q.Clear();
     q.Enqueue(bleItem, settings);
-    bool bleDupeBlocked = q.Enqueue(bleItem, settings);
-    if (bleDupeBlocked) return 7172;
+    if (q.Enqueue(bleItem, settings)) return 7175; // BLE must be suppressed
 
-    // Generic item respects genericDuplicateDebounce
+    // Matrix Case 3: generic=false, ble=false
+    // Neither suppressed
     settings.genericDuplicateDebounce = false;
+    settings.suppressBleSensorDuplicates = false;
     q.Clear();
     q.Enqueue(normItem, settings);
-    bool normDupeAllowed = q.Enqueue(normItem, settings);
-    if (!normDupeAllowed) return 7173;
+    if (!q.Enqueue(normItem, settings)) return 7176;
 
+    q.Clear();
+    q.Enqueue(bleItem, settings);
+    if (!q.Enqueue(bleItem, settings)) return 7177;
+
+    // Matrix Case 4: generic=true, ble=true
+    // Both suppressed
     settings.genericDuplicateDebounce = true;
+    settings.suppressBleSensorDuplicates = true;
     q.Clear();
     q.Enqueue(normItem, settings);
-    bool dupeAdded = q.Enqueue(normItem, settings);
-    if (dupeAdded) return 717; // Duplicate must be suppressed!
+    if (q.Enqueue(normItem, settings)) return 7178;
+
+    q.Clear();
+    q.Enqueue(bleItem, settings);
+    if (q.Enqueue(bleItem, settings)) return 7179;
 
     // Critical items placed at front of queue
     NotificationItem popped;
@@ -1179,6 +1252,67 @@ int RunNavigationMatrixAndThemeResolutionTest() {
     if (NormalizePageIndex(5, 5) != 0) return 1247;
     if (NormalizePageIndex(2, 5) != 2) return 1248;
     if (NormalizePageIndex(0, 0) != 0) return 1249;
+
+    // 4. MediaPresentationState Machine Evaluations (Sprint Defect 2)
+    {
+        double now = 1000.0;
+        // Disabled
+        if (EvaluateMediaPresentationState(false, true, true, false, 0.0, now, 30) != MediaPresentationState::Disabled) return 1250;
+        // No media
+        if (EvaluateMediaPresentationState(true, false, false, false, 0.0, now, 30) != MediaPresentationState::NoMedia) return 1251;
+        // Blocked
+        if (EvaluateMediaPresentationState(true, true, true, true, 0.0, now, 30) != MediaPresentationState::Blocked) return 1252;
+        // Playing
+        if (EvaluateMediaPresentationState(true, true, true, false, 0.0, now, 30) != MediaPresentationState::Playing) return 1253;
+        // Paused within grace period (paused 10s ago, timeout 30s)
+        if (EvaluateMediaPresentationState(true, true, false, false, now - 10.0, now, 30) != MediaPresentationState::PausedGrace) return 1254;
+        // Paused beyond timeout (paused 45s ago, timeout 30s)
+        if (EvaluateMediaPresentationState(true, true, false, false, now - 45.0, now, 30) != MediaPresentationState::PausedExpired) return 1255;
+        // Infinite grace (timeout 0)
+        if (EvaluateMediaPresentationState(true, true, false, false, now - 100.0, now, 0) != MediaPresentationState::PausedGrace) return 1256;
+
+        // Active pages with PausedExpired state: Media and Lyrics MUST be excluded!
+        auto pExpired = BuildActiveDashboardPages(
+            true, MediaPresentationState::PausedExpired,
+            true, true, true, true, true, true, false, true, false
+        );
+        // Should contain Overview, Calendar, Weather, Hardware, FileTray, Controls (NO Media, NO Lyrics)
+        if (FindPageIndex(pExpired, DashboardPageId::Media) != -1) return 1257;
+        if (FindPageIndex(pExpired, DashboardPageId::Lyrics) != -1) return 1258;
+        if (FindPageIndex(pExpired, DashboardPageId::Overview) != 0) return 1259;
+        if (FindPageIndex(pExpired, DashboardPageId::HardwareMonitor) != 3) return 1260; // Hardware monitor remains 100% accessible!
+
+        // Active pages with Playing state: Media and Lyrics included
+        auto pPlay = BuildActiveDashboardPages(
+            true, MediaPresentationState::Playing,
+            true, true, true, true, true, true, false, true, false
+        );
+        if (FindPageIndex(pPlay, DashboardPageId::Media) == -1) return 1261;
+        if (FindPageIndex(pPlay, DashboardPageId::Lyrics) == -1) return 1262;
+    }
+
+    // 5. Game Overlay Visibility Policy (Sprint Defect 3)
+    {
+        // In DashboardOnly mode:
+        // Collapsed: false
+        if (IsGameOverlayVisible(true, GameOverlayMode::DashboardOnly, false, DashboardPageId::Overview, false, false, false)) return 1270;
+        // Expanded to Overview: false
+        if (IsGameOverlayVisible(true, GameOverlayMode::DashboardOnly, true, DashboardPageId::Overview, false, false, false)) return 1271;
+        // Expanded to GameOverlay page: true
+        if (!IsGameOverlayVisible(true, GameOverlayMode::DashboardOnly, true, DashboardPageId::GameOverlay, false, false, false)) return 1272;
+
+        // In CollapsedHud mode:
+        // Collapsed: true
+        if (!IsGameOverlayVisible(true, GameOverlayMode::CollapsedHud, false, DashboardPageId::Overview, false, false, false)) return 1273;
+        // Fullscreen: suppressed (false)
+        if (IsGameOverlayVisible(true, GameOverlayMode::CollapsedHud, false, DashboardPageId::Overview, false, false, true)) return 1274;
+
+        // In GamingContextOnly mode:
+        // Collapsed with gaming context: true
+        if (!IsGameOverlayVisible(true, GameOverlayMode::GamingContextOnly, false, DashboardPageId::Overview, true, false, false)) return 1275;
+        // Collapsed without gaming context: false
+        if (IsGameOverlayVisible(true, GameOverlayMode::GamingContextOnly, false, DashboardPageId::Overview, false, false, false)) return 1276;
+    }
 
     return 0;
 }

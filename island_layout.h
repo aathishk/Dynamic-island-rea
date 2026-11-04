@@ -126,11 +126,89 @@ enum class GameOverlayMode {
     GamingContextOnly = 2 // Replaces collapsed strip ONLY when gaming context is active
 };
 
-inline std::vector<DashboardPageDescriptor> BuildActiveDashboardPages(
-    bool hasOverview,
+// ── Authoritative Media Presentation State Machine (Directive Section 4) ─────
+enum class MediaPresentationState {
+    Disabled,       // Media module disabled in settings
+    NoMedia,        // No SMTC media session or empty title
+    Blocked,        // Source process matches media blocklist
+    Playing,        // Actively playing audio/video
+    PausedGrace,    // Paused within configured timeout grace period
+    PausedExpired   // Paused beyond configured timeout
+};
+
+inline MediaPresentationState EvaluateMediaPresentationState(
     bool mediaModuleEnabled,
     bool mediaAvailable,
-    bool mediaBlocked,
+    bool isPlaying,
+    bool isBlocked,
+    double pausedAt,
+    double now,
+    int timeoutSeconds) {
+
+    if (!mediaModuleEnabled) {
+        return MediaPresentationState::Disabled;
+    }
+    if (!mediaAvailable) {
+        return MediaPresentationState::NoMedia;
+    }
+    if (isBlocked) {
+        return MediaPresentationState::Blocked;
+    }
+    if (isPlaying) {
+        return MediaPresentationState::Playing;
+    }
+
+    // Paused / stopped state:
+    // If timeoutSeconds <= 0, timeout is disabled (infinite grace period)
+    if (timeoutSeconds <= 0) {
+        return MediaPresentationState::PausedGrace;
+    }
+
+    if (pausedAt > 0.0 && (now - pausedAt) > static_cast<double>(timeoutSeconds)) {
+        return MediaPresentationState::PausedExpired;
+    }
+
+    return MediaPresentationState::PausedGrace;
+}
+
+inline bool IsMediaActiveOrInGrace(MediaPresentationState state) {
+    return state == MediaPresentationState::Playing || state == MediaPresentationState::PausedGrace;
+}
+
+// Determines if Game Overlay is visible in the collapsed strip or expanded dashboard
+inline bool IsGameOverlayVisible(
+    bool enabled,
+    GameOverlayMode mode,
+    bool isExpanded,
+    DashboardPageId selectedPage,
+    bool inGamingContext,
+    bool isPinned,
+    bool isFullscreen) {
+
+    if (isFullscreen) return false;
+    if (isPinned) return true;
+    if (!enabled) return false;
+
+    if (isExpanded) {
+        // When expanded, Game Overlay is visible only if selected page is GameOverlay
+        return (selectedPage == DashboardPageId::GameOverlay);
+    } else {
+        // When collapsed:
+        switch (mode) {
+        case GameOverlayMode::CollapsedHud:
+            return true;
+        case GameOverlayMode::GamingContextOnly:
+            return inGamingContext;
+        case GameOverlayMode::DashboardOnly:
+        default:
+            return false;
+        }
+    }
+}
+
+inline std::vector<DashboardPageDescriptor> BuildActiveDashboardPages(
+    bool hasOverview,
+    MediaPresentationState mediaState,
     bool calendarEnabled,
     bool weatherEnabled,
     bool hardwareEnabled,
@@ -148,14 +226,14 @@ inline std::vector<DashboardPageDescriptor> BuildActiveDashboardPages(
         pages.push_back({DashboardPageId::Overview, L"Overview", true});
     }
 
-    // 2. Lyrics (if pinned first and media is valid & unblocked)
-    const bool mediaValid = mediaModuleEnabled && mediaAvailable && !mediaBlocked;
+    // 2. Lyrics (if pinned first and media is active or within grace period)
+    const bool mediaValid = IsMediaActiveOrInGrace(mediaState);
     const bool canShowLyrics = lyricsModuleEnabled && mediaValid && lyricsAvailable;
     if (canShowLyrics && lyricsPinnedFirst) {
         pages.push_back({DashboardPageId::Lyrics, L"Lyrics", true});
     }
 
-    // 3. Media (if media session is valid and not blocked)
+    // 3. Media (if media session is valid and active or in paused grace)
     if (mediaValid) {
         pages.push_back({DashboardPageId::Media, L"Media", true});
     }
@@ -180,7 +258,7 @@ inline std::vector<DashboardPageDescriptor> BuildActiveDashboardPages(
         pages.push_back({DashboardPageId::FileTray, L"File Tray", true});
     }
 
-    // 8. Lyrics (if not pinned first and media is valid & unblocked)
+    // 8. Lyrics (if not pinned first and media is active or in paused grace)
     if (canShowLyrics && !lyricsPinnedFirst) {
         pages.push_back({DashboardPageId::Lyrics, L"Lyrics", true});
     }
@@ -201,6 +279,43 @@ inline std::vector<DashboardPageDescriptor> BuildActiveDashboardPages(
     }
 
     return pages;
+}
+
+// Backward-compatible overload for callers passing boolean mediaAvailable / mediaBlocked
+inline std::vector<DashboardPageDescriptor> BuildActiveDashboardPages(
+    bool hasOverview,
+    bool mediaModuleEnabled,
+    bool mediaAvailable,
+    bool mediaBlocked,
+    bool calendarEnabled,
+    bool weatherEnabled,
+    bool hardwareEnabled,
+    bool fileTrayEnabled,
+    bool lyricsModuleEnabled,
+    bool lyricsAvailable,
+    bool lyricsPinnedFirst,
+    bool quickControlsEnabled,
+    bool gameOverlayEnabled
+) {
+    MediaPresentationState state = MediaPresentationState::Disabled;
+    if (!mediaModuleEnabled) state = MediaPresentationState::Disabled;
+    else if (!mediaAvailable) state = MediaPresentationState::NoMedia;
+    else if (mediaBlocked) state = MediaPresentationState::Blocked;
+    else state = MediaPresentationState::Playing;
+
+    return BuildActiveDashboardPages(
+        hasOverview,
+        state,
+        calendarEnabled,
+        weatherEnabled,
+        hardwareEnabled,
+        fileTrayEnabled,
+        lyricsModuleEnabled,
+        lyricsAvailable,
+        lyricsPinnedFirst,
+        quickControlsEnabled,
+        gameOverlayEnabled
+    );
 }
 
 inline int FindPageIndex(const std::vector<DashboardPageDescriptor>& pages, DashboardPageId id) {

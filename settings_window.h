@@ -53,21 +53,29 @@ inline const SettingOption kShapeOptions[] = {
     {L"Edge Blade", L"blade"}
 };
 
+inline const SettingOption kAccentColorOptions[] = {
+    {L"Auto (Match Album Art / System)", L"auto"},
+    {L"Windows System (Device Color)",   L"system"},
+    {L"Electric Cyan (#4CC9F0)",         L"#4CC9F0"},
+    {L"Crimson Red (#E81123)",           L"#E81123"},
+    {L"Vibrant Orange (#FF5722)",        L"#FF5722"},
+    {L"Amber Gold (#FFB900)",            L"#FFB900"},
+    {L"Emerald Green (#107C41)",         L"#107C41"},
+    {L"Royal Purple (#8E24AA)",          L"#8E24AA"},
+    {L"Hot Pink (#FF2D55)",              L"#FF2D55"},
+    {L"Pure White (#FFFFFF)",            L"#FFFFFF"}
+};
+
 inline const SettingOption kThemeOptions[] = {
-    {L"Transparent Liquid Glass", L"transparent"},
     {L"Obsidian (OLED Black)", L"obsidian"},
+    {L"Transparent Liquid Glass", L"transparent"},
     {L"Graphite (Fluent Grey)", L"graphite"},
     {L"Slate (Midnight Blue)", L"slate"},
     {L"Nord (Arctic Slate)", L"nord"},
     {L"Evergreen (Forest)", L"evergreen"},
     {L"Espresso (Warm Bronze)", L"espresso"},
     {L"Plum (Deep Purple)", L"plum"},
-    {L"Porcelain (Clean Light)", L"porcelain"},
-    {L"Acrylic Glass (Legacy)", L"acrylic"},
-    {L"Fluent Mica (Legacy)", L"fluent"},
-    {L"Colorful Vibrant (Legacy)", L"colorful"},
-    {L"Classic Dark (Legacy)", L"classic"},
-    {L"Minimal Monochrome (Legacy)", L"minimal"}
+    {L"Porcelain (Clean Light)", L"porcelain"}
 };
 
 inline const SettingOption kAnimOptions[] = {
@@ -164,7 +172,8 @@ enum CtrlId : int {
     // Page 1: Personalisation
     ID_COMBO_POS,
     ID_COMBO_SHAPE,
-    ID_COMBO_THEME,
+    ID_COMBO_ACCENT,
+    ID_COMBO_THEME = ID_COMBO_ACCENT,
     ID_COMBO_ANIM,
     ID_COMBO_SCALE,
     ID_COMBO_OPACITY,
@@ -706,7 +715,8 @@ inline HWND hLblOverviewStatus = nullptr;
 // Page 1 controls
 inline HWND hComboPos = nullptr;
 inline HWND hComboShape = nullptr;
-inline HWND hComboTheme = nullptr;
+inline HWND hComboAccent = nullptr;
+inline HWND& hComboTheme = hComboAccent;
 inline HWND hComboAnim = nullptr;
 inline HWND hComboScale = nullptr;
 inline HWND hComboOpacity = nullptr;
@@ -843,7 +853,17 @@ inline void LoadValuesIntoUi() {
     // Page 1: Personalisation
     selectCombo(hComboPos, kPosOptions, ARRAYSIZE(kPosOptions), ReadIniString(L"Settings", L"Appearance.Position", L"top-center"));
     selectCombo(hComboShape, kShapeOptions, ARRAYSIZE(kShapeOptions), ReadIniString(L"Settings", L"Appearance.ShapeStyle", L"notch"));
-    selectCombo(hComboTheme, kThemeOptions, ARRAYSIZE(kThemeOptions), ReadIniString(L"Settings", L"Themes.ThemePreset", L"transparent"));
+    {
+        std::wstring accentMode = ReadIniString(L"Settings", L"Themes.AccentColorMode", L"auto");
+        std::wstring customHex = ReadIniString(L"Settings", L"Themes.CustomAccentHex", L"#4CC9F0");
+        if (_wcsicmp(accentMode.c_str(), L"system") == 0) {
+            selectCombo(hComboAccent, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions), L"system");
+        } else if (_wcsicmp(accentMode.c_str(), L"custom") == 0) {
+            selectCombo(hComboAccent, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions), customHex);
+        } else {
+            selectCombo(hComboAccent, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions), L"auto");
+        }
+    }
     selectCombo(hComboAnim, kAnimOptions, ARRAYSIZE(kAnimOptions), ReadIniString(L"Settings", L"Animations.AnimationStyle", L"applespring"));
     selectCombo(hComboScale, kScaleOptions, ARRAYSIZE(kScaleOptions), ReadIniString(L"Settings", L"Appearance.SizeScale", L"1.0"));
     selectCombo(hComboOpacity, kOpacityOptions, ARRAYSIZE(kOpacityOptions), ReadIniString(L"Settings", L"Themes.PillOpacity", L"16"));
@@ -922,7 +942,18 @@ inline void SaveValuesFromUi(HWND hwnd) {
     // Page 1: Personalisation
     WriteIniString(L"Settings", L"Appearance.Position", getComboVal(hComboPos, kPosOptions, ARRAYSIZE(kPosOptions)));
     WriteIniString(L"Settings", L"Appearance.ShapeStyle", getComboVal(hComboShape, kShapeOptions, ARRAYSIZE(kShapeOptions)));
-    WriteIniString(L"Settings", L"Themes.ThemePreset", getComboVal(hComboTheme, kThemeOptions, ARRAYSIZE(kThemeOptions)));
+    {
+        const wchar_t* selectedAccent = getComboVal(hComboAccent, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions));
+        if (_wcsicmp(selectedAccent, L"auto") == 0) {
+            WriteIniString(L"Settings", L"Themes.AccentColorMode", L"auto");
+        } else if (_wcsicmp(selectedAccent, L"system") == 0) {
+            WriteIniString(L"Settings", L"Themes.AccentColorMode", L"system");
+        } else {
+            WriteIniString(L"Settings", L"Themes.AccentColorMode", L"custom");
+            WriteIniString(L"Settings", L"Themes.CustomAccentHex", selectedAccent);
+        }
+        WriteIniString(L"Settings", L"Themes.ThemePreset", L"obsidian");
+    }
     WriteIniString(L"Settings", L"Animations.AnimationStyle", getComboVal(hComboAnim, kAnimOptions, ARRAYSIZE(kAnimOptions)));
     WriteIniString(L"Settings", L"Appearance.SizeScale", getComboVal(hComboScale, kScaleOptions, ARRAYSIZE(kScaleOptions)));
     WriteIniString(L"Settings", L"Themes.PillOpacity", getComboVal(hComboOpacity, kOpacityOptions, ARRAYSIZE(kOpacityOptions)));
@@ -1203,8 +1234,8 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             makeLabel(32, 95, 180, 20, L"Island Shape Style:", 1);
             hComboShape = makeCombo(210, 92, 380, 240, ID_COMBO_SHAPE, kShapeOptions, ARRAYSIZE(kShapeOptions), 1);
 
-            makeLabel(32, 135, 180, 20, L"Theme Preset:", 1);
-            hComboTheme = makeCombo(210, 132, 380, 240, ID_COMBO_THEME, kThemeOptions, ARRAYSIZE(kThemeOptions), 1);
+            makeLabel(32, 135, 180, 20, L"Accent Color:", 1);
+            hComboAccent = makeCombo(210, 132, 380, 240, ID_COMBO_ACCENT, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions), 1);
 
             makeLabel(32, 175, 180, 20, L"Size Scale:", 1);
             hComboScale = makeCombo(210, 172, 380, 240, ID_COMBO_SCALE, kScaleOptions, ARRAYSIZE(kScaleOptions), 1);

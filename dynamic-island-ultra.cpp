@@ -3108,6 +3108,8 @@ void LoadSettings() {
         next.accentMode = AccentMode::System;
     } else if (EqualsNoCase(accentMode, L"custom")) {
         next.accentMode = AccentMode::Custom;
+    } else {
+        next.accentMode = AccentMode::Auto;
     }
 
     next.customAccent = ColorFromHex(GetStringSettingCopy(L"Themes.CustomAccentHex"), next.customAccent);
@@ -17056,10 +17058,12 @@ class Renderer {
         const float stretch = Clamp(std::fabs(tabVel_) * 0.55f, 0.0f, 3.5f);
         const float halfH = r + 2.2f + stretch;
         const float cy = startY + spacing * pos;
-        dotBrush->SetOpacity(0.92f);
+        ID2D1SolidColorBrush* activeDotBrush = accentBrush_ ? accentBrush_.Get() : dotBrush;
+        activeDotBrush->SetOpacity(0.95f);
         target_->FillRoundedRectangle(
             D2D1::RoundedRect(D2D1::RectF(dotX - r, cy - halfH, dotX + r, cy + halfH), r, r),
-            dotBrush);
+            activeDotBrush);
+        activeDotBrush->SetOpacity(1.0f);
     }
 
     // Publishes the content-space rect currently being painted so

@@ -243,6 +243,24 @@ if island_hwnd:
     print("Settings HWND:", hex(settings_hwnd) if settings_hwnd else "Not Found")
     if settings_hwnd:
         time.sleep(1.0)
+        # Switch to Tab 1: Personalisation to show Accent Color options
+        tab_list = []
+        def find_tab(child, lp):
+            cls = (ctypes.c_wchar * 256)()
+            user32.GetClassNameW(child, cls, 256)
+            if 'SysTabControl32' in cls.value:
+                tab_list.append(child)
+            return True
+        WNDENUMCHILD = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        user32.EnumChildWindows(settings_hwnd, WNDENUMCHILD(find_tab), 0)
+        if tab_list:
+            tab_hwnd = tab_list[0]
+            # Click on Tab 1 ('🎨 Personalisation')
+            # Tab 0 is ~10-100px, Tab 1 is ~110-220px, Y center is ~18px
+            lparam = (18 << 16) | 160
+            user32.SendMessageW(tab_hwnd, 0x0201, 1, lparam) # WM_LBUTTONDOWN
+            user32.SendMessageW(tab_hwnd, 0x0202, 0, lparam) # WM_LBUTTONUP
+            time.sleep(1.0)
         save_window_bmp(settings_hwnd, "screenshot_settings_window.png", use_print_window=True)
 
 subprocess.run(f'taskkill /F /PID {pi.dwProcessId}', shell=True, capture_output=True)

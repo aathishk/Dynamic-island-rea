@@ -1,1 +1,1 @@
-d29ad4b618e71706f7d8a75bcecdda4f3d0437954eac539919dc3aa64054a65e *DynamicIsland.exe
+37ddf28cf15b8e89083724755552f7c46bcbcfc6a76d8f34dfd39cb392368456 *DynamicIsland.exe

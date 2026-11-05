@@ -1204,6 +1204,18 @@ int RunNavigationMatrixAndThemeResolutionTest() {
     if (ResolveThemePalette(L"deep-purple") != &kAllThemePalettes[6]) return 1208;
     if (ResolveThemePalette(L"non_existent_preset_xyz") != nullptr) return 1209;
 
+    // 1b. Accent Color presets single source of truth resolution
+    if (ARRAYSIZE(kAllAccentPresets) != 10) return 12091;
+    for (size_t i = 0; i < ARRAYSIZE(kAllAccentPresets); ++i) {
+        const auto* ap = ResolveAccentPreset(kAllAccentPresets[i].val);
+        if (!ap || ap != &kAllAccentPresets[i]) return 12092;
+    }
+    if (!ResolveAccentPreset(L"AUTO") || ResolveAccentPreset(L"auto") != &kAllAccentPresets[0]) return 12093;
+    if (!ResolveAccentPreset(L"SYSTEM") || ResolveAccentPreset(L"system") != &kAllAccentPresets[1]) return 12094;
+    if (!ResolveAccentPreset(L"#4cc9f0") || ResolveAccentPreset(L"#4CC9F0") != &kAllAccentPresets[2]) return 12095;
+    if (!ResolveAccentPreset(L"#e81123") || ResolveAccentPreset(L"#E81123") != &kAllAccentPresets[3]) return 12096;
+    if (ResolveAccentPreset(L"#123456_non_existent") != nullptr) return 12097;
+
     // 2. GameOverlayMode enum values
     if (static_cast<int>(GameOverlayMode::DashboardOnly) != 0) return 1210;
     if (static_cast<int>(GameOverlayMode::CollapsedHud) != 1) return 1211;

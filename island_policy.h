@@ -163,6 +163,39 @@ inline const PaletteDefinition* ResolveThemePalette(std::wstring_view id) {
     return nullptr;
 }
 
+// ── Shared Accent Color Presets ──────────────────────────────────────────
+struct AccentPresetDefinition {
+    const wchar_t* label;
+    const wchar_t* val;
+};
+
+inline constexpr AccentPresetDefinition kAllAccentPresets[] = {
+    {L"Auto (Match Album Art / System)", L"auto"},
+    {L"Windows System (Device Color)",   L"system"},
+    {L"Electric Cyan (#4CC9F0)",         L"#4CC9F0"},
+    {L"Crimson Red (#E81123)",           L"#E81123"},
+    {L"Vibrant Orange (#FF5722)",        L"#FF5722"},
+    {L"Amber Gold (#FFB900)",            L"#FFB900"},
+    {L"Emerald Green (#107C41)",         L"#107C41"},
+    {L"Royal Purple (#8E24AA)",          L"#8E24AA"},
+    {L"Hot Pink (#FF2D55)",              L"#FF2D55"},
+    {L"Pure White (#FFFFFF)",            L"#FFFFFF"},
+};
+
+inline const AccentPresetDefinition* ResolveAccentPreset(std::wstring_view val) {
+    auto iequals = [](std::wstring_view a, std::wstring_view b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (towlower(a[i]) != towlower(b[i])) return false;
+        }
+        return true;
+    };
+    for (const auto& preset : kAllAccentPresets) {
+        if (iequals(val, preset.val)) return &preset;
+    }
+    return nullptr;
+}
+
 // ── Active Dashboard Tab Calculation ──────────────────────────────────────
 inline int CalculateActiveTabCount(bool hasCalendar, bool hasWeather, bool hasHardware, bool hasFileTray, bool hasLyrics, bool hasQuickControls, bool hasGameOverlay = false) {
     int count = 1; // Primary tab (Clock or Media)

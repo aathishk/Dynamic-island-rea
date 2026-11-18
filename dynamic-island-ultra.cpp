@@ -853,7 +853,7 @@ namespace FileTrayLayout {
 
     // Distance from the content rect's right edge to the pager's right edge.
     constexpr float PagerRightInset() {
-        return kPadX + kClearBtnSize + kPasteBtnGap + kClearBtnSize + kPagerGapToPaste;
+        return kPadX + (kClearBtnSize + kPasteBtnGap) * 3.0f + kPagerGapToPaste;
     }
     constexpr float PagerWidth() { return kPagerBtnSize * 2.0f + kPagerLabelW; }
 
@@ -1823,7 +1823,8 @@ HANDLE g_mediaRefreshEvent = nullptr;              // wakes MediaThreadProc
 std::atomic<int> g_hoveredSourceSlot{-1};
 std::atomic<int> g_pressedSourceSlot{-1};
 std::atomic<int> g_hoveredFileTrayRow = -1;  // row index under the cursor on the File Tray card
-std::atomic<int> g_hoveredFileTrayAction = -1;  // -2 = bin, -3 = paste, -4 = previous page, -5 = next page, >=0 = cut button of that row
+std::atomic<int> g_hoveredFileTrayAction = -1;  // -2 = bin, -3 = paste, -4 = previous page, -5 = next page, -6 = zip, >=0 = cut button of that row
+inline std::atomic<bool> g_hoveredAudioBtn{false};
 std::atomic<int> g_fileTrayScroll{0};           // index of the first visible row (newest-first order)
 std::atomic<bool> g_fileTrayPagerOn{true};      // Modules.FileTrayNavigation: pager shown
 std::atomic<bool> g_fileTrayWheelOn{false};     // Modules.FileTrayNavigation: wheel scroll + scrollbar
@@ -2595,6 +2596,20 @@ bool FileTrayPasteHitTest(const MediaContentPoint& pt) {
            pt.y >= top - kSlop && pt.y <= bottom + kSlop;
 }
 
+// True when the point is over the zip button (left of paste) in the File Tray header.
+bool FileTrayZipHitTest(const MediaContentPoint& pt) {
+    if (!pt.valid || pt.height <= MediaLayout::kExpandedMinHeight) {
+        return false;
+    }
+    constexpr float kSlop = 3.0f;
+    const float right = pt.width - FileTrayLayout::kPadX - (FileTrayLayout::kClearBtnSize + FileTrayLayout::kPasteBtnGap) * 2.0f;
+    const float left = right - FileTrayLayout::kClearBtnSize;
+    const float top = FileTrayLayout::kClearBtnTop;
+    const float bottom = top + FileTrayLayout::kClearBtnSize;
+    return pt.x >= left - kSlop && pt.x <= right + kSlop &&
+           pt.y >= top - kSlop && pt.y <= bottom + kSlop;
+}
+
 // True when the point is over the cut button of the given visible row.
 bool FileTrayRemoveHitTest(const MediaContentPoint& pt, int row) {
     if (!pt.valid || row < 0 || pt.height <= MediaLayout::kExpandedMinHeight) {
@@ -2634,6 +2649,19 @@ bool MediaLyricsButtonHitTest(const MediaContentPoint& rawPt) {
         return false;
     }
     const float cx = pt.width - ImmersiveLayout::kBtnInsetRight - ImmersiveLayout::kBtnRadius;
+    const float reach = ImmersiveLayout::kBtnRadius + ImmersiveLayout::kBtnHitPad;
+    return std::fabs(pt.x - cx) <= reach &&
+           std::fabs(pt.y - MediaLayout::kControlsY) <= reach;
+}
+
+// True when the point is over the audio endpoint switcher button.
+bool MediaAudioSwitchHitTest(const MediaContentPoint& rawPt, bool hasLyrics) {
+    const MediaContentPoint pt = MediaPlayerZonePoint(rawPt);
+    if (!pt.valid || pt.height <= MediaLayout::kExpandedMinHeight) {
+        return false;
+    }
+    const float offset = hasLyrics ? (ImmersiveLayout::kBtnRadius * 2.0f + 8.0f) : 0.0f;
+    const float cx = pt.width - ImmersiveLayout::kBtnInsetRight - ImmersiveLayout::kBtnRadius - offset;
     const float reach = ImmersiveLayout::kBtnRadius + ImmersiveLayout::kBtnHitPad;
     return std::fabs(pt.x - cx) <= reach &&
            std::fabs(pt.y - MediaLayout::kControlsY) <= reach;
@@ -11393,6 +11421,7 @@ void OpenRelevantApp();
 void ToggleEndpointMute();
 void SeekMediaToTicks(int64_t targetTicks);
 void PasteIntoFileTray(HWND hwnd);
+void CompressTrayFilesToZip();
 void SaveFileTray();
 void LoadFileTray();
 
@@ -12080,6 +12109,7 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             WritePrivateProfileStringW(L"Settings", L"Themes.CustomAccentHex", preset.val, GetIniFilePath().c_str());
         }
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+        Wh_SetIntValue(kThemeValueName, -1);
         LoadSettings();
         g_layoutDirty = true;
         TriggerNudge();
@@ -12194,12 +12224,16 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             const bool nextVal = !g_pinnedExpanded.load();
             g_pinnedExpanded.store(nextVal);
             Wh_SetIntValue(L"PinnedExpanded", nextVal ? 1 : 0);
+            g_layoutDirty = true;
+            TriggerNudge();
             break;
         }
         case 3: {
             const bool nextVal = !g_gameOverlayPinned.load();
             g_gameOverlayPinned.store(nextVal);
             Wh_SetIntValue(L"GameOverlayPinned", nextVal ? 1 : 0);
+            g_layoutDirty = true;
+            TriggerNudge();
             break;
         }
         case 4:
@@ -12239,10 +12273,11 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             TriggerNudge();
             break;
         case 8:
-            WritePrivateProfileStringW(L"Settings", L"Themes.PillOpacity", L"16", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(L"Settings", L"Themes.PillOpacity", L"100", GetIniFilePath().c_str());
             WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             g_pillOpacityOverride.store(-1);
             Wh_SetIntValue(L"PillOpacityOverride", -1);
+            Wh_SetIntValue(kThemeValueName, -1);
             LoadSettings();
             g_layoutDirty = true;
             TriggerNudge();
@@ -12376,40 +12411,8 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             break;
         }
         case 44: {
-            // Compress all files currently staged in the File Tray to a single ZIP on Desktop
-            std::vector<std::wstring> paths;
-            {
-                std::lock_guard lock(g_stateMutex);
-                for (const auto& item : g_state.fileTrayItems) {
-                    if (!item.isText && !item.path.empty()) {
-                        paths.push_back(item.path);
-                    }
-                }
-            }
-            if (!paths.empty()) {
-                wchar_t desktop[MAX_PATH] = {};
-                if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, desktop))) {
-                    std::wstring zipPath = std::wstring(desktop) + L"\\DynamicIsland_Archive.zip";
-                    std::wstring cmdLine = L"tar.exe -a -c -f \"" + zipPath + L"\"";
-                    for (const auto& p : paths) {
-                        cmdLine += L" \"" + p + L"\"";
-                    }
-                    STARTUPINFOW si = { sizeof(si) };
-                    si.dwFlags = STARTF_USESHOWWINDOW;
-                    si.wShowWindow = SW_HIDE;
-                    PROCESS_INFORMATION pi = {};
-                    if (CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-                        CloseHandle(pi.hThread);
-                        CloseHandle(pi.hProcess);
-                        island_notification::NotificationItem nItem;
-                        nItem.title = L"File Tray ZIP";
-                        nItem.message = L"Compressed " + std::to_wstring(paths.size()) + L" files to Desktop archive!";
-                        nItem.category = island_notification::NotificationCategory::Application;
-                        nItem.durationMs = 4000;
-                        island_globals::g_notificationQueue.Enqueue(nItem);
-                    }
-                }
-            }
+            CompressTrayFilesToZip();
+            g_layoutDirty = true;
             break;
         }
     }
@@ -12495,8 +12498,10 @@ struct MarqueeLayoutCache {
 struct IdleStripMetrics {
     float clockWidth = 0.0f;
     float weatherWidth = 0.0f;
+    float aiWidth = 0.0f;
     bool hasWeather = false;
     bool hasPrivacy = false;
+    bool hasAi = true;
     float totalWidth = IdleStripLayout::kMinWidth;
 };
 
@@ -12941,6 +12946,11 @@ class Renderer {
             (state.system.cameraActive && settings.privacyDots && settings.privacyDotsCam);
 
         float total = IdleStripLayout::kPadX * 2.0f + metrics.clockWidth;
+        if (metrics.hasAi) {
+            metrics.aiWidth = 62.0f * (settings.sizeScale > 0.0f ? settings.sizeScale : 1.0f);
+            total += IdleStripLayout::kSlotGap * 2.0f + IdleStripLayout::kDividerWidth +
+                     metrics.aiWidth;
+        }
         if (metrics.hasWeather) {
             total += IdleStripLayout::kSlotGap * 2.0f + IdleStripLayout::kDividerWidth +
                      metrics.weatherWidth;
@@ -14994,6 +15004,34 @@ class Renderer {
         }
     }
 
+    // 1-Click ZIP button beside paste in the File Tray header.
+    void DrawTrayZipButton(D2D1_RECT_F box, bool active, bool hovered) {
+        const float s = box.right - box.left;
+        if (hovered && active) {
+            ComPtr<ID2D1SolidColorBrush> bg;
+            if (SUCCEEDED(target_->CreateSolidColorBrush(
+                    WithAlpha(material_.accent, 0.25f * settingsOpacity_), &bg)) && bg) {
+                target_->FillRoundedRectangle(D2D1::RoundedRect(box, s * 0.32f, s * 0.32f), bg.Get());
+            }
+        }
+
+        D2D1_COLOR_F ink = (hovered && active) ? material_.accent : (active ? currentAccent_ : material_.textSecondary);
+        ink.a *= (active ? settingsOpacity_ : settingsOpacity_ * 0.45f);
+        ComPtr<ID2D1SolidColorBrush> brush;
+        if (FAILED(target_->CreateSolidColorBrush(ink, &brush)) || !brush) {
+            return;
+        }
+
+        if (iconFormat_) {
+            iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            const wchar_t* glyph = usingFluentIcons_ ? L"\uE7B8" : L"\uE749"; // Zip archive glyph
+            target_->DrawTextW(glyph, 1, iconFormat_.Get(), box, brush.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+            iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        }
+    }
+
     // Little clipboard for the File Tray header: board, clip and two text lines.
     void DrawTrayPasteButton(D2D1_RECT_F box, bool hovered) {
         const float s = box.right - box.left;
@@ -15310,6 +15348,8 @@ class Renderer {
         const float pasteGap = FileTrayLayout::kPasteBtnGap * scale;
         const D2D1_RECT_F pasteBox = D2D1::RectF(clearBox.left - pasteGap - clearSize, clearTop,
                                                  clearBox.left - pasteGap, clearTop + clearSize);
+        const D2D1_RECT_F zipBox = D2D1::RectF(pasteBox.left - pasteGap - clearSize, clearTop,
+                                               pasteBox.left - pasteGap, clearTop + clearSize);
 
         if (total > 0 && smallTextFormat_) {
             wchar_t countBuf[48] = {};
@@ -15320,7 +15360,7 @@ class Renderer {
             const float countRight = pagerOn
                 ? rect.right - (FileTrayLayout::PagerRightInset() +
                                 FileTrayLayout::PagerWidth() + 8.0f) * scale
-                : pasteBox.left - 8.0f * scale;
+                : zipBox.left - 8.0f * scale;
             const D2D1_RECT_F countRect = D2D1::RectF(headerRect.left, headerRect.top,
                                                       countRight, headerRect.bottom);
             smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
@@ -15331,6 +15371,7 @@ class Renderer {
             smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
         }
 
+        DrawTrayZipButton(zipBox, total > 0, g_hoveredFileTrayAction.load(std::memory_order_relaxed) == -6);
         DrawTrayPasteButton(pasteBox, g_hoveredFileTrayAction.load(std::memory_order_relaxed) == -3);
         DrawTrayBinButton(clearBox, total > 0,
                           g_hoveredFileTrayAction.load(std::memory_order_relaxed) == -2);
@@ -16513,6 +16554,7 @@ class Renderer {
         if (!batStr.empty()) chips.push_back(batStr);
         if (!weatherStr.empty()) chips.push_back(weatherStr);
         chips.push_back(sysStr);
+        chips.push_back(L"\u2726 AI Ready");
 
         IDWriteTextFormat* chipFmt = smallTextFormat_ ? smallTextFormat_.Get() : textFormat_.Get();
         if (chipFmt && dwriteFactory_ && !chips.empty()) {
@@ -16720,6 +16762,11 @@ class Renderer {
                     rect.right - IdleStripLayout::kPadX * scale - privacyReserve;
 
                 float blockWidth = idleMetrics.clockWidth;
+                if (idleMetrics.hasAi) {
+                    blockWidth += (IdleStripLayout::kSlotGap * 2.0f +
+                                   IdleStripLayout::kDividerWidth) * scale +
+                                  idleMetrics.aiWidth;
+                }
                 if (idleMetrics.hasWeather) {
                     blockWidth += (IdleStripLayout::kSlotGap * 2.0f +
                                    IdleStripLayout::kDividerWidth) * scale +
@@ -16741,6 +16788,41 @@ class Renderer {
                 target_->DrawTextW(timeBuf, static_cast<UINT32>(wcslen(timeBuf)), idleFmt,
                                    timeRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
                 slotX += idleMetrics.clockWidth;
+
+                if (idleMetrics.hasAi) {
+                    slotX += IdleStripLayout::kSlotGap * scale;
+
+                    ComPtr<ID2D1SolidColorBrush> divider;
+                    target_->CreateSolidColorBrush(
+                        WithAlpha(material_.hairline, material_.hairline.a * settingsOpacity_),
+                        &divider);
+                    if (divider) {
+                        const float divW = IdleStripLayout::kDividerWidth * scale;
+                        const float divTop = rect.top + IdleStripLayout::kDividerInsetY * scale;
+                        const float divBottom = rect.bottom - IdleStripLayout::kDividerInsetY * scale;
+                        target_->FillRoundedRectangle(
+                            D2D1::RoundedRect(D2D1::RectF(slotX, divTop, slotX + divW, divBottom),
+                                              divW * 0.5f, divW * 0.5f), divider.Get());
+                    }
+                    slotX += (IdleStripLayout::kDividerWidth + IdleStripLayout::kSlotGap) * scale;
+
+                    const wchar_t* aiSparkle = L"\uE946";
+                    const float iconSize = 14.0f * scale;
+                    const D2D1_RECT_F aiIconRect = D2D1::RectF(slotX, rect.top, slotX + iconSize, rect.bottom);
+                    ID2D1SolidColorBrush* sparkBrush = accentBrush_ ? accentBrush_.Get() : textBrush_.Get();
+                    if (iconFormat_) {
+                        iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                        iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                        target_->DrawTextW(aiSparkle, 1, iconFormat_.Get(), aiIconRect, sparkBrush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+                        iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                        iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+                    }
+                    const float textLeft = slotX + iconSize + 3.0f * scale;
+                    const D2D1_RECT_F aiTextRect = D2D1::RectF(textLeft, rect.top, slotX + idleMetrics.aiWidth, rect.bottom);
+                    const wchar_t* aiLabel = L"AI Ready";
+                    target_->DrawTextW(aiLabel, static_cast<UINT32>(wcslen(aiLabel)), idleFmt, aiTextRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                    slotX += idleMetrics.aiWidth;
+                }
 
                 if (idleMetrics.hasWeather) {
                     slotX += IdleStripLayout::kSlotGap * scale;
@@ -17622,6 +17704,7 @@ class Renderer {
                 if (settings.mediaTabLyrics) {
                     DrawImmersiveLyricsButton(rect, immersiveMix);
                 }
+                DrawMediaAudioSwitcherButton(rect, settings.mediaTabLyrics);
                 target_->SetTransform(playerZoneOldTransform);
                 if (sideLyricsExtra > 1.0f) {
                     DrawMediaSideLyrics(state,
@@ -17944,6 +18027,31 @@ class Renderer {
         target_->DrawLine(D2D1::Point2F(c.x - 3.8f, c.y - 0.2f), D2D1::Point2F(c.x + 1.4f, c.y - 0.2f),
                           accentBrush_.Get(), 1.2f, st);
         accentBrush_->SetOpacity(1.0f);
+    }
+
+    // Audio endpoint switcher button (Dynamic Ledge 1.5.0 parity).
+    void DrawMediaAudioSwitcherButton(D2D1_RECT_F rect, bool hasLyrics) {
+        const float r = ImmersiveLayout::kBtnRadius;
+        const float offset = hasLyrics ? (r * 2.0f + 8.0f) : 0.0f;
+        const D2D1_POINT_2F c = D2D1::Point2F(rect.right - ImmersiveLayout::kBtnInsetRight - r - offset,
+                                              rect.top + MediaLayout::kControlsY);
+        const bool hovered = g_hoveredAudioBtn.load(std::memory_order_relaxed);
+
+        const D2D1_COLOR_F bgCol = D2D1::ColorF(1.0f, 1.0f, 1.0f, hovered ? 0.12f : 0.05f);
+        if (ID2D1SolidColorBrush* bg = AcquireBrush(bgCol)) {
+            target_->FillEllipse(D2D1::Ellipse(c, r, r), bg);
+        }
+
+        ID2D1SolidColorBrush* brush = hovered ? (accentBrush_ ? accentBrush_.Get() : textBrush_.Get()) : textBrush_.Get();
+        if (iconFormat_) {
+            iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            const D2D1_RECT_F iconBox = D2D1::RectF(c.x - r, c.y - r, c.x + r, c.y + r);
+            const wchar_t* glyph = usingFluentIcons_ ? L"\uE7F6" : L"\uE767"; // Speaker glyph
+            target_->DrawTextW(glyph, 1, iconFormat_.Get(), iconBox, brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+            iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        }
     }
 
     void EnsureImmersiveFormat(const Settings& settings) {
@@ -23223,6 +23331,42 @@ void PasteIntoFileTray(HWND hwnd) {
     TriggerNudge();
 }
 
+void CompressTrayFilesToZip() {
+    std::vector<std::wstring> paths;
+    {
+        std::lock_guard lock(g_stateMutex);
+        for (const auto& item : g_state.fileTrayItems) {
+            if (!item.isText && !item.path.empty()) {
+                paths.push_back(item.path);
+            }
+        }
+    }
+    if (!paths.empty()) {
+        wchar_t desktop[MAX_PATH] = {};
+        if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, desktop))) {
+            std::wstring zipPath = std::wstring(desktop) + L"\\DynamicIsland_Archive.zip";
+            std::wstring cmdLine = L"tar.exe -a -c -f \"" + zipPath + L"\"";
+            for (const auto& p : paths) {
+                cmdLine += L" \"" + p + L"\"";
+            }
+            STARTUPINFOW si = { sizeof(si) };
+            si.dwFlags = STARTF_USESHOWWINDOW;
+            si.wShowWindow = SW_HIDE;
+            PROCESS_INFORMATION pi = {};
+            if (CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+                island_notification::NotificationItem nItem;
+                nItem.title = L"File Tray ZIP";
+                nItem.message = L"Compressed " + std::to_wstring(paths.size()) + L" files to Desktop archive!";
+                nItem.category = island_notification::NotificationCategory::Application;
+                nItem.durationMs = 4000;
+                island_globals::g_notificationQueue.Enqueue(nItem);
+            }
+        }
+    }
+}
+
 DWORD PickTrayDropEffect(DWORD allowed) {
     // The tray only references files, so never ask the source to move them.
     if (allowed & DROPEFFECT_COPY) return DROPEFFECT_COPY;
@@ -23835,31 +23979,39 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (wParam == 0x8000 || wParam == 0x8004) {
                 bool arrived = (wParam == 0x8000);
                 std::wstring devName;
-                bool isBt = false;
+                bool shouldAlert = false;
 
                 if (lParam) {
                     auto* hdr = reinterpret_cast<DEV_BROADCAST_HDR*>(lParam);
                     if (hdr->dbch_devicetype == DBT_DEVTYP_VOLUME) {
                         devName = L"USB Drive";
+                        shouldAlert = true;
                     } else if (hdr->dbch_devicetype == DBT_DEVTYP_PORT) {
-                        devName = L"COM Device";
-                    } else {
-                        // Generic/Bluetooth OEM
-                        isBt = true;
-                        devName = L"Bluetooth Device";
+                        devName = L"Serial Port Device";
+                        shouldAlert = true;
+                    } else if (hdr->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
+                        auto* di = reinterpret_cast<DEV_BROADCAST_DEVICEINTERFACE_W*>(lParam);
+                        std::wstring diName = (di && di->dbcc_name) ? di->dbcc_name : L"";
+                        // Filter out Bluetooth virtual interfaces; WinRT BluetoothWatcher handles actual Bluetooth!
+                        if (diName.find(L"BTH") == std::wstring::npos && diName.find(L"bth") == std::wstring::npos) {
+                            if (diName.find(L"USB") != std::wstring::npos || diName.find(L"usb") != std::wstring::npos) {
+                                devName = L"USB Device";
+                                shouldAlert = true;
+                            }
+                        }
                     }
                 }
 
-                {
+                if (shouldAlert) {
                     std::lock_guard lock(g_stateMutex);
                     g_state.device.active = true;
                     g_state.device.eventType = arrived ? DeviceEventType::Connected
                                                        : DeviceEventType::Disconnected;
                     g_state.device.deviceName = devName;
-                    g_state.device.isBluetoothLike = isBt;
+                    g_state.device.isBluetoothLike = false;
                     g_state.device.expiresAt = NowSeconds() + 3.0;
+                    TriggerNudge();
                 }
-                TriggerNudge();
             }
             return 0;
         }
@@ -23989,7 +24141,8 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                                                MediaTransportHitTest(cp) != -1 ||
                                                MediaScrubFractionFromContent(cp) >= 0.0f ||
                                                g_hoveredSourceSlot.load(std::memory_order_relaxed) >= 0 ||
-                                               (g_settings.mediaTabLyrics && MediaLyricsButtonHitTest(cp));
+                                               (g_settings.mediaTabLyrics && MediaLyricsButtonHitTest(cp)) ||
+                                               MediaAudioSwitchHitTest(cp, g_settings.mediaTabLyrics);
                     if (hoverClickable) {
                         SetCursor(LoadCursorW(nullptr, IDC_HAND));
                         return TRUE;
@@ -24213,10 +24366,18 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             {
                 bool onLyricsBtn = false;
-                if (g_settings.mediaTabLyrics && mediaActive && currentTab == MediaTabIndex(g_settings)) {
-                    onLyricsBtn = MediaLyricsButtonHitTest(MediaContentFromClient(xPos, yPos));
+                bool onAudioBtn = false;
+                if (mediaActive && currentTab == MediaTabIndex(g_settings)) {
+                    const MediaContentPoint mcp = MediaContentFromClient(xPos, yPos);
+                    if (g_settings.mediaTabLyrics) {
+                        onLyricsBtn = MediaLyricsButtonHitTest(mcp);
+                    }
+                    onAudioBtn = MediaAudioSwitchHitTest(mcp, g_settings.mediaTabLyrics);
                 }
                 if (g_hoveredLyricsBtn.exchange(onLyricsBtn) != onLyricsBtn) {
+                    g_layoutDirty = true;
+                }
+                if (g_hoveredAudioBtn.exchange(onAudioBtn) != onAudioBtn) {
                     g_layoutDirty = true;
                 }
             }
@@ -24237,6 +24398,8 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     hoveredAction = -2;
                 } else if (FileTrayPasteHitTest(trayPt)) {
                     hoveredAction = -3;
+                } else if (trayCount > 0 && FileTrayZipHitTest(trayPt)) {
+                    hoveredAction = -6;
                 } else if (pagerHit >= 0) {
                     hoveredAction = pagerHit == 0 ? -4 : -5;
                 } else if (hoveredRow >= 0 && FileTrayRemoveHitTest(trayPt, hoveredRow)) {
@@ -24277,6 +24440,9 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 g_layoutDirty = true;
             }
             if (g_hoveredLyricsBtn.exchange(false)) {
+                g_layoutDirty = true;
+            }
+            if (g_hoveredAudioBtn.exchange(false)) {
                 g_layoutDirty = true;
             }
             s_trayPressActive = false;
@@ -24435,6 +24601,12 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                         return 0;
                     }
 
+                    if (FileTrayZipHitTest(cp)) {
+                        CompressTrayFilesToZip();
+                        g_layoutDirty = true;
+                        return 0;
+                    }
+
                     std::wstring toOpen;
                     std::wstring toCopy;
                     bool changed = false;
@@ -24512,6 +24684,12 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                         return 0;
                     }
 
+                    if (MediaAudioSwitchHitTest(cp, g_settings.mediaTabLyrics)) {
+                        island_controls::ExecuteControlAction(island_controls::ControlAction::SwitchAudioOutput, hwnd);
+                        g_layoutDirty = true;
+                        return 0;
+                    }
+
                     const int cmd = MediaTransportHitTest(cp);
                     if (cmd != -1) {
                         if (cmd == 0) g_skipTriggerPrev.fetch_add(1);
@@ -24551,7 +24729,14 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     }
                 } else {
                     if (height > 50.0f) {
-                        if (mediaActive) {
+                        if (sAct == GestureAction::ExpandCollapse) {
+                            g_pinnedExpanded.store(false);
+                            g_clickExpanded.store(false);
+                            Wh_SetIntValue(L"PinnedExpanded", 0);
+                            g_layoutDirty = true;
+                            TriggerNudge();
+                            return 0;
+                        } else if (mediaActive) {
                             if (currentTab == MediaTabIndex(g_settings)) {
                                 OpenRelevantApp();
                             }

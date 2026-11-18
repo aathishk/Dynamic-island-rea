@@ -834,14 +834,24 @@ inline void PopulateProfilesCombo(HWND cb) {
 }
 
 inline void LoadValuesIntoUi() {
-    auto selectCombo = [](HWND cb, const SettingOption* opts, size_t count, const std::wstring& current) {
+    auto selectCombo = [](HWND cb, const SettingOption* opts, size_t count, const std::wstring& current, size_t defaultIdx = 0) {
         for (size_t i = 0; i < count; ++i) {
             if (_wcsicmp(current.c_str(), opts[i].val) == 0) {
                 SendMessageW(cb, CB_SETCURSEL, i, 0);
                 return;
             }
         }
-        SendMessageW(cb, CB_SETCURSEL, 0, 0);
+        // Floating point scale tolerance matching (e.g. "1.00" vs "1.0")
+        try {
+            float curF = std::stof(current);
+            for (size_t i = 0; i < count; ++i) {
+                if (std::fabs(curF - std::stof(opts[i].val)) < 0.05f) {
+                    SendMessageW(cb, CB_SETCURSEL, i, 0);
+                    return;
+                }
+            }
+        } catch (...) {}
+        SendMessageW(cb, CB_SETCURSEL, defaultIdx < count ? defaultIdx : 0, 0);
     };
 
     PopulateProfilesCombo(hComboActiveProfile);
@@ -865,8 +875,8 @@ inline void LoadValuesIntoUi() {
         }
     }
     selectCombo(hComboAnim, kAnimOptions, ARRAYSIZE(kAnimOptions), ReadIniString(L"Settings", L"Animations.AnimationStyle", L"applespring"));
-    selectCombo(hComboScale, kScaleOptions, ARRAYSIZE(kScaleOptions), ReadIniString(L"Settings", L"Appearance.SizeScale", L"1.0"));
-    selectCombo(hComboOpacity, kOpacityOptions, ARRAYSIZE(kOpacityOptions), ReadIniString(L"Settings", L"Themes.PillOpacity", L"16"));
+    selectCombo(hComboScale, kScaleOptions, ARRAYSIZE(kScaleOptions), ReadIniString(L"Settings", L"Appearance.SizeScale", L"1.0"), 2); // default 1.0 (Standard)
+    selectCombo(hComboOpacity, kOpacityOptions, ARRAYSIZE(kOpacityOptions), ReadIniString(L"Settings", L"Themes.PillOpacity", L"100"), 0); // default 100% (Solid)
 
     SendMessageW(hChkRealGlass, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.RealLiquidGlass", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkBloom, BM_SETCHECK, ReadIniInt(L"Settings", L"Themes.MaterialDepth", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -1055,6 +1065,7 @@ inline void SaveValuesFromUi(HWND hwnd) {
     Wh_SetIntValue(L"BladeStyleOverride", -1);
     Wh_SetIntValue(L"PillOpacityOverride", -1);
     Wh_SetIntValue(L"ExpandOnHoverOverride", -1);
+    Wh_SetIntValue(L"ColorThemeV2", -1);
 
     // Instantly notify live Dynamic Island overlay
     LoadSettings();

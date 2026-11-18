@@ -676,7 +676,6 @@ We love community contributions! To ensure high-quality updates, please follow t
 #include "gesture_manager.h"
 #include "island_layout.h"
 #include "island_alpha.h"
-#include "ai_usage_reader.h"
 
 namespace island_globals {
     inline island_context::ContextEngine g_contextEngine;
@@ -721,8 +720,8 @@ constexpr UINT kClipboardImageThumbMaxDim = 160;  // longer-side cap for the cli
 // that same content space (see MediaContentFromClient), so both sides read the
 // constants below and cannot drift apart.
 namespace MediaLayout {
-    constexpr float kExpandedWidth = 440.0f;
-    constexpr float kExpandedHeight = 196.0f;
+    constexpr float kExpandedWidth = 410.0f;
+    constexpr float kExpandedHeight = 210.0f;
 
     // Extra width added on the right of the expanded media tab when "Lyrics in the
     // media tab" is on. The normal 380px player is left untouched.
@@ -14330,17 +14329,11 @@ class Renderer {
             FillAccentBloom(rect, radius, bloom * settings.accentBloom);
         }
 
-        // ── 4. Polished Glass Hairline Bevel Rim (Dual-Tone Glass Edge) ────────
-        // Razor-sharp 1.0px antialiased glass edge defining the capsule against any background
+        // ── 4. Polished Glass Hairline Bevel Rim (Dual-Tone Neutral Glass Edge) ────────
+        // Crisp 0.5px-1.0px neutral glass specular edge defining the capsule against any background
         if (settings.contourBorderMode != ContourBorderMode::Borderless && settings.contourBorderEnabled) {
-            D2D1_COLOR_F topEdge = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.32f);
-            D2D1_COLOR_F btmEdge = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f);
-
-            if (currentAccent_.a > 0.0f) {
-                topEdge.r = (topEdge.r + currentAccent_.r * 0.6f) / 1.6f;
-                topEdge.g = (topEdge.g + currentAccent_.g * 0.6f) / 1.6f;
-                topEdge.b = (topEdge.b + currentAccent_.b * 0.6f) / 1.6f;
-            }
+            const D2D1_COLOR_F topEdge = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
+            const D2D1_COLOR_F btmEdge = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.04f);
 
             const D2D1_GRADIENT_STOP kBorderStops[2] = {
                 {0.0f, topEdge},
@@ -16618,42 +16611,14 @@ class Renderer {
 
         const float clockCenterY = (dateFirst ? midY : topY) + timeH * 0.5f;
 
-        // 1. Radial glow with accent color centered on the clock
-        if (settings.clockAccentGlow) {
-            D2D1_COLOR_F accentColor = accentBrush_ ? accentBrush_->GetColor() : D2D1::ColorF(0x4cc9f0);
-            D2D1_GRADIENT_STOP stops[2] = {
-                {0.0f, D2D1::ColorF(accentColor.r, accentColor.g, accentColor.b, 0.22f)},
-                {1.0f, D2D1::ColorF(accentColor.r, accentColor.g, accentColor.b, 0.0f)},
-            };
-            ComPtr<ID2D1GradientStopCollection> glowStops;
-            target_->CreateGradientStopCollection(stops, 2, &glowStops);
-            if (glowStops) {
-                const D2D1_POINT_2F glowCenter = D2D1::Point2F(cx, clockCenterY);
-                ComPtr<ID2D1RadialGradientBrush> glowBrush;
-                target_->CreateRadialGradientBrush(
-                    D2D1::RadialGradientBrushProperties(glowCenter, D2D1::Point2F(0, 0),
-                                                         160.0f * scale, 75.0f * scale),
-                    glowStops.Get(), &glowBrush);
-                if (glowBrush) {
-                    target_->FillEllipse(D2D1::Ellipse(glowCenter, 160.0f * scale, 75.0f * scale), glowBrush.Get());
-                }
-            }
-        }
-
-        // 2. Draw Date and Clock with DirectWrite layouts (Zero vertical overlap!)
+        // 1. Clean Apple Typography Hierarchy: Pure white clock, refined neutral date
         const D2D1_POINT_2F topOrigin = D2D1::Point2F(rect.left + 16.0f * scale, topY);
         const D2D1_POINT_2F midOrigin = D2D1::Point2F(rect.left + 16.0f * scale, midY);
 
         if (dateFirst) {
             if (dateLayout) {
-                if (accentBrush_) {
-                    accentBrush_->SetOpacity(0.92f);
-                    target_->DrawTextLayout(topOrigin, dateLayout.Get(), accentBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-                    accentBrush_->SetOpacity(1.0f);
-                } else {
-                    mutedBrush_->SetOpacity(0.85f);
-                    target_->DrawTextLayout(topOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-                }
+                mutedBrush_->SetOpacity(0.80f);
+                target_->DrawTextLayout(topOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
             if (timeLayout) {
                 textBrush_->SetOpacity(0.98f);
@@ -16665,21 +16630,15 @@ class Renderer {
                 target_->DrawTextLayout(topOrigin, timeLayout.Get(), textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
             if (dateLayout) {
-                if (accentBrush_) {
-                    accentBrush_->SetOpacity(0.92f);
-                    target_->DrawTextLayout(midOrigin, dateLayout.Get(), accentBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-                    accentBrush_->SetOpacity(1.0f);
-                } else {
-                    mutedBrush_->SetOpacity(0.85f);
-                    target_->DrawTextLayout(midOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-                }
+                mutedBrush_->SetOpacity(0.80f);
+                target_->DrawTextLayout(midOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
         }
 
-        // 3. Status Chips row with DirectWrite measurement and ellipsis trimming
+        // 2. Status Chips row with DirectWrite measurement and frosted Apple glass styling
         std::wstring batStr = L"";
         if (state.battery.active || settings.battery) {
-            batStr = (state.battery.charging ? L"⚡ " : L"🔋 ") + std::to_wstring(state.battery.percent) + L"%";
+            batStr = (state.battery.charging ? L"⚡ " : L"") + std::to_wstring(state.battery.percent) + L"%";
         }
 
         std::wstring weatherStr = L"";
@@ -16696,7 +16655,7 @@ class Renderer {
         }
 
         wchar_t sysBuf[48] = {};
-        swprintf_s(sysBuf, L"CPU %d%%  RAM %.0f%%", state.system.cpuPercent, state.system.memoryPercent);
+        swprintf_s(sysBuf, L"CPU %d%% · RAM %.0f%%", state.system.cpuPercent, state.system.memoryPercent);
         std::wstring sysStr = sysBuf;
 
         std::vector<std::wstring> chips;
@@ -16733,11 +16692,11 @@ class Renderer {
 
             float chipX = cx - totalRowW * 0.5f;
 
-            // Frosted chip background and subtle stroke
-            D2D1_COLOR_F chipBgColor = D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.92f);
+            // Frosted Apple chip background and subtle monochrome hairline stroke
+            D2D1_COLOR_F chipBgColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f);
             ComPtr<ID2D1SolidColorBrush> chipBgBrush;
             target_->CreateSolidColorBrush(chipBgColor, &chipBgBrush);
-            D2D1_COLOR_F chipStrokeColor = WithAlpha(currentAccent_, 0.40f);
+            D2D1_COLOR_F chipStrokeColor = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.07f);
             ComPtr<ID2D1SolidColorBrush> chipStrokeBrush;
             target_->CreateSolidColorBrush(chipStrokeColor, &chipStrokeBrush);
 

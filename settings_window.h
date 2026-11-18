@@ -105,7 +105,15 @@ inline const SettingOption kDefaultDashOptions[] = {
 enum CtrlId : int {
     ID_TAB = 2000,
 
-    // Page 0: Appearance
+    // Page 0: Appearance Segmented Pills & Controls
+    ID_BTN_SHAPE_PILL = 2100,
+    ID_BTN_SHAPE_NOTCH,
+    ID_BTN_SHAPE_W11,
+    ID_BTN_SHAPE_BLADE,
+    ID_BTN_THEME_OBSIDIAN,
+    ID_BTN_THEME_GLASS,
+    ID_BTN_THEME_GRAPHITE,
+    ID_BTN_THEME_SLATE,
     ID_COMBO_SHAPE,
     ID_COMBO_THEME,
     ID_COMBO_ACCENT,
@@ -657,25 +665,37 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             };
 
             // ── PAGE 0: Appearance ──────────────────────────────────────────────
-            makeLabel(32, 64, 150, 20, L"Island Shape Style:", 0);
-            hComboShape = makeCombo(190, 60, 400, 200, ID_COMBO_SHAPE, kShapeOptions, ARRAYSIZE(kShapeOptions), 0);
+            makeLabel(32, 60, 150, 20, L"Shape Selection:", 0, true);
+            makeBtn(190, 56, 96, 28, ID_BTN_SHAPE_PILL, L"💊 iPhone Pill", 0);
+            makeBtn(292, 56, 102, 28, ID_BTN_SHAPE_NOTCH, L"💻 macOS Notch", 0);
+            makeBtn(400, 56, 96, 28, ID_BTN_SHAPE_W11, L"🪟 Windows 11", 0);
+            makeBtn(502, 56, 96, 28, ID_BTN_SHAPE_BLADE, L"⚡ Edge Blade", 0);
 
-            makeLabel(32, 102, 150, 20, L"Theme Palette:", 0);
-            hComboTheme = makeCombo(190, 98, 400, 220, ID_COMBO_THEME, kThemeOptions, ARRAYSIZE(kThemeOptions), 0);
+            makeLabel(32, 94, 150, 20, L"Theme Preset:", 0, true);
+            makeBtn(190, 90, 96, 28, ID_BTN_THEME_OBSIDIAN, L"🌑 Obsidian", 0);
+            makeBtn(292, 90, 102, 28, ID_BTN_THEME_GLASS, L"💎 Liquid Glass", 0);
+            makeBtn(400, 90, 96, 28, ID_BTN_THEME_GRAPHITE, L"🩶 Graphite", 0);
+            makeBtn(502, 90, 96, 28, ID_BTN_THEME_SLATE, L"🌊 Slate Blue", 0);
 
-            makeLabel(32, 140, 150, 20, L"Accent Color:", 0);
-            hComboAccent = makeCombo(190, 136, 400, 220, ID_COMBO_ACCENT, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions), 0);
+            makeLabel(32, 130, 150, 20, L"Accent Color:", 0);
+            hComboAccent = makeCombo(190, 126, 408, 220, ID_COMBO_ACCENT, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions), 0);
 
-            makeLabel(32, 178, 150, 20, L"Size Scale:", 0);
-            hComboScale = makeCombo(190, 174, 400, 180, ID_COMBO_SCALE, kScaleOptions, ARRAYSIZE(kScaleOptions), 0);
+            makeLabel(32, 166, 150, 20, L"Size Scale:", 0);
+            hComboScale = makeCombo(190, 162, 408, 180, ID_COMBO_SCALE, kScaleOptions, ARRAYSIZE(kScaleOptions), 0);
 
-            makeLabel(32, 216, 150, 20, L"Animation Physics:", 0);
-            hComboAnim = makeCombo(190, 212, 400, 160, ID_COMBO_ANIM, kAnimOptions, ARRAYSIZE(kAnimOptions), 0);
+            makeLabel(32, 202, 150, 20, L"Animation Physics:", 0);
+            hComboAnim = makeCombo(190, 198, 408, 160, ID_COMBO_ANIM, kAnimOptions, ARRAYSIZE(kAnimOptions), 0);
 
-            hChkRealGlass = makeCheck(32, 258, 560, 24, ID_CHK_REAL_GLASS, L"💎 Optical Backdrop Blur & Liquid Glass Refraction", 0);
-            hChkBloom = makeCheck(32, 288, 560, 24, ID_CHK_BLOOM, L"🎵 Dynamic Album Art & Accent Glow (Glass tint washes with music)", 0);
-            hChkShadow = makeCheck(32, 318, 560, 24, ID_CHK_SHADOW, L"🌑 Soft Curved Ambient Drop Shadow", 0);
-            hChkBorder = makeCheck(32, 348, 560, 24, ID_CHK_BORDER, L"✨ Specular Hairline Contour Rim", 0);
+            hChkRealGlass = makeCheck(32, 240, 560, 24, ID_CHK_REAL_GLASS, L"💎 Real Liquid Glass Backdrop (Optical Refraction & Blur)", 0);
+            hChkBloom = makeCheck(32, 268, 560, 24, ID_CHK_BLOOM, L"🎵 Dynamic Album Art Bloom (Reactive glass tint washes with music)", 0);
+            hChkShadow = makeCheck(32, 296, 560, 24, ID_CHK_SHADOW, L"🌑 Soft Curved Ambient Drop Shadow", 0);
+            hChkBorder = makeCheck(32, 324, 560, 24, ID_CHK_BORDER, L"✨ Specular Hairline Contour Rim", 0);
+
+            // Synchronized comboboxes maintained for background data binding
+            hComboShape = makeCombo(0, 0, 0, 0, ID_COMBO_SHAPE, kShapeOptions, ARRAYSIZE(kShapeOptions), 0);
+            ShowWindow(hComboShape, SW_HIDE);
+            hComboTheme = makeCombo(0, 0, 0, 0, ID_COMBO_THEME, kThemeOptions, ARRAYSIZE(kThemeOptions), 0);
+            ShowWindow(hComboTheme, SW_HIDE);
 
             // ── PAGE 1: Behavior ────────────────────────────────────────────────
             makeLabel(32, 64, 160, 20, L"Interaction Mode:", 1);
@@ -746,7 +766,44 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
         case WM_COMMAND: {
             int id = LOWORD(wParam);
-            if (id == ID_BTN_APPLY) {
+            WORD code = HIWORD(wParam);
+
+            if (id == ID_BTN_SHAPE_PILL) {
+                if (hComboShape) SendMessageW(hComboShape, CB_SETCURSEL, 0, 0);
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ iPhone Pill capsule applied live!");
+            } else if (id == ID_BTN_SHAPE_NOTCH) {
+                if (hComboShape) SendMessageW(hComboShape, CB_SETCURSEL, 1, 0);
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ macOS Notch applied live!");
+            } else if (id == ID_BTN_SHAPE_W11) {
+                if (hComboShape) SendMessageW(hComboShape, CB_SETCURSEL, 2, 0);
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ Windows 11 Fluent flyout applied live!");
+            } else if (id == ID_BTN_SHAPE_BLADE) {
+                if (hComboShape) SendMessageW(hComboShape, CB_SETCURSEL, 3, 0);
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ Edge Blade cyber visor applied live!");
+            } else if (id == ID_BTN_THEME_OBSIDIAN) {
+                if (hComboTheme) SendMessageW(hComboTheme, CB_SETCURSEL, 0, 0);
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ Obsidian OLED theme applied live!");
+            } else if (id == ID_BTN_THEME_GLASS) {
+                if (hComboTheme) SendMessageW(hComboTheme, CB_SETCURSEL, 1, 0);
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ Liquid Glass theme applied live!");
+            } else if (id == ID_BTN_THEME_GRAPHITE) {
+                if (hComboTheme) SendMessageW(hComboTheme, CB_SETCURSEL, 2, 0);
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ Graphite Fluent theme applied live!");
+            } else if (id == ID_BTN_THEME_SLATE) {
+                if (hComboTheme) SendMessageW(hComboTheme, CB_SETCURSEL, 3, 0);
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ Slate Midnight theme applied live!");
+            } else if (code == CBN_SELCHANGE || (code == BN_CLICKED && id >= ID_CHK_REAL_GLASS && id <= ID_CHK_MOD_LOOKUP)) {
+                SaveValuesFromUi(hwnd);
+                if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ Applied live to Island");
+            } else if (id == ID_BTN_APPLY) {
                 SaveValuesFromUi(hwnd);
                 if (hLblStatus) SetWindowTextW(hLblStatus, L"✓ Saved & applied successfully!");
             } else if (id == ID_BTN_RESET_DEFAULTS) {

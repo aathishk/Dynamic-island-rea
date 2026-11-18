@@ -32,7 +32,6 @@
 #include "gesture_manager.h"
 #include "island_layout.h"
 #include "island_alpha.h"
-#include "ai_usage_reader.h"
 
 struct StressProducerData {
     island_notification::NotificationQueue* q;
@@ -1687,11 +1686,37 @@ int wmain(int argc, wchar_t** argv) {
     int r12 = RunNavigationMatrixAndThemeResolutionTest();
     if (r12 != 0) { printf("FAIL: Navigation matrix & theme resolution self-test failed: %d\n", r12); return r12; }
 
-    auto ai = island_ai::AiUsageReader::GetCurrentMetrics();
-    if (ai.maxContextTokens <= 0) { printf("FAIL: AiUsage maxContextTokens invalid\n"); return 1301; }
-    if (ai.percentRemaining < 0.0f || ai.percentRemaining > 100.0f) { printf("FAIL: AiUsage percentRemaining invalid\n"); return 1302; }
+    // Suite 13: Shape & Layout Parity Test (Apple HIG, uniform 410x210 frame, squircle & notch metrics)
+    {
+        using namespace island_layout;
+        // Verify all expanded dashboard pages maintain strict uniform 410 x 210 frame
+        DashboardPageId pages[] = {
+            DashboardPageId::Overview, DashboardPageId::Media, DashboardPageId::Calendar,
+            DashboardPageId::Weather, DashboardPageId::HardwareMonitor, DashboardPageId::FileTray,
+            DashboardPageId::Lyrics, DashboardPageId::QuickControls, DashboardPageId::GameOverlay
+        };
+        for (auto pid : pages) {
+            auto d = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, pid);
+            if (std::fabs(d.width - 410.0f) > 0.01f || std::fabs(d.height - 210.0f) > 0.01f) {
+                printf("FAIL: Dashboard page %d failed uniform 410x210 dimension check: w=%.1f h=%.1f\n", static_cast<int>(pid), d.width, d.height);
+                return 1301;
+            }
+        }
+        auto qd = CalculateAdaptiveDimensions(IslandPresentationState::QuickControlGrid, 1.0f, 1.0f, DashboardPageId::QuickControls);
+        if (std::fabs(qd.width - 410.0f) > 0.01f || std::fabs(qd.height - 210.0f) > 0.01f) {
+            printf("FAIL: QuickControls failed uniform 410x210 dimension check: w=%.1f h=%.1f\n", qd.width, qd.height);
+            return 1302;
+        }
 
-    printf("SUCCESS: All 13 production unit & regression test suites passed (launchers, opacity, bluetooth, classification, shutdown, profiles, context, notifications, performance, clipboard/timer, gestures/layout, navigation/themes, ai-usage)!\n");
+        // Verify Overview hierarchy enforces >= 14px clock-to-chip separation
+        auto m = CalculateOverviewLayoutMetrics(0.0f, 210.0f, 1.0f, 18.0f, 56.0f, true, false);
+        if (m.clockToChipSeparation < 14.0f) {
+            printf("FAIL: Overview layout clockToChipSeparation < 14px: %.1f\n", m.clockToChipSeparation);
+            return 1303;
+        }
+    }
+
+    printf("SUCCESS: All 13 production unit & regression test suites passed (launchers, opacity, bluetooth, classification, shutdown, profiles, context, notifications, performance, clipboard/timer, gestures/layout, navigation/themes, shape-layout-parity)!\n");
     return 0;
 }
 

@@ -737,6 +737,10 @@ int RunNotificationPolicyTest() {
         if (SafeCategoryFromInt(-1) != NotificationCategory::GeneralStatus) return 740;
         if (SafeCategoryFromInt(99) != NotificationCategory::GeneralStatus) return 741;
         if (SafeCategoryFromInt(1) != NotificationCategory::Battery) return 742;
+        if (SafeCategoryFromInt(static_cast<int>(NotificationCategory::AiAgent)) != NotificationCategory::AiAgent) return 7421;
+        if (ClassifyNotification(L"Claude Code", L"Task completed") != NotificationCategory::AiAgent) return 7422;
+        if (ClassifyNotification(L"Antigravity", L"Build succeeded") != NotificationCategory::AiAgent) return 7423;
+        if (DeterminePriority(NotificationCategory::AiAgent) != NotificationPriority::Critical) return 7424;
         if (SafePriorityFromInt(-1) != NotificationPriority::Normal) return 743;
         if (SafePriorityFromInt(50) != NotificationPriority::Normal) return 744;
         if (SafePriorityFromInt(2) != NotificationPriority::Critical) return 745;

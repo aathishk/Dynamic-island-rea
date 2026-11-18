@@ -25,6 +25,11 @@ enum class ControlAction {
     ToggleGamingMode,
     TogglePresentationMode,
     OpenDynamicEdgeSettings,
+    LockPc,
+    SleepPc,
+    RestartPc,
+    ShutdownPc,
+    SwitchAudioOutput,
 };
 
 struct ControlTile {
@@ -36,17 +41,17 @@ struct ControlTile {
 
 inline std::vector<ControlTile> GetStandardControlTiles() {
     return {
-        {ControlAction::OpenSoundSettings, L"Sound Output", L"Open Sound & Audio devices", L"\uE767"},
+        {ControlAction::OpenSoundSettings, L"Sound Output", L"Switch playback device & volume", L"\uE767"},
         {ControlAction::OpenDisplaySettings, L"Display & Brightness", L"Adjust display settings", L"\uE706"},
         {ControlAction::OpenWifiSettings, L"Network & Wi-Fi", L"Wi-Fi networks and status", L"\uE701"},
         {ControlAction::OpenBluetoothSettings, L"Bluetooth", L"Bluetooth & device pairing", L"\uE702"},
-        {ControlAction::OpenPowerSettings, L"Power & Battery", L"Power modes and battery saver", L"\uE83E"},
-        {ControlAction::OpenNightLightSettings, L"Night Light", L"Blue light filter & schedule", L"\uE708"},
+        {ControlAction::LockPc, L"Lock PC", L"Lock workstation immediately", L"\uE72E"},
+        {ControlAction::SleepPc, L"Sleep", L"Put computer to sleep", L"\uE708"},
         {ControlAction::LaunchScreenClip, L"Screen Snipping", L"Capture screenshot (Win+Shift+S)", L"\uE722"},
         {ControlAction::OpenTaskManager, L"Task Manager", L"Monitor processes & performance", L"\uE7F4"},
         {ControlAction::ToggleFocusMode, L"Focus Mode", L"Silence alerts and start session", L"\uE7C1"},
         {ControlAction::ToggleGamingMode, L"Gaming Mode", L"Suppress popups & throttle effects", L"\uE7FC"},
-        {ControlAction::TogglePresentationMode, L"Presentation", L"Hide personal cards on screen", L"\uE7F4"},
+        {ControlAction::RestartPc, L"Restart PC", L"Reboot Windows cleanly", L"\uE777"},
         {ControlAction::OpenDynamicEdgeSettings, L"Dynamic Edge", L"Open Settings & Profile Studio", L"\uE713"},
     };
 }
@@ -122,6 +127,21 @@ inline bool ExecuteControlAction(ControlAction action, HWND parentHwnd = nullptr
     case ControlAction::OpenDynamicEdgeSettings:
         // Handled directly by callers via settings_ui::ShowSettingsWindow
         return true;
+
+    case ControlAction::LockPc:
+        return LockWorkStation() != 0;
+
+    case ControlAction::SleepPc:
+        return (reinterpret_cast<INT_PTR>(ShellExecuteW(parentHwnd, L"open", L"rundll32.exe", L"powrprof.dll,SetSuspendState 0,1,0", nullptr, SW_HIDE)) > 32);
+
+    case ControlAction::RestartPc:
+        return (reinterpret_cast<INT_PTR>(ShellExecuteW(parentHwnd, L"open", L"shutdown.exe", L"/r /t 0", nullptr, SW_HIDE)) > 32);
+
+    case ControlAction::ShutdownPc:
+        return (reinterpret_cast<INT_PTR>(ShellExecuteW(parentHwnd, L"open", L"shutdown.exe", L"/s /t 0", nullptr, SW_HIDE)) > 32);
+
+    case ControlAction::SwitchAudioOutput:
+        return runShell(L"ms-settings:sound");
 
     default:
         return false;

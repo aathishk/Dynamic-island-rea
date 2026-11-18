@@ -14,7 +14,7 @@
 namespace island_notification {
 
 inline NotificationCategory SafeCategoryFromInt(int val) {
-    if (val >= 0 && val <= static_cast<int>(NotificationCategory::GeneralStatus)) {
+    if (val >= 0 && val <= static_cast<int>(NotificationCategory::AiAgent)) {
         return static_cast<NotificationCategory>(val);
     }
     return NotificationCategory::GeneralStatus;

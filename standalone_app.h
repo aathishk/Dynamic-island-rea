@@ -319,6 +319,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
         settings_ui::ShowOnboardingDialog(g_hwnd);
     }
 
+    // Active memory optimization: trim startup working set pages
+    SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+
     // Pump messages for the tray icon until the render thread ends or the user picks Exit.
     for (bool running = true; running && g_renderThread;) {
         const DWORD r = MsgWaitForMultipleObjects(1, &g_renderThread, FALSE, INFINITE, QS_ALLINPUT);

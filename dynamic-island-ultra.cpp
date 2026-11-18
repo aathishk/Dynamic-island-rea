@@ -1449,6 +1449,7 @@ struct ProgressSnapshot {
 
 struct NotificationSnapshot {
     bool active = false;
+    bool isAi = false;
     std::wstring app;
     std::wstring title;
     std::wstring body;
@@ -5049,6 +5050,17 @@ std::wstring ToLowerCopy(std::wstring value) {
     std::transform(value.begin(), value.end(), value.begin(),
                    [](wchar_t ch) { return static_cast<wchar_t>(towlower(ch)); });
     return value;
+}
+
+inline bool IsAiAgentAppName(const std::wstring& appName) {
+    if (appName.empty()) return false;
+    const std::wstring lower = ToLowerCopy(appName);
+    return (lower.find(L"antigravity") != std::wstring::npos ||
+            lower.find(L"claude") != std::wstring::npos ||
+            lower.find(L"cursor") != std::wstring::npos ||
+            lower.find(L"codex") != std::wstring::npos ||
+            lower.find(L"copilot") != std::wstring::npos ||
+            lower.find(L"gemini") != std::wstring::npos);
 }
 
 std::wstring BaseNameFromPath(std::wstring path) {
@@ -9983,6 +9995,7 @@ void CaptureShellNotification(HWND hwnd) {
                                 if (g_state.notification.active) {
                                     if (!appName.empty()) {
                                         g_state.notification.app = appName;
+                                        g_state.notification.isAi = IsAiAgentAppName(appName);
                                         if (resolvedIcon) {
                                             g_state.notification.icon = std::move(resolvedIcon);
                                         }
@@ -11917,6 +11930,8 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             : L"Clear tray (" + std::to_wstring(trayCount) + L")";
         AppendMenuW(trayMenu, MF_STRING | (trayCount == 0 ? (MF_GRAYED | MF_DISABLED) : 0), 41,
                     clearLabel.c_str());
+        AppendMenuW(trayMenu, MF_STRING | (trayCount == 0 ? (MF_GRAYED | MF_DISABLED) : 0), 44,
+                    L"Compress to ZIP (Desktop)");
         AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(trayMenu), Loc(L"File Tray"));
     }
     AppendMenuW(menu, MF_STRING | (g_pinnedExpanded.load() ? MF_CHECKED : 0), 2, L"Pin expanded");
@@ -12358,6 +12373,43 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             SaveFileTray();
             g_hoveredFileTrayRow = -1;
             g_layoutDirty = true;
+            break;
+        }
+        case 44: {
+            // Compress all files currently staged in the File Tray to a single ZIP on Desktop
+            std::vector<std::wstring> paths;
+            {
+                std::lock_guard lock(g_stateMutex);
+                for (const auto& item : g_state.fileTrayItems) {
+                    if (!item.isText && !item.path.empty()) {
+                        paths.push_back(item.path);
+                    }
+                }
+            }
+            if (!paths.empty()) {
+                wchar_t desktop[MAX_PATH] = {};
+                if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_DESKTOPDIRECTORY, nullptr, 0, desktop))) {
+                    std::wstring zipPath = std::wstring(desktop) + L"\\DynamicIsland_Archive.zip";
+                    std::wstring cmdLine = L"tar.exe -a -c -f \"" + zipPath + L"\"";
+                    for (const auto& p : paths) {
+                        cmdLine += L" \"" + p + L"\"";
+                    }
+                    STARTUPINFOW si = { sizeof(si) };
+                    si.dwFlags = STARTF_USESHOWWINDOW;
+                    si.wShowWindow = SW_HIDE;
+                    PROCESS_INFORMATION pi = {};
+                    if (CreateProcessW(nullptr, cmdLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                        CloseHandle(pi.hThread);
+                        CloseHandle(pi.hProcess);
+                        island_notification::NotificationItem nItem;
+                        nItem.title = L"File Tray ZIP";
+                        nItem.message = L"Compressed " + std::to_wstring(paths.size()) + L" files to Desktop archive!";
+                        nItem.category = island_notification::NotificationCategory::Application;
+                        nItem.durationMs = 4000;
+                        island_globals::g_notificationQueue.Enqueue(nItem);
+                    }
+                }
+            }
             break;
         }
     }
@@ -20854,18 +20906,20 @@ class Renderer {
             target_->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f), &badgeBorder);
             target_->DrawEllipse(D2D1::Ellipse(D2D1::Point2F(dotX, dotY), dotR, dotR), badgeBorder.Get(), 0.9f);
         } else {
-            const wchar_t* glyph = usingFluentIcons_ ? L"\uEA8F" : L"\uE7E7";
-            textBrush_->SetOpacity(0.95f);
+            const bool isAi = state.notification.isAi;
+            const wchar_t* glyph = isAi ? L"\uE946" : (usingFluentIcons_ ? L"\uEA8F" : L"\uE7E7");
+            ID2D1SolidColorBrush* b = (isAi && accentBrush_) ? accentBrush_.Get() : textBrush_.Get();
+            b->SetOpacity(0.95f);
             if (iconFormat_) {
                 iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                 target_->DrawTextW(glyph,
                                    static_cast<UINT32>(wcslen(glyph)), iconFormat_.Get(), badge,
-                                   textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                                   b, D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
                 iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
             }
-            textBrush_->SetOpacity(0.90f);
+            b->SetOpacity(1.0f);
         }
 
         const float tx = badge.right + 14.0f;
@@ -25171,6 +25225,7 @@ DWORD WINAPI RenderThreadProc(void*) {
                         g_state.notification.app = nItem.sourceApp;
                         g_state.notification.title = nItem.title;
                         g_state.notification.body = nItem.message;
+                        g_state.notification.isAi = (nItem.category == island_notification::NotificationCategory::AiAgent) || IsAiAgentAppName(nItem.sourceApp);
                         if (nItem.iconRef) {
                             g_state.notification.icon = PixelsRef(std::static_pointer_cast<const BitmapPixels>(nItem.iconRef));
                         } else {
@@ -26059,6 +26114,12 @@ DWORD WINAPI RenderThreadProc(void*) {
         setHighResTimer(lastAnimatingAt >= 0.0 && now - lastAnimatingAt < kHighResTimerHoldSec);
 
         if (!needsRender) {
+            // Memory optimization: periodically trim unused working set pages when sustained idle
+            static double s_lastWorkingSetTrim = 0.0;
+            if (!continuousAnimation && !springsAnimating && (now - s_lastWorkingSetTrim > 20.0)) {
+                s_lastWorkingSetTrim = now;
+                SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+            }
             // Nothing changed on screen, so poll at ~60Hz rather than the target
             // frame rate. A settled strip only needs to notice the cursor, so ~20Hz.
             WaitForSingleObject(g_stopEvent, (stripActive && !springsAnimating) ? 50 : 16);

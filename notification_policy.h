@@ -20,6 +20,7 @@ enum class NotificationCategory {
     Application,
     Productivity,
     GeneralStatus,
+    AiAgent,
 };
 
 enum class NotificationPriority {
@@ -50,11 +51,20 @@ inline NotificationCategory ClassifyNotification(const std::wstring& app, const 
     if (lower.find(L"bluetooth") != std::wstring::npos) return NotificationCategory::Bluetooth;
     if (lower.find(L"media") != std::wstring::npos || lower.find(L"spotify") != std::wstring::npos) return NotificationCategory::Media;
     if (lower.find(L"clipboard") != std::wstring::npos) return NotificationCategory::Clipboard;
+    if (lower.find(L"antigravity") != std::wstring::npos ||
+        lower.find(L"claude") != std::wstring::npos ||
+        lower.find(L"cursor") != std::wstring::npos ||
+        lower.find(L"codex") != std::wstring::npos ||
+        lower.find(L"copilot") != std::wstring::npos) {
+        return NotificationCategory::AiAgent;
+    }
     return NotificationCategory::Application;
 }
 
 inline NotificationPriority DeterminePriority(NotificationCategory category) {
-    if (category == NotificationCategory::Battery || category == NotificationCategory::SystemAlert) {
+    if (category == NotificationCategory::Battery ||
+        category == NotificationCategory::SystemAlert ||
+        category == NotificationCategory::AiAgent) {
         return NotificationPriority::Critical;
     }
     return NotificationPriority::Normal;

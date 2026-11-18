@@ -32,6 +32,7 @@
 #include "gesture_manager.h"
 #include "island_layout.h"
 #include "island_alpha.h"
+#include "ai_usage_reader.h"
 
 struct StressProducerData {
     island_notification::NotificationQueue* q;
@@ -1686,7 +1687,11 @@ int wmain(int argc, wchar_t** argv) {
     int r12 = RunNavigationMatrixAndThemeResolutionTest();
     if (r12 != 0) { printf("FAIL: Navigation matrix & theme resolution self-test failed: %d\n", r12); return r12; }
 
-    printf("SUCCESS: All 12 production unit & regression test suites passed (launchers, opacity, bluetooth, classification, shutdown, profiles, context, notifications, performance, clipboard/timer, gestures/layout, navigation/themes)!\n");
+    auto ai = island_ai::AiUsageReader::GetCurrentMetrics();
+    if (ai.maxContextTokens <= 0) { printf("FAIL: AiUsage maxContextTokens invalid\n"); return 1301; }
+    if (ai.percentRemaining < 0.0f || ai.percentRemaining > 100.0f) { printf("FAIL: AiUsage percentRemaining invalid\n"); return 1302; }
+
+    printf("SUCCESS: All 13 production unit & regression test suites passed (launchers, opacity, bluetooth, classification, shutdown, profiles, context, notifications, performance, clipboard/timer, gestures/layout, navigation/themes, ai-usage)!\n");
     return 0;
 }
 

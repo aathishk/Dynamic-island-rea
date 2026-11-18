@@ -143,6 +143,16 @@ public:
         return static_cast<int>((targetTick_ - now) / 1000ULL);
     }
 
+    std::wstring GetFormattedRemaining() const {
+        int sec = GetRemainingSeconds();
+        if (sec < 0) sec = 0;
+        int m = sec / 60;
+        int s = sec % 60;
+        wchar_t buf[32];
+        swprintf_s(buf, L"%02d:%02d", m, s);
+        return std::wstring(buf);
+    }
+
     float GetProgress() const {
         if (totalDurationMs_ == 0 || state_ == FocusState::Idle) return 0.0f;
         int remainingSec = GetRemainingSeconds();

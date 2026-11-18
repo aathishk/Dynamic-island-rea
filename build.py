@@ -20,7 +20,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VERSION = "1.7.2"
+VERSION = "1.7.3"
 
 # Pinned epoch for reproducible release builds
 PINNED_SOURCE_DATE_EPOCH = "1700000000"

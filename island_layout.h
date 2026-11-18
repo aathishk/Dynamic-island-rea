@@ -104,29 +104,11 @@ inline IslandContentDimensions CalculateAdaptiveDimensions(
 
     case IslandPresentationState::ExpandedDashboard:
     default:
-        // Page-specific adaptive dimensions:
-        // Overview & Media: preserve existing compact size (380 x 184)
-        // Hardware Monitor, Weather, Calendar, File Tray, Game Overlay, Quick Controls: unified 410 x 210
+        // Unified dashboard dimensions across ALL pages:
+        // Overview, Media, Lyrics, Hardware Monitor, Weather, Calendar, File Tray, Game Overlay, Quick Controls: unified 410 x 210
         dims.cornerRadius = 28.0f * scale;
-        switch (activePageId) {
-        case DashboardPageId::HardwareMonitor:
-        case DashboardPageId::Weather:
-        case DashboardPageId::Calendar:
-        case DashboardPageId::FileTray:
-        case DashboardPageId::GameOverlay:
-        case DashboardPageId::QuickControls:
-            dims.width = 410.0f * scale;
-            dims.height = 210.0f * scale;
-            break;
-
-        case DashboardPageId::Overview:
-        case DashboardPageId::Media:
-        case DashboardPageId::Lyrics:
-        default:
-            dims.width = 380.0f * scale;
-            dims.height = 184.0f * scale;
-            break;
-        }
+        dims.width = 410.0f * scale;
+        dims.height = 210.0f * scale;
         break;
     }
 

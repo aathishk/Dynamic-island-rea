@@ -13759,7 +13759,12 @@ class Renderer {
         const float cy = (rect.top + rect.bottom) * 0.5f;
         const float w = (rect.right - rect.left) * scale;
         const float h = (rect.bottom - rect.top) * scale;
-        rect = D2D1::RectF(cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f);
+        if (settings.notchStyle) {
+            // Anchor top flush against the display bezel
+            rect = D2D1::RectF(cx - w * 0.5f, rect.top, cx + w * 0.5f, rect.top + h);
+        } else {
+            rect = D2D1::RectF(cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f);
+        }
 
         float radius = settings.w11Style ? 8.0f * settings.sizeScale : (rect.bottom - rect.top) * 0.5f;
         if (settings.notchStyle) {
@@ -21089,7 +21094,15 @@ class Renderer {
             const size_t offset = (count - i) * step;
             const size_t source = (state.waveformWrite + state.waveform.size() - offset) %
                                   state.waveform.size();
-            const float amp = Clamp(state.waveform[source], 0.03f, 1.0f);
+            float amp = state.waveform[source];
+            // If real loopback audio is quiet, DRM-protected, or Bluetooth, gracefully dance rhythmically
+            if (amp < 0.05f && state.media.playing) {
+                const double nowSec = NowSeconds();
+                const float p1 = static_cast<float>(nowSec * 5.2 + i * 0.95);
+                const float p2 = static_cast<float>(nowSec * 2.7 + i * 1.35);
+                amp = 0.22f + 0.58f * (0.5f + 0.35f * std::sin(p1) + 0.15f * std::cos(p2));
+            }
+            amp = Clamp(amp, 0.04f, 1.0f);
             float h = std::max(3.0f, amp * maxH);
             float glow = 0.0f;
 

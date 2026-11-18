@@ -98,7 +98,7 @@ inline IslandContentDimensions CalculateAdaptiveDimensions(
 
     case IslandPresentationState::QuickControlGrid:
         dims.width = 410.0f * scale;
-        dims.height = 270.0f * scale;
+        dims.height = 210.0f * scale;
         dims.cornerRadius = 28.0f * scale;
         break;
 
@@ -106,8 +106,7 @@ inline IslandContentDimensions CalculateAdaptiveDimensions(
     default:
         // Page-specific adaptive dimensions:
         // Overview & Media: preserve existing compact size (380 x 184)
-        // Hardware Monitor, Weather, Calendar, File Tray, Game Overlay: spacious ~410 x 210
-        // Quick Controls: approximately 410 x 270
+        // Hardware Monitor, Weather, Calendar, File Tray, Game Overlay, Quick Controls: unified 410 x 210
         dims.cornerRadius = 28.0f * scale;
         switch (activePageId) {
         case DashboardPageId::HardwareMonitor:
@@ -115,13 +114,9 @@ inline IslandContentDimensions CalculateAdaptiveDimensions(
         case DashboardPageId::Calendar:
         case DashboardPageId::FileTray:
         case DashboardPageId::GameOverlay:
-            dims.width = 410.0f * scale;
-            dims.height = 210.0f * scale;
-            break;
-
         case DashboardPageId::QuickControls:
             dims.width = 410.0f * scale;
-            dims.height = 270.0f * scale;
+            dims.height = 210.0f * scale;
             break;
 
         case DashboardPageId::Overview:
@@ -520,20 +515,20 @@ inline QuickControlsLayout CalculateQuickControlsLayout(
     const float padX = 24.0f * scale;
     l.barLeft = padX;
     l.barRight = contentWidth - padX;
-    l.barTop = 42.0f * scale;
-    l.barBottom = l.barTop + 8.0f * scale;
+    l.barTop = 38.0f * scale;
+    l.barBottom = l.barTop + 6.0f * scale;
 
     float pct = static_cast<float>(std::clamp(volumePercent, 0, 100)) / 100.0f;
     float fillW = (l.barRight - l.barLeft) * pct;
     l.thumbX = l.barLeft + fillW;
     l.thumbY = (l.barTop + l.barBottom) * 0.5f;
-    l.thumbRadius = 7.0f * scale;
+    l.thumbRadius = 6.0f * scale;
 
-    const float gridY = l.barTop + 22.0f * scale;
-    const float colGap = 9.0f * scale;
-    const float rowGap = 9.0f * scale;
+    const float gridY = l.barTop + 14.0f * scale;
+    const float colGap = 8.0f * scale;
+    const float rowGap = 6.0f * scale;
     const float tileW = (l.barRight - l.barLeft - colGap * 2.0f) / 3.0f;
-    const float tileH = 32.0f * scale;
+    const float tileH = 26.0f * scale;
 
     l.tileCount = 12;
     for (int i = 0; i < 12; ++i) {

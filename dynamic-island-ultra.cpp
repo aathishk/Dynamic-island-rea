@@ -13763,11 +13763,11 @@ class Renderer {
 
         float radius = settings.w11Style ? 8.0f * settings.sizeScale : (rect.bottom - rect.top) * 0.5f;
         if (settings.notchStyle) {
-            radius = 16.0f * settings.sizeScale;
+            radius = 18.0f * settings.sizeScale;
         } else if (settings.bladeStyle) {
-            radius = 14.0f * settings.sizeScale;
+            radius = 24.0f * settings.sizeScale;
         } else if (!settings.w11Style) {
-            radius = std::min(radius, 44.0f * settings.sizeScale);
+            radius = (h < 56.0f) ? (h * 0.5f) : (34.0f * settings.sizeScale);
         }
         // A radius larger than half the height breaks on a thin strip.
         radius = std::min(radius, std::min(w, h) * 0.5f);
@@ -14110,22 +14110,53 @@ class Renderer {
         float r = std::min({radius, (rect.right - rect.left) * 0.5f, (rect.bottom - rect.top) * 0.5f});
         if (r < 0.0f) r = 0.0f;
 
-        sink->BeginFigure(D2D1::Point2F(rect.left, rect.top), D2D1_FIGURE_BEGIN_FILLED);
-        sink->AddLine(D2D1::Point2F(rect.right, rect.top));
-        sink->AddLine(D2D1::Point2F(rect.right, rect.bottom - r));
+        const float earW = std::clamp((rect.right - rect.left) * 0.05f, 8.0f, 16.0f);
+        const float earH = std::clamp((rect.bottom - rect.top) * 0.22f, 8.0f, 14.0f);
+
+        // Start at outer top-left ear attached to the screen bezel
+        sink->BeginFigure(D2D1::Point2F(rect.left - earW, rect.top), D2D1_FIGURE_BEGIN_FILLED);
+
+        // Sweep down-inward smoothly into notch side with authentic MacBook cubic bezier
+        sink->AddBezier(D2D1::BezierSegment(
+            D2D1::Point2F(rect.left - earW * 0.35f, rect.top),
+            D2D1::Point2F(rect.left, rect.top + earH * 0.35f),
+            D2D1::Point2F(rect.left, rect.top + earH)
+        ));
+
+        // Down along the left wall
+        sink->AddLine(D2D1::Point2F(rect.left, rect.bottom - r));
+
+        // Bottom-left rounded corner
         if (r > 0.0f) {
             sink->AddArc(D2D1::ArcSegment(
-                D2D1::Point2F(rect.right - r, rect.bottom),
+                D2D1::Point2F(rect.left + r, rect.bottom),
                 D2D1::SizeF(r, r), 0.0f,
                 D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
-            sink->AddLine(D2D1::Point2F(rect.left + r, rect.bottom));
-            sink->AddArc(D2D1::ArcSegment(
-                D2D1::Point2F(rect.left, rect.bottom - r),
-                D2D1::SizeF(r, r), 0.0f,
-                D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
-        } else {
-            sink->AddLine(D2D1::Point2F(rect.left, rect.bottom));
         }
+
+        // Across bottom edge
+        sink->AddLine(D2D1::Point2F(rect.right - r, rect.bottom));
+
+        // Bottom-right rounded corner
+        if (r > 0.0f) {
+            sink->AddArc(D2D1::ArcSegment(
+                D2D1::Point2F(rect.right, rect.bottom - r),
+                D2D1::SizeF(r, r), 0.0f,
+                D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+        }
+
+        // Up along the right wall
+        sink->AddLine(D2D1::Point2F(rect.right, rect.top + earH));
+
+        // Sweep up-outward smoothly to outer top-right ear attached to the bezel
+        sink->AddBezier(D2D1::BezierSegment(
+            D2D1::Point2F(rect.right, rect.top + earH * 0.35f),
+            D2D1::Point2F(rect.right + earW * 0.35f, rect.top),
+            D2D1::Point2F(rect.right + earW, rect.top)
+        ));
+
+        // Close along top bezel
+        sink->AddLine(D2D1::Point2F(rect.left - earW, rect.top));
         sink->EndFigure(D2D1_FIGURE_END_CLOSED);
         sink->Close();
 
@@ -14139,20 +14170,34 @@ class Renderer {
         ComPtr<ID2D1GeometrySink> sink;
         if (FAILED(geom->Open(&sink))) return nullptr;
 
-        float c = std::min({radius, (rect.right - rect.left) * 0.25f, (rect.bottom - rect.top) * 0.5f});
-        if (c < 0.0f) c = 0.0f;
+        const float h = rect.bottom - rect.top;
+        const float w = rect.right - rect.left;
+        const float cy = (rect.top + rect.bottom) * 0.5f;
 
-        sink->BeginFigure(D2D1::Point2F(rect.left + c, rect.top), D2D1_FIGURE_BEGIN_FILLED);
-        sink->AddLine(D2D1::Point2F(rect.right - c, rect.top));
-        sink->AddLine(D2D1::Point2F(rect.right, rect.top + c));
-        sink->AddLine(D2D1::Point2F(rect.right, rect.bottom - c));
-        sink->AddLine(D2D1::Point2F(rect.right - c, rect.bottom));
-        sink->AddLine(D2D1::Point2F(rect.left + c, rect.bottom));
-        sink->AddLine(D2D1::Point2F(rect.left, rect.bottom - c));
-        sink->AddLine(D2D1::Point2F(rect.left, rect.top + c));
-        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        if (h < 56.0f) {
+            // Compact idle mode: high-tech faceted cyber chevron blade (<===========>)
+            const float cutX = std::clamp(h * 0.45f, 12.0f, 22.0f);
+            sink->BeginFigure(D2D1::Point2F(rect.left + cutX, rect.top), D2D1_FIGURE_BEGIN_FILLED);
+            sink->AddLine(D2D1::Point2F(rect.right - cutX, rect.top));
+            sink->AddLine(D2D1::Point2F(rect.right, cy));
+            sink->AddLine(D2D1::Point2F(rect.right - cutX, rect.bottom));
+            sink->AddLine(D2D1::Point2F(rect.left + cutX, rect.bottom));
+            sink->AddLine(D2D1::Point2F(rect.left, cy));
+            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        } else {
+            // Expanded mode: bold 26px cyber-chamfered silhouette
+            const float c = std::min(26.0f, std::min(w * 0.15f, h * 0.22f));
+            sink->BeginFigure(D2D1::Point2F(rect.left + c, rect.top), D2D1_FIGURE_BEGIN_FILLED);
+            sink->AddLine(D2D1::Point2F(rect.right - c, rect.top));
+            sink->AddLine(D2D1::Point2F(rect.right, rect.top + c));
+            sink->AddLine(D2D1::Point2F(rect.right, rect.bottom - c));
+            sink->AddLine(D2D1::Point2F(rect.right - c, rect.bottom));
+            sink->AddLine(D2D1::Point2F(rect.left + c, rect.bottom));
+            sink->AddLine(D2D1::Point2F(rect.left, rect.bottom - c));
+            sink->AddLine(D2D1::Point2F(rect.left, rect.top + c));
+            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        }
         sink->Close();
-
         return geom;
     }
 
@@ -14202,19 +14247,23 @@ class Renderer {
         const float h = rect.bottom - rect.top;
         if (w <= 2.0f || h <= 2.0f) return;
 
-        // Smart radius: semicircular pill caps when compact (< 56px); comfortable squircle (26px) when expanded
+        // Smart radius according to selected style
         if (!settings.w11Style && !settings.notchStyle && !settings.bladeStyle) {
+            // iPhone Pill: True capsule when compact (< 56px), luxurious 34px Apple squircle when expanded
             if (h < 56.0f) {
                 radius = h * 0.5f;
             } else {
-                radius = std::min(h * 0.5f, 26.0f * settings.sizeScale);
+                radius = std::min(h * 0.5f, 34.0f * settings.sizeScale);
             }
         } else if (settings.notchStyle) {
-            radius = 16.0f * settings.sizeScale;
+            // macOS Notch: 18px rounded bottom corners with bezel top ears
+            radius = 18.0f * settings.sizeScale;
         } else if (settings.w11Style) {
+            // Windows 11: 8px Fluent corner radius
             radius = 8.0f * settings.sizeScale;
         } else if (settings.bladeStyle) {
-            radius = 14.0f * settings.sizeScale;
+            // Edge Blade: 24px cyber facet
+            radius = 24.0f * settings.sizeScale;
         }
 
         // ── 0. Surface Material Determination & Backdrop Alpha Policy ────────
@@ -14301,6 +14350,20 @@ class Renderer {
                                                  rect.right - 0.5f, rect.bottom - 0.5f);
             if (borderGradBrush) {
                 DrawIslandShape(borderRect, radius, settings.w11Style, settings.notchStyle, borderGradBrush, strokeWidth, settings.bladeStyle);
+            }
+        }
+
+        // Windows 11 Fluent handle indicator
+        if (settings.w11Style && isExpanded) {
+            const float cx = (rect.left + rect.right) * 0.5f;
+            const float gripW = 36.0f * settings.sizeScale;
+            const float gripH = 3.0f * settings.sizeScale;
+            const float gripY = rect.top + 5.0f * settings.sizeScale;
+            D2D1_RECT_F gripR = D2D1::RectF(cx - gripW * 0.5f, gripY, cx + gripW * 0.5f, gripY + gripH);
+            ComPtr<ID2D1SolidColorBrush> gripBrush;
+            target_->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.28f), &gripBrush);
+            if (gripBrush) {
+                target_->FillRoundedRectangle(D2D1::RoundedRect(gripR, gripH * 0.5f, gripH * 0.5f), gripBrush.Get());
             }
         }
     }
@@ -15260,9 +15323,12 @@ class Renderer {
                                     const Settings& settings, float scale) {
         (void)state; (void)settings;
         if (!target_) return;
+        const int vol = island_controls::GetMasterVolumePercent();
         const float padX = 24.0f * scale;
-        const D2D1_RECT_F headerRect = D2D1::RectF(rect.left + padX, rect.top + 16.0f * scale,
-                                                   rect.right - padX, rect.top + 36.0f * scale);
+        const auto qcLayout = island_layout::CalculateQuickControlsLayout(rect.right - rect.left, rect.bottom - rect.top, scale, vol);
+
+        const D2D1_RECT_F headerRect = D2D1::RectF(rect.left + padX, rect.top + 12.0f * scale,
+                                                   rect.right - padX, rect.top + 30.0f * scale);
         if (textBrush_ && boldTextFormat_) {
             textBrush_->SetOpacity(0.96f);
             boldTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -15271,7 +15337,6 @@ class Renderer {
                                headerRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             boldTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         }
-        const int vol = island_controls::GetMasterVolumePercent();
 
         // Numerical percentage & label on header right: "Volume · 60%"
         if (textBrush_ && smallTextFormat_) {
@@ -15279,15 +15344,15 @@ class Renderer {
             swprintf_s(volLabel, L"Volume · %d%%", vol);
             smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
             textBrush_->SetOpacity(island_alpha::ResolveElementAlpha(island_alpha::ElementKind::SecondaryContent, true, island_layout::DashboardPageId::QuickControls, 1.0f));
-            const D2D1_RECT_F volRect = D2D1::RectF(rect.left + padX, rect.top + 16.0f * scale, rect.right - padX - 60.0f * scale, rect.top + 36.0f * scale);
+            const D2D1_RECT_F volRect = D2D1::RectF(rect.left + padX, rect.top + 12.0f * scale, rect.right - padX - 40.0f * scale, rect.top + 30.0f * scale);
             target_->DrawTextW(volLabel, static_cast<UINT32>(wcslen(volLabel)), smallTextFormat_.Get(), volRect, textBrush_.Get());
             smallTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         }
 
-        float barY = rect.top + 42.0f * scale;
-        float barLeft = rect.left + padX;
-        float barRight = rect.right - padX;
-        float barH = 8.0f * scale;
+        float barY = rect.top + qcLayout.barTop;
+        float barLeft = rect.left + qcLayout.barLeft;
+        float barRight = rect.left + qcLayout.barRight;
+        float barH = qcLayout.barBottom - qcLayout.barTop;
 
         // Track background
         D2D1_ROUNDED_RECT rTrack = D2D1::RoundedRect(D2D1::RectF(barLeft, barY, barRight, barY + barH), barH * 0.5f, barH * 0.5f);
@@ -15306,9 +15371,9 @@ class Renderer {
         }
 
         // Distinct Circular Draggable Thumb
-        const float thumbX = barLeft + fillW;
-        const float thumbY = barY + barH * 0.5f;
-        const float thumbR = 7.0f * scale;
+        const float thumbX = rect.left + qcLayout.thumbX;
+        const float thumbY = rect.top + qcLayout.thumbY;
+        const float thumbR = qcLayout.thumbRadius;
 
         // Thumb ambient drop shadow
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> thumbShadowBrush;
@@ -15324,10 +15389,9 @@ class Renderer {
 
         // Accent Core in Thumb
         if (accentBrush_) {
-            target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY), 2.8f * scale, 2.8f * scale), accentBrush_.Get());
+            target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(thumbX, thumbY), 2.5f * scale, 2.5f * scale), accentBrush_.Get());
         }
         const auto tiles = island_controls::GetStandardControlTiles();
-        const auto qcLayout = island_layout::CalculateQuickControlsLayout(rect.right - rect.left, rect.bottom - rect.top, scale, vol);
 
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> tileBrush;
         target_->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.14f, 0.18f, 1.0f), &tileBrush);

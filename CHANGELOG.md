@@ -1,6 +1,15 @@
 # Changelog
 
 ## 1.7.4 — Theme System & Interaction Refinement
+- **Unified Dashboard Section Height (Quick Controls = 210px):**
+  - Reduced Quick Controls height from 270px to 210px to exactly match Hardware Monitor, Weather, Calendar, File Tray, and Game Overlay, guaranteeing uniform height across all dashboard tabs without jarring size jumps.
+  - Redesigned the Quick Controls volume slider and 12-tile control grid to comfortably sit within the 210px envelope with zero text or icon clipping.
+- **Distinct Shape Style Geometries:**
+  - **macOS Notch**: Modeled authentic Apple MacBook notch geometry with outward-curving bezier "ears" / shoulders attached to the screen bezel and rounded bottom corners.
+  - **Edge Blade**: High-tech faceted cyber chevron silhouette (`<============>`) in compact resting mode and bold 26px angular chamfers when expanded.
+  - **Windows 11 Flyout**: Native Windows 11 Fluent 8px rounded corners with the centered top grip handle pill indicator.
+  - **iPhone Pill**: Pure floating capsule with 100% circular caps in compact mode and a deep 34px Apple squircle when expanded.
+  - **Shape Override Persistence**: Cleared shape overrides on save in `settings_window.h` ensuring shape selections in the GUI take effect immediately.
 - **Zero AI / Quota Footprint:**
   - Completely removed AI sparkles, token counters, and quota tracking from the collapsed idle pill strip.
   - Replaced the AI card on the Overview dashboard with clean Dynamic Ledge quick actions: 1-click Focus Timers (`5m`, `15m`, `25m Focus`), app launchers (`>_`, `🌐`, `📁`), and instant `⚙️` Settings navigation.

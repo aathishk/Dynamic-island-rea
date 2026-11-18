@@ -953,6 +953,9 @@ inline void SaveValuesFromUi(HWND hwnd) {
     // Page 1: Personalisation
     WriteIniString(L"Settings", L"Appearance.Position", getComboVal(hComboPos, kPosOptions, ARRAYSIZE(kPosOptions)));
     WriteIniString(L"Settings", L"Appearance.ShapeStyle", getComboVal(hComboShape, kShapeOptions, ARRAYSIZE(kShapeOptions)));
+    WriteIniInt(L"Values", L"W11StyleOverride", -1);
+    WriteIniInt(L"Values", L"NotchStyleOverride", -1);
+    WriteIniInt(L"Values", L"BladeStyleOverride", -1);
     {
         const wchar_t* selectedTheme = getComboVal(hComboTheme, kThemeOptions, ARRAYSIZE(kThemeOptions));
         WriteIniString(L"Settings", L"Themes.ThemePreset", selectedTheme);

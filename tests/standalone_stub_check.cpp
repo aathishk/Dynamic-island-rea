@@ -1036,7 +1036,7 @@ int RunGesturesAndLayoutPolicyTest() {
     if (std::abs(dNotif.width - 320.0f) > 0.1f || std::abs(dNotif.height - 72.0f) > 0.1f) return 1016;
 
     IslandContentDimensions dQc = CalculateAdaptiveDimensions(IslandPresentationState::QuickControlGrid, 1.0f, 1.0f);
-    if (std::abs(dQc.width - 410.0f) > 0.1f || std::abs(dQc.height - 270.0f) > 0.1f) return 1017;
+    if (std::abs(dQc.width - 410.0f) > 0.1f || std::abs(dQc.height - 210.0f) > 0.1f) return 1017;
 
     IslandContentDimensions dExp = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, 1.0f, 1.0f, 0);
     if (std::abs(dExp.width - 380.0f) > 0.1f || std::abs(dExp.height - 184.0f) > 0.1f) return 1018;
@@ -1074,7 +1074,7 @@ int RunGesturesAndLayoutPolicyTest() {
             if (std::abs(dCal.width - 410.0f * effScale) > 0.15f || std::abs(dCal.height - 210.0f * effScale) > 0.15f) return 1063;
 
             IslandContentDimensions dQc = CalculateAdaptiveDimensions(IslandPresentationState::QuickControlGrid, uSc, dpi);
-            if (std::abs(dQc.width - 410.0f * effScale) > 0.15f || std::abs(dQc.height - 270.0f * effScale) > 0.15f) return 1064;
+            if (std::abs(dQc.width - 410.0f * effScale) > 0.15f || std::abs(dQc.height - 210.0f * effScale) > 0.15f) return 1064;
 
             IslandContentDimensions dOverview = CalculateAdaptiveDimensions(IslandPresentationState::ExpandedDashboard, uSc, dpi, DashboardPageId::Overview);
             if (std::abs(dOverview.width - 380.0f * effScale) > 0.15f || std::abs(dOverview.height - 184.0f * effScale) > 0.15f) return 1065;

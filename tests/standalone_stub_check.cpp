@@ -217,6 +217,34 @@ int RunBluetoothPolicyTest() {
     if (!island_policy::ShouldSuppressBluetoothDisconnect(false, true, BluetoothDeviceCategory::Gamepad, false)) return 209;
     if (island_policy::ShouldSuppressBluetoothDisconnect(true, false, BluetoothDeviceCategory::Gamepad, false)) return 210;
 
+    // 8. Phone suppression checks (BLE phone pings & background disconnect storms)
+    // BLE Phone disconnect -> ALWAYS suppressed (even if allowGenericBle or allowPhone is true)
+    if (!island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Phone, false, false)) return 211;
+    if (!island_policy::ShouldSuppressBluetoothDisconnect(true, true, BluetoothDeviceCategory::Phone, true, true)) return 212;
+
+    // Classic Phone disconnect: suppressed by default (allowPhone=false)
+    if (!island_policy::ShouldSuppressBluetoothDisconnect(true, false, BluetoothDeviceCategory::Phone, false, false)) return 213;
+    // Classic Phone disconnect: allowed when allowPhone=true
+    if (island_policy::ShouldSuppressBluetoothDisconnect(true, false, BluetoothDeviceCategory::Phone, false, true)) return 214;
+
+    // 9. ShouldSuppressBluetoothConnect checks:
+    // BLE Phone connect -> ALWAYS suppressed
+    if (!island_policy::ShouldSuppressBluetoothConnect(true, BluetoothDeviceCategory::Phone, false, false)) return 215;
+    if (!island_policy::ShouldSuppressBluetoothConnect(true, BluetoothDeviceCategory::Phone, true, true)) return 216;
+
+    // Classic Phone connect: suppressed by default (allowPhone=false)
+    if (!island_policy::ShouldSuppressBluetoothConnect(false, BluetoothDeviceCategory::Phone, false, false)) return 217;
+    // Classic Phone connect: allowed when allowPhone=true
+    if (island_policy::ShouldSuppressBluetoothConnect(false, BluetoothDeviceCategory::Phone, false, true)) return 218;
+
+    // Generic BLE connect: suppressed by default, allowed if allowGenericBle=true
+    if (!island_policy::ShouldSuppressBluetoothConnect(true, BluetoothDeviceCategory::Generic, false, false)) return 219;
+    if (island_policy::ShouldSuppressBluetoothConnect(true, BluetoothDeviceCategory::Generic, true, false)) return 220;
+
+    // Audio/Input connect: never suppressed
+    if (island_policy::ShouldSuppressBluetoothConnect(true, BluetoothDeviceCategory::Headphones, false, false)) return 221;
+    if (island_policy::ShouldSuppressBluetoothConnect(false, BluetoothDeviceCategory::Keyboard, false, false)) return 222;
+
     return 0;
 }
 
@@ -232,6 +260,16 @@ int RunDeviceClassificationTest() {
     if (island_policy::ClassifyDeviceByName(L"dualsense wireless controller") != BluetoothDeviceCategory::Gamepad) return 309;
     if (island_policy::ClassifyDeviceByName(L"ps4 dualshock gamepad") != BluetoothDeviceCategory::Gamepad) return 310;
     if (island_policy::ClassifyDeviceByName(L"gp325") != BluetoothDeviceCategory::Generic) return 307;
+
+    // Expanded brand classification checks
+    if (island_policy::ClassifyDeviceByName(L"oneplus 11") != BluetoothDeviceCategory::Phone) return 311;
+    if (island_policy::ClassifyDeviceByName(L"xiaomi 14 pro") != BluetoothDeviceCategory::Phone) return 312;
+    if (island_policy::ClassifyDeviceByName(L"redmi note 13") != BluetoothDeviceCategory::Phone) return 313;
+    if (island_policy::ClassifyDeviceByName(L"realme gt 6") != BluetoothDeviceCategory::Phone) return 314;
+    if (island_policy::ClassifyDeviceByName(L"vivo x100") != BluetoothDeviceCategory::Phone) return 315;
+    if (island_policy::ClassifyDeviceByName(L"oppo find x7") != BluetoothDeviceCategory::Phone) return 316;
+    if (island_policy::ClassifyDeviceByName(L"huawei mate 60") != BluetoothDeviceCategory::Phone) return 317;
+    if (island_policy::ClassifyDeviceByName(L"sony xperia 1 vi") != BluetoothDeviceCategory::Phone) return 318;
     return 0;
 }
 

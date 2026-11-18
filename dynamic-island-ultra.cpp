@@ -1230,6 +1230,7 @@ struct Settings {
     bool bluetoothIndicator = true;
     bool bluetoothShowBattery = true;
     bool bluetoothAlertOnGenericBle = false;
+    bool bluetoothAlertOnPhone = false;
     D2D1_COLOR_F privacyDotsMicHex = D2D1::ColorF(1.0f, 0.584f, 0.0f, 1.0f); // #FF9500
     D2D1_COLOR_F privacyDotsCamHex = D2D1::ColorF(0.133f, 0.776f, 0.239f, 1.0f); // #10B981
     float tintOpacity = 0.72f;
@@ -3317,6 +3318,7 @@ void LoadSettings() {
     next.bluetoothIndicator = Wh_GetIntSetting(L"Modules.BluetoothIndicator") != 0;
     next.bluetoothShowBattery = Wh_GetIntSetting(L"Modules.BluetoothShowBattery") != 0;
     next.bluetoothAlertOnGenericBle = Wh_GetIntSetting(L"Modules.BluetoothAlertOnGenericBle") != 0;
+    next.bluetoothAlertOnPhone = Wh_GetIntSetting(L"Modules.BluetoothAlertOnPhone") != 0;
     next.doNotDisturbIndicator = Wh_GetIntSetting(L"Modules.DoNotDisturbIndicator") != 0;
     next.notificationRespectDnD = Wh_GetIntSetting(L"Modules.NotificationRespectDnD") != 0;
 
@@ -3443,7 +3445,14 @@ void LoadSettings() {
     const int localOpacity = Wh_GetIntValue(L"PillOpacityOverride", -1);
     g_pillOpacityOverride.store(localOpacity);
     g_gameOverlayPinned.store(Wh_GetIntValue(L"GameOverlayPinned", 0) != 0);
-    g_pinnedExpanded.store(Wh_GetIntValue(L"PinnedExpanded", 0) != 0);
+    static bool s_firstLoad = true;
+    if (s_firstLoad) {
+        s_firstLoad = false;
+        g_pinnedExpanded.store(false);
+        Wh_SetIntValue(L"PinnedExpanded", 0);
+    } else {
+        g_pinnedExpanded.store(Wh_GetIntValue(L"PinnedExpanded", 0) != 0);
+    }
     next.pillOpacity = island_policy::CalculatePillOpacity(localOpacity >= 0 ? localOpacity : settingOpacity);
     next.gameOverlay = Wh_GetIntSetting(L"Modules.GameOverlay") != 0;
     {
@@ -6388,6 +6397,13 @@ BluetoothDeviceCategory ClassifyBluetoothDevice(
         // peripherals in particular will throw here. Fall through.
     }
 
+    // 3) Check device ID for phone markers
+    std::wstring idLower = ToLowerCopy(std::wstring(info.Id().c_str()));
+    if (idLower.find(L"phone") != std::wstring::npos ||
+        idLower.find(L"cellular") != std::wstring::npos) {
+        return BluetoothDeviceCategory::Phone;
+    }
+
     return BluetoothDeviceCategory::Generic;
 }
 
@@ -6565,11 +6581,13 @@ int GetLastKnownBluetoothBatteryPercent(const std::wstring& deviceId) {
 // a full DeviceInformation) can still show a name/icon on disconnect.
 struct BluetoothTrackedDevice {
     std::wstring name;
-    BluetoothDeviceCategory category;
+    BluetoothDeviceCategory category = BluetoothDeviceCategory::Generic;
     bool isBle = false;
     bool isConnected = false;
     double lastConnectTime = -100.0;
     double lastDisconnectTime = -100.0;
+    int flapCount = 0;
+    double lastFlapResetTime = -100.0;
 };
 
 void HandleBluetoothConnected(
@@ -6592,10 +6610,23 @@ void HandleBluetoothConnected(
     const double now = NowSeconds();
     const std::wstring deviceId = info.Id().c_str();
 
+    bool isFlapping = false;
     {
         std::lock_guard lock(cacheMutex);
         auto& entry = cache[deviceId];
-        if (entry.isConnected && (now - entry.lastConnectTime < 5.0)) {
+        // Flap protection: if this device connected and disconnected multiple times
+        // within a short window, treat as bouncing background ping
+        if (entry.lastDisconnectTime > 0.0 && (now - entry.lastDisconnectTime < 15.0)) {
+            entry.flapCount++;
+            if (entry.flapCount >= 2) {
+                isFlapping = true;
+            }
+        } else if (now - entry.lastFlapResetTime > 60.0) {
+            entry.flapCount = 0;
+            entry.lastFlapResetTime = now;
+        }
+
+        if (entry.isConnected && (now - entry.lastConnectTime < 10.0)) {
             return;
         }
         entry.name = name;
@@ -6607,6 +6638,16 @@ void HandleBluetoothConnected(
     }
 
     if (!g_settings.bluetoothIndicator) {
+        return;
+    }
+
+    // Single source of truth Bluetooth connect policy from island_policy.h
+    if (island_policy::ShouldSuppressBluetoothConnect(isBle, category, g_settings.bluetoothAlertOnGenericBle, g_settings.bluetoothAlertOnPhone)) {
+        return;
+    }
+
+    if (isFlapping) {
+        Wh_Log(L"Bluetooth: suppressed flapping connect card for %s (bouncing link)", name.c_str());
         return;
     }
 
@@ -6678,6 +6719,7 @@ void HandleBluetoothDisconnected(
     BluetoothDeviceCategory category = BluetoothDeviceCategory::Generic;
     bool wasConnected = false;
     bool isBle = false;
+    bool connectionWasTooBrief = false;
 
     // CRITICAL: Always update tracking state regardless of whether notifications are enabled!
     {
@@ -6689,7 +6731,11 @@ void HandleBluetoothDisconnected(
             isBle = it->second.isBle;
             wasConnected = it->second.isConnected;
             it->second.isConnected = false;
-            if (now - it->second.lastDisconnectTime < 5.0) {
+            // If connection lasted less than 5 seconds, it was an ephemeral background ping
+            if (it->second.lastConnectTime > 0.0 && (now - it->second.lastConnectTime < 5.0)) {
+                connectionWasTooBrief = true;
+            }
+            if (now - it->second.lastDisconnectTime < 10.0) {
                 return;  // Debounce duplicate disconnect events
             }
             it->second.lastDisconnectTime = now;
@@ -6701,8 +6747,14 @@ void HandleBluetoothDisconnected(
         return;
     }
 
+    // Suppress ephemeral < 5s ping disconnects
+    if (connectionWasTooBrief) {
+        Wh_Log(L"Bluetooth: suppressed disconnect card for %s (ephemeral <5s ping)", name.c_str());
+        return;
+    }
+
     // Single source of truth Bluetooth disconnect policy from island_policy.h
-    if (island_policy::ShouldSuppressBluetoothDisconnect(wasConnected, isBle, category, g_settings.bluetoothAlertOnGenericBle)) {
+    if (island_policy::ShouldSuppressBluetoothDisconnect(wasConnected, isBle, category, g_settings.bluetoothAlertOnGenericBle, g_settings.bluetoothAlertOnPhone)) {
         return;
     }
 
@@ -11738,6 +11790,9 @@ static constexpr UINT kMediaSourceMenuIdBase = 100;  // 100 = Auto, 101.. = sour
 // Shape style submenu: +0 = iPhone pill, +1 = Windows 11 flyout, +2 = macOS notch.
 static constexpr UINT kShapeMenuIdBase = 50;
 
+// Accent Color submenu: +0..+9 presets from island_policy::kAllAccentPresets
+static constexpr UINT kAccentMenuIdBase = 200;
+
 // Lyrics sync submenu: +0 header (disabled), +1..+3 earlier 10/50/250, +4..+6 later 10/50/250, +7 reset.
 static constexpr UINT kLyricsSyncMenuIdBase = 60;
 
@@ -11864,7 +11919,7 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
                     clearLabel.c_str());
         AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(trayMenu), Loc(L"File Tray"));
     }
-    AppendMenuW(menu, MF_STRING, 2, L"Pin expanded");
+    AppendMenuW(menu, MF_STRING | (g_pinnedExpanded.load() ? MF_CHECKED : 0), 2, L"Pin expanded");
     AppendMenuW(menu, MF_STRING, 3, g_gameOverlayPinned.load() ? L"Hide game overlay" : L"Show game overlay");
     {
         // g_settings already reflects any right-click override, so it is the
@@ -11888,10 +11943,7 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
                     kShapeMenuIdBase + 4, L"Strip mode");
         AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(shapeMenu), L"Shape style");
     }
-    const int activeExpandOnHover = Wh_GetIntValue(L"ExpandOnHoverOverride", -1) >= 0
-                          ? Wh_GetIntValue(L"ExpandOnHoverOverride", 0)
-                          : (Wh_GetIntSetting(L"Behavior.ExpandOnHover") != 0);
-    AppendMenuW(menu, MF_STRING, 11, activeExpandOnHover ? L"Expand on Click" : L"Expand on Hover");
+    AppendMenuW(menu, MF_STRING | (g_settings.expandOnHover ? MF_CHECKED : 0), 11, L"Expand on Hover");
     AppendMenuW(menu, MF_STRING | (Wh_GetIntValue(L"CollapsedLyrics", 0) ? MF_CHECKED : 0), 13,
                 L"Show lyrics on collapsed island");
     AppendMenuW(menu,
@@ -11956,18 +12008,25 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
     AppendMenuW(opacityMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(opacityMenu, MF_STRING | (activeOpacity < 0 ? MF_CHECKED : 0), 8, L"Theme default");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(opacityMenu), L"Transparency");
-    // Color theme presets. Built from kThemePalettes and nested in a submenu:
-    // nine palettes listed flat would dominate the root menu.
-    const int activeTheme = Wh_GetIntValue(kThemeValueName, static_cast<int>(g_settings.themePreset));
-    HMENU themeMenu = CreatePopupMenu();
-    for (int i = 0; i < kCustomThemeIndex; ++i) {
-        AppendMenuW(themeMenu, MF_STRING | (activeTheme == i ? MF_CHECKED : 0),
-                    kThemeMenuIdBase + static_cast<UINT>(i), kThemePalettes[i].label);
+    // Direct Accent Color presets. Replaces legacy theme presets so the user can directly pick
+    // their preferred accent color (System, Electric Cyan, Crimson Red, Neon Violet, etc.)
+    const std::wstring curAccentMode = GetStringSettingCopy(L"Themes.AccentColorMode");
+    const std::wstring curCustomHex = GetStringSettingCopy(L"Themes.CustomAccentHex");
+    HMENU accentMenu = CreatePopupMenu();
+    for (size_t i = 0; i < ARRAYSIZE(island_policy::kAllAccentPresets); ++i) {
+        const auto& preset = island_policy::kAllAccentPresets[i];
+        bool isChecked = false;
+        if (i == 0) {
+            isChecked = (EqualsNoCase(curAccentMode, L"auto") || curAccentMode.empty());
+        } else if (i == 1) {
+            isChecked = EqualsNoCase(curAccentMode, L"system");
+        } else {
+            isChecked = EqualsNoCase(curAccentMode, L"custom") && EqualsNoCase(curCustomHex, preset.val);
+        }
+        AppendMenuW(accentMenu, MF_STRING | (isChecked ? MF_CHECKED : 0),
+                    kAccentMenuIdBase + static_cast<UINT>(i), preset.label);
     }
-    AppendMenuW(themeMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(themeMenu, MF_STRING | (activeTheme >= kCustomThemeIndex ? MF_CHECKED : 0),
-                kThemeMenuIdBase + static_cast<UINT>(kCustomThemeIndex), L"Custom Colors");
-    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu), L"Theme");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(accentMenu), L"Accent Color");
 
     HMENU posMenu = CreatePopupMenu();
     AppendMenuW(posMenu, MF_STRING | (g_settings.position == Position::TopCenter ? MF_CHECKED : 0), 71, L"Top Center (Default)");
@@ -11993,12 +12052,23 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
     DwmBackdrop::EnsureBehind(hwnd);
     g_layoutDirty = true;
 
-    // Theme ids are a contiguous range rather than individual cases, so adding a
-    // palette to kThemePalettes needs no change here.
-    if (cmd >= kThemeMenuIdBase &&
-        cmd <= kThemeMenuIdBase + static_cast<UINT>(kCustomThemeIndex)) {
-        Wh_SetIntValue(kThemeValueName, static_cast<int>(cmd - kThemeMenuIdBase));
+    // Accent Color presets: direct single source of truth selection
+    if (cmd >= kAccentMenuIdBase && cmd < kAccentMenuIdBase + ARRAYSIZE(island_policy::kAllAccentPresets)) {
+        const size_t idx = cmd - kAccentMenuIdBase;
+        const auto& preset = island_policy::kAllAccentPresets[idx];
+        if (idx == 0) {
+            WritePrivateProfileStringW(L"Settings", L"Themes.AccentColorMode", L"auto", GetIniFilePath().c_str());
+        } else if (idx == 1) {
+            WritePrivateProfileStringW(L"Settings", L"Themes.AccentColorMode", L"system", GetIniFilePath().c_str());
+        } else {
+            WritePrivateProfileStringW(L"Settings", L"Themes.AccentColorMode", L"custom", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(L"Settings", L"Themes.CustomAccentHex", preset.val, GetIniFilePath().c_str());
+        }
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
         LoadSettings();
+        g_layoutDirty = true;
+        TriggerNudge();
+        PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
         return;
     }
 
@@ -12118,29 +12188,49 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             break;
         }
         case 4:
-            g_pillOpacityOverride.store(100);
-            Wh_SetIntValue(L"PillOpacityOverride", 100);
-            LoadSettings();
-            break;
-        case 5:
-            g_pillOpacityOverride.store(85);
-            Wh_SetIntValue(L"PillOpacityOverride", 85);
-            LoadSettings();
-            break;
-        case 6:
-            g_pillOpacityOverride.store(70);
-            Wh_SetIntValue(L"PillOpacityOverride", 70);
-            LoadSettings();
-            break;
-        case 7:
-            g_pillOpacityOverride.store(55);
-            Wh_SetIntValue(L"PillOpacityOverride", 55);
-            LoadSettings();
-            break;
-        case 8:
+            WritePrivateProfileStringW(L"Settings", L"Themes.PillOpacity", L"100", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
             g_pillOpacityOverride.store(-1);
             Wh_SetIntValue(L"PillOpacityOverride", -1);
             LoadSettings();
+            g_layoutDirty = true;
+            TriggerNudge();
+            break;
+        case 5:
+            WritePrivateProfileStringW(L"Settings", L"Themes.PillOpacity", L"85", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+            g_pillOpacityOverride.store(-1);
+            Wh_SetIntValue(L"PillOpacityOverride", -1);
+            LoadSettings();
+            g_layoutDirty = true;
+            TriggerNudge();
+            break;
+        case 6:
+            WritePrivateProfileStringW(L"Settings", L"Themes.PillOpacity", L"70", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+            g_pillOpacityOverride.store(-1);
+            Wh_SetIntValue(L"PillOpacityOverride", -1);
+            LoadSettings();
+            g_layoutDirty = true;
+            TriggerNudge();
+            break;
+        case 7:
+            WritePrivateProfileStringW(L"Settings", L"Themes.PillOpacity", L"55", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+            g_pillOpacityOverride.store(-1);
+            Wh_SetIntValue(L"PillOpacityOverride", -1);
+            LoadSettings();
+            g_layoutDirty = true;
+            TriggerNudge();
+            break;
+        case 8:
+            WritePrivateProfileStringW(L"Settings", L"Themes.PillOpacity", L"16", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+            g_pillOpacityOverride.store(-1);
+            Wh_SetIntValue(L"PillOpacityOverride", -1);
+            LoadSettings();
+            g_layoutDirty = true;
+            TriggerNudge();
             break;
         case 9: {
             settings_ui::ShowSettingsWindow(hwnd);
@@ -12156,10 +12246,12 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             if (wantNotch && IsBottomPosition(g_settings.position)) {
                 break;  // a bottom-anchored island can't be a top-edge notch
             }
-            // Overrides are written every time, so exactly one style is active.
-            Wh_SetIntValue(L"W11StyleOverride", wantW11 ? 1 : 0);
-            Wh_SetIntValue(L"NotchStyleOverride", wantNotch ? 1 : 0);
-            Wh_SetIntValue(L"BladeStyleOverride", wantBlade ? 1 : 0);
+            const wchar_t* shapeName = wantW11 ? L"w11" : (wantNotch ? L"notch" : (wantBlade ? L"blade" : L"pill"));
+            WritePrivateProfileStringW(L"Settings", L"Appearance.ShapeStyle", shapeName, GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+            Wh_SetIntValue(L"W11StyleOverride", -1);
+            Wh_SetIntValue(L"NotchStyleOverride", -1);
+            Wh_SetIntValue(L"BladeStyleOverride", -1);
             LoadSettings();
             g_layoutDirty = true;
             TriggerNudge();
@@ -12174,12 +12266,13 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             break;
         }
         case 11: {
-            const int activeExpandOnHover = Wh_GetIntValue(L"ExpandOnHoverOverride", -1) >= 0
-                                  ? Wh_GetIntValue(L"ExpandOnHoverOverride", 0)
-                                  : (Wh_GetIntSetting(L"Behavior.ExpandOnHover") != 0);
-            Wh_SetIntValue(L"ExpandOnHoverOverride", activeExpandOnHover ? 0 : 1);
+            const bool nextVal = !g_settings.expandOnHover;
+            WritePrivateProfileStringW(L"Settings", L"Behavior.ExpandOnHover", nextVal ? L"1" : L"0", GetIniFilePath().c_str());
+            WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+            Wh_SetIntValue(L"ExpandOnHoverOverride", -1);
             LoadSettings();
             g_layoutDirty = true;
+            TriggerNudge();
             break;
         }
         case 13: {
@@ -13175,7 +13268,13 @@ class Renderer {
         // Smooth accent transition: exponential lerp toward target, ~300ms half-life.
         // On the very first frame (lastAccentTime_ < 0) snap immediately so there's
         // no fade-in from the default color on startup.
-        if (lastAccentTime_ < 0.0) {
+        static D2D1_COLOR_F s_lastTargetAccent = {};
+        const bool targetChanged = (targetAccent.r != s_lastTargetAccent.r ||
+                                    targetAccent.g != s_lastTargetAccent.g ||
+                                    targetAccent.b != s_lastTargetAccent.b ||
+                                    targetAccent.a != s_lastTargetAccent.a);
+        if (targetChanged || lastAccentTime_ < 0.0) {
+            s_lastTargetAccent = targetAccent;
             currentAccent_ = targetAccent;
             lastAccentTime_ = now;
         } else {
@@ -16305,8 +16404,14 @@ class Renderer {
 
         if (dateFirst) {
             if (dateLayout) {
-                mutedBrush_->SetOpacity(0.85f);
-                target_->DrawTextLayout(topOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                if (accentBrush_) {
+                    accentBrush_->SetOpacity(0.92f);
+                    target_->DrawTextLayout(topOrigin, dateLayout.Get(), accentBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                    accentBrush_->SetOpacity(1.0f);
+                } else {
+                    mutedBrush_->SetOpacity(0.85f);
+                    target_->DrawTextLayout(topOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                }
             }
             if (timeLayout) {
                 textBrush_->SetOpacity(0.98f);
@@ -16318,8 +16423,14 @@ class Renderer {
                 target_->DrawTextLayout(topOrigin, timeLayout.Get(), textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
             if (dateLayout) {
-                mutedBrush_->SetOpacity(0.85f);
-                target_->DrawTextLayout(midOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                if (accentBrush_) {
+                    accentBrush_->SetOpacity(0.92f);
+                    target_->DrawTextLayout(midOrigin, dateLayout.Get(), accentBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                    accentBrush_->SetOpacity(1.0f);
+                } else {
+                    mutedBrush_->SetOpacity(0.85f);
+                    target_->DrawTextLayout(midOrigin, dateLayout.Get(), mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
+                }
             }
         }
 
@@ -16384,7 +16495,7 @@ class Renderer {
             D2D1_COLOR_F chipBgColor = D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.92f);
             ComPtr<ID2D1SolidColorBrush> chipBgBrush;
             target_->CreateSolidColorBrush(chipBgColor, &chipBgBrush);
-            D2D1_COLOR_F chipStrokeColor = WithAlpha(material_.stroke, 0.35f);
+            D2D1_COLOR_F chipStrokeColor = WithAlpha(currentAccent_, 0.40f);
             ComPtr<ID2D1SolidColorBrush> chipStrokeBrush;
             target_->CreateSolidColorBrush(chipStrokeColor, &chipStrokeBrush);
 

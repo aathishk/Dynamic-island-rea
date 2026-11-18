@@ -33,18 +33,56 @@ inline unsigned char PillOpacityToAlphaByte(float opacity) {
     return static_cast<unsigned char>(std::round(clamped * 255.0f));
 }
 
+// Determines whether a Bluetooth device connect event should be suppressed.
+// - isBle: true if the device uses Bluetooth Low Energy transport.
+// - cat: category classification (Headphones, Speaker, Mouse, Keyboard, Gamepad, Phone, Generic).
+// - allowGenericBle: user configuration (Modules.BluetoothAlertOnGenericBle).
+// - allowPhone: user configuration (Modules.BluetoothAlertOnPhone).
+inline bool ShouldSuppressBluetoothConnect(
+    bool isBle,
+    BluetoothDeviceCategory cat,
+    bool allowGenericBle,
+    bool allowPhone = false) {
+    // BLE connections to phones are ephemeral background sync pings (Phone Link, SwiftPair, beacons);
+    // always suppress regardless of allowPhone setting to avoid continuous connect storms.
+    if (isBle && cat == BluetoothDeviceCategory::Phone) {
+        return true;
+    }
+    // Phone connect alerts are suppressed by default unless user opted in
+    if (cat == BluetoothDeviceCategory::Phone && !allowPhone) {
+        return true;
+    }
+    // Generic BLE peripherals (e.g. GP325, fitness trackers) poll and sleep continuously;
+    // suppress connect cards by default unless user explicitly enabled raw BLE alerts.
+    // Audio, input peripherals, and gamepads are never suppressed.
+    if (isBle && cat == BluetoothDeviceCategory::Generic && !allowGenericBle) {
+        return true;
+    }
+    return false;
+}
+
 // Determines whether a Bluetooth device disconnect event should be suppressed.
 // - wasConnected: true if the device was actively connected prior to disconnect.
 // - isBle: true if the device uses Bluetooth Low Energy transport.
 // - cat: category classification (Headphones, Speaker, Mouse, Keyboard, Gamepad, Phone, Generic).
 // - allowGenericBle: user configuration (Modules.BluetoothAlertOnGenericBle).
+// - allowPhone: user configuration (Modules.BluetoothAlertOnPhone).
 inline bool ShouldSuppressBluetoothDisconnect(
     bool wasConnected,
     bool isBle,
     BluetoothDeviceCategory cat,
-    bool allowGenericBle) {
+    bool allowGenericBle,
+    bool allowPhone = false) {
     if (!wasConnected) {
         return true;  // Never alert if device was not actively connected
+    }
+    // BLE connections to phones are background pings; always suppress disconnect card
+    if (isBle && cat == BluetoothDeviceCategory::Phone) {
+        return true;
+    }
+    // Phone disconnect alerts are suppressed by default unless user opted in
+    if (cat == BluetoothDeviceCategory::Phone && !allowPhone) {
+        return true;
     }
     // Generic BLE peripherals (e.g. GP325) poll and sleep continuously;
     // suppress disconnect cards by default unless user explicitly enabled raw BLE alerts.
@@ -85,9 +123,25 @@ inline BluetoothDeviceCategory ClassifyDeviceByName(const std::wstring& nameLowe
         return BluetoothDeviceCategory::Gamepad;
     }
     if (nameLower.find(L"iphone") != std::wstring::npos ||
+        nameLower.find(L"ipad") != std::wstring::npos ||
+        nameLower.find(L"ipod") != std::wstring::npos ||
         nameLower.find(L"phone") != std::wstring::npos ||
+        nameLower.find(L"mobile") != std::wstring::npos ||
+        nameLower.find(L"cellular") != std::wstring::npos ||
         nameLower.find(L"galaxy") != std::wstring::npos ||
-        nameLower.find(L"pixel") != std::wstring::npos) {
+        nameLower.find(L"pixel") != std::wstring::npos ||
+        nameLower.find(L"oneplus") != std::wstring::npos ||
+        nameLower.find(L"xiaomi") != std::wstring::npos ||
+        nameLower.find(L"redmi") != std::wstring::npos ||
+        nameLower.find(L"poco") != std::wstring::npos ||
+        nameLower.find(L"vivo") != std::wstring::npos ||
+        nameLower.find(L"oppo") != std::wstring::npos ||
+        nameLower.find(L"realme") != std::wstring::npos ||
+        nameLower.find(L"motorola") != std::wstring::npos ||
+        nameLower.find(L"huawei") != std::wstring::npos ||
+        nameLower.find(L"honor") != std::wstring::npos ||
+        nameLower.find(L"xperia") != std::wstring::npos ||
+        nameLower.find(L"android") != std::wstring::npos) {
         return BluetoothDeviceCategory::Phone;
     }
     return BluetoothDeviceCategory::Generic;

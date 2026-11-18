@@ -1049,6 +1049,13 @@ inline void SaveValuesFromUi(HWND hwnd) {
     // Flush Windows INI cache
     WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
 
+    // Clear stale runtime session overrides so persistent INI settings take authoritative effect
+    Wh_SetIntValue(L"W11StyleOverride", -1);
+    Wh_SetIntValue(L"NotchStyleOverride", -1);
+    Wh_SetIntValue(L"BladeStyleOverride", -1);
+    Wh_SetIntValue(L"PillOpacityOverride", -1);
+    Wh_SetIntValue(L"ExpandOnHoverOverride", -1);
+
     // Instantly notify live Dynamic Island overlay
     LoadSettings();
     g_layoutDirty = true;

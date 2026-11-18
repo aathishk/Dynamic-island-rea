@@ -79,6 +79,8 @@ inline int Wh_GetIntSetting(PCWSTR name) {
     if (wcscmp(name, L"Modules.LyricsOffsetMs") == 0) return 0;
     if (wcscmp(name, L"Modules.LyricsOffsetBluetoothMs") == 0) return 0;
     if (wcscmp(name, L"Modules.DoNotDisturbIndicator") == 0) return 0;
+    if (wcscmp(name, L"Modules.BluetoothAlertOnGenericBle") == 0) return 0;
+    if (wcscmp(name, L"Modules.BluetoothAlertOnPhone") == 0) return 0;
     if (wcscmp(name, L"Behavior.AutoHideIdleSeconds") == 0) return 0;
     if (wcscmp(name, L"Themes.RealLiquidGlass") == 0) return 0;
     if (wcscmp(name, L"Debug.Log") == 0) return 0;

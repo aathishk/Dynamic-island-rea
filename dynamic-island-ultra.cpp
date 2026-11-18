@@ -2952,6 +2952,11 @@ bool IsForegroundFullscreen(HWND targetHwnd) {
         wcscmp(className, L"Shell_TrayWnd") == 0) {
         return false;
     }
+    wchar_t title[256] = {};
+    GetWindowTextW(fg, title, 256);
+    if (wcsstr(title, L"Lock Screen") != nullptr) {
+        return false;
+    }
 
     RECT clientRect = {};
     if (!GetClientRect(fg, &clientRect)) return false;

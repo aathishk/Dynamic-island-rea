@@ -7,7 +7,7 @@
 #include <cstdarg>
 
 // When compiling as a standalone Windows app (outside Windhawk injection)
-#ifdef DYNAMIC_ISLAND_STANDALONE
+#if defined(DYNAMIC_ISLAND_STANDALONE) || defined(STANDALONE_BUILD)
 
 static std::wstring GetIniFilePath() {
     wchar_t path[MAX_PATH];
@@ -112,9 +112,15 @@ inline int Wh_GetIntValue(PCWSTR name, int defaultValue) {
 
 inline BOOL Wh_SetIntValue(PCWSTR name, int value) {
     std::wstring ini = GetIniFilePath();
+    if (value < 0) {
+        WritePrivateProfileStringW(L"Values", name, nullptr, ini.c_str());
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, ini.c_str());
+        return TRUE;
+    }
     wchar_t buf[32];
     swprintf_s(buf, L"%d", value);
     WritePrivateProfileStringW(L"Values", name, buf, ini.c_str());
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, ini.c_str());
     return TRUE;
 }
 

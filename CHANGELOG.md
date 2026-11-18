@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.7.4 — Theme System & Interaction Refinement
+- **Zero AI / Quota Footprint:**
+  - Completely removed AI sparkles, token counters, and quota tracking from the collapsed idle pill strip.
+  - Replaced the AI card on the Overview dashboard with clean Dynamic Ledge quick actions: 1-click Focus Timers (`5m`, `15m`, `25m Focus`), app launchers (`>_`, `🌐`, `📁`), and instant `⚙️` Settings navigation.
+- **Color Theme & Personalisation Single Source of Truth:**
+  - Upgraded `CalculateSurfaceMaterial` in `island_layout.h` to accept `settings.pillBgColor` RGB channels, eradicating hardcoded bluish tint and allowing palettes (`Obsidian`, `Graphite`, `Slate`, `Nord`, `Evergreen`, `Espresso`, `Plum`, `Porcelain`) to apply faithfully.
+  - Added direct **Theme Palette** submenu to the right-click context menu with instantaneous atomic INI persistence, cache invalidation, and live re-render.
+  - Restored independent **Theme Palette** and **Accent Color** comboboxes in `settings_window.h` with full round-trip serialization.
+- **macOS / iOS Click-To-Expand Default (`ExpandOnHover = 0`):**
+  - Defaulted `Behavior.ExpandOnHover` to `0` (false), preventing accidental full expansions when the cursor grazes the top screen edge/notch.
+- **Bluetooth Phone Flapping & Disconnect Suppression:**
+  - Expanded device classification heuristics in `island_policy.h` to recognize smartphone vendor prefixes (`sm-`, `cph`, `rmx`, `iqoo`, `zenfone`, `nothing`, `tab`, `tablet`).
+  - Added flap suppression to `HandleBluetoothDisconnected` and raised ephemeral sync threshold from 5s to 15s, permanently eliminating phantom connect/disconnect popups for background phone syncs (e.g. OnePlus 10T 5G, Galaxy, Pixel).
+
+
 ## 1.7.0 — Adaptive Desktop Companion
 - **Product-Quality & Interaction Hardening (Tenth Audit Remediation):**
   - **Comprehensive Alpha Architecture Consistency:** Connected `island_alpha::CalculateSurfaceOpacity` directly into `island_layout::CalculateSurfaceMaterial` and decoupled all foreground content rendering paths (Overview status chips, Hardware Monitor glyphs, Game Overlay metrics, File Tray ink, and privacy indicators) from `settingsOpacity_`, ensuring foreground content retains crisp, full contrast ($0.85\text{--}0.98$ alpha) independently of background transparency.

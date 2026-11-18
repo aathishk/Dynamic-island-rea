@@ -1144,24 +1144,11 @@ static constexpr const wchar_t* kLegacyThemeValueName = L"ColorTheme";
 
 // Base menu command id for the theme submenu; entries occupy
 // [kThemeMenuIdBase, kThemeMenuIdBase + kCustomThemeIndex].
-static constexpr UINT kThemeMenuIdBase = 20;
+static constexpr UINT kThemeMenuIdBase = 300;
 
 // Maps a preset id to its palette index, accepting legacy aliases via island_policy::ResolveThemePalette.
 inline int ThemeIndexFromId(std::wstring_view id) {
-    auto iequals = [](std::wstring_view a, std::wstring_view b) {
-        if (a.size() != b.size()) return false;
-        for (size_t i = 0; i < a.size(); ++i) {
-            if (towlower(a[i]) != towlower(b[i])) return false;
-        }
-        return true;
-    };
-
-    if (iequals(id, L"custom")) return kCustomThemeIndex;
-    const auto* pal = island_policy::ResolveThemePalette(id);
-    if (pal) {
-        return static_cast<int>(pal - &island_policy::kAllThemePalettes[0]);
-    }
-    return -1;
+    return island_policy::ThemeIndexFromId(id);
 }
 
 // Real Windows blur / acrylic painted behind the island (#59).
@@ -1259,7 +1246,7 @@ struct Settings {
     bool borderMergedMode = false;
     bool unhideOnHover = true;
     bool alwaysOnTop = true;
-    bool expandOnHover = true;
+    bool expandOnHover = false;
     bool autoDpiScale = true;
     bool w11Style = false;
     bool notchStyle = false;
@@ -2128,7 +2115,7 @@ struct OverviewActionZones {
     D2D1_RECT_F shortcutTerm{};
     D2D1_RECT_F shortcutBrowser{};
     D2D1_RECT_F shortcutFiles{};
-    D2D1_RECT_F aiCard{};
+    D2D1_RECT_F shortcutSettings{};
     float originX = 0.0f;
     float originY = 0.0f;
     int hovered = -1;
@@ -2155,7 +2142,7 @@ inline int OverviewHitTest(const MediaContentPoint& cp) {
     if (OverviewPointInRect(g_overviewActions.shortcutTerm, px, py)) return 5;
     if (OverviewPointInRect(g_overviewActions.shortcutBrowser, px, py)) return 6;
     if (OverviewPointInRect(g_overviewActions.shortcutFiles, px, py)) return 7;
-    if (OverviewPointInRect(g_overviewActions.aiCard, px, py)) return 8;
+    if (OverviewPointInRect(g_overviewActions.shortcutSettings, px, py)) return 8;
     return -1;
 }
 
@@ -3575,7 +3562,7 @@ void LoadSettings() {
     next.unhideOnHover = Wh_GetIntSetting(L"Behavior.UnhideOnHover") != 0;
     next.alwaysOnTop = Wh_GetIntSetting(L"Behavior.AlwaysOnTop") != 0;
     const int localExpandOnHover = Wh_GetIntValue(L"ExpandOnHoverOverride", -1);
-    next.expandOnHover = localExpandOnHover >= 0 ? (localExpandOnHover != 0) : (Wh_GetIntSetting(L"Behavior.ExpandOnHover") != 0);
+    next.expandOnHover = localExpandOnHover >= 0 ? (localExpandOnHover != 0) : (Wh_GetIntSetting(L"Behavior.ExpandOnHover") == 1);
     next.rememberLastPage = Wh_GetIntSetting(L"Behavior.RememberLastPage") != 0;
     int pauseTimeout = Wh_GetIntSetting(L"Media.PausedTimeoutSeconds");
     if (pauseTimeout == -999999) pauseTimeout = Wh_GetIntSetting(L"Modules.MediaPausedTimeoutSeconds");
@@ -6810,6 +6797,7 @@ void HandleBluetoothDisconnected(
     bool wasConnected = false;
     bool isBle = false;
     bool connectionWasTooBrief = false;
+    bool wasFlapping = false;
 
     // CRITICAL: Always update tracking state regardless of whether notifications are enabled!
     {
@@ -6820,9 +6808,10 @@ void HandleBluetoothDisconnected(
             category = it->second.category;
             isBle = it->second.isBle;
             wasConnected = it->second.isConnected;
+            wasFlapping = (it->second.flapCount >= 2);
             it->second.isConnected = false;
-            // If connection lasted less than 5 seconds, it was an ephemeral background ping
-            if (it->second.lastConnectTime > 0.0 && (now - it->second.lastConnectTime < 5.0)) {
+            // If connection lasted less than 15 seconds, it was an ephemeral background ping
+            if (it->second.lastConnectTime > 0.0 && (now - it->second.lastConnectTime < 15.0)) {
                 connectionWasTooBrief = true;
             }
             if (now - it->second.lastDisconnectTime < 10.0) {
@@ -6837,9 +6826,15 @@ void HandleBluetoothDisconnected(
         return;
     }
 
-    // Suppress ephemeral < 5s ping disconnects
+    // Suppress ephemeral < 15s ping disconnects
     if (connectionWasTooBrief) {
-        Wh_Log(L"Bluetooth: suppressed disconnect card for %s (ephemeral <5s ping)", name.c_str());
+        Wh_Log(L"Bluetooth: suppressed disconnect card for %s (ephemeral <15s ping)", name.c_str());
+        return;
+    }
+
+    // Suppress flapping disconnect cards
+    if (wasFlapping) {
+        Wh_Log(L"Bluetooth: suppressed flapping disconnect card for %s", name.c_str());
         return;
     }
 
@@ -12102,6 +12097,19 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
     AppendMenuW(opacityMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(opacityMenu, MF_STRING | (activeOpacity < 0 ? MF_CHECKED : 0), 8, L"Theme default");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(opacityMenu), L"Transparency");
+
+    // Theme Palette presets (Obsidian, Graphite, Slate, Nord, Evergreen, Espresso, Plum, Porcelain, etc.)
+    const int curTheme = Wh_GetIntValue(kThemeValueName, -1);
+    const std::wstring curThemePresetStr = GetStringSettingCopy(L"Themes.ThemePreset");
+    HMENU themeMenu = CreatePopupMenu();
+    for (size_t i = 0; i < ARRAYSIZE(island_policy::kAllThemePalettes); ++i) {
+        const auto& pal = island_policy::kAllThemePalettes[i];
+        const bool isChecked = (curTheme == static_cast<int>(i)) || (curTheme < 0 && EqualsNoCase(curThemePresetStr, pal.id));
+        AppendMenuW(themeMenu, MF_STRING | (isChecked ? MF_CHECKED : 0),
+                    kThemeMenuIdBase + static_cast<UINT>(i), pal.label);
+    }
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(themeMenu), L"Theme Palette");
+
     // Direct Accent Color presets. Replaces legacy theme presets so the user can directly pick
     // their preferred accent color (System, Electric Cyan, Crimson Red, Neon Violet, etc.)
     const std::wstring curAccentMode = GetStringSettingCopy(L"Themes.AccentColorMode");
@@ -12146,6 +12154,23 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
     DwmBackdrop::EnsureBehind(hwnd);
     g_layoutDirty = true;
 
+    // Theme Palette presets: direct single source of truth selection
+    if (cmd >= kThemeMenuIdBase && cmd < kThemeMenuIdBase + ARRAYSIZE(island_policy::kAllThemePalettes)) {
+        const size_t idx = cmd - kThemeMenuIdBase;
+        const auto& pal = island_policy::kAllThemePalettes[idx];
+        WritePrivateProfileStringW(L"Settings", L"Themes.ThemePreset", pal.id, GetIniFilePath().c_str());
+        WritePrivateProfileStringW(L"Values", kThemeValueName, std::to_wstring(idx).c_str(), GetIniFilePath().c_str());
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
+        Wh_SetIntValue(kThemeValueName, static_cast<int>(idx));
+        g_pillOpacityOverride.store(-1);
+        Wh_SetIntValue(L"PillOpacityOverride", -1);
+        LoadSettings();
+        g_layoutDirty = true;
+        TriggerNudge();
+        PostMessageW(hwnd, WM_APP_NEW_EVENT, 0, 0);
+        return;
+    }
+
     // Accent Color presets: direct single source of truth selection
     if (cmd >= kAccentMenuIdBase && cmd < kAccentMenuIdBase + ARRAYSIZE(island_policy::kAllAccentPresets)) {
         const size_t idx = cmd - kAccentMenuIdBase;
@@ -12159,7 +12184,6 @@ void ShowContextMenu(HWND hwnd, POINT screenPoint) {
             WritePrivateProfileStringW(L"Settings", L"Themes.CustomAccentHex", preset.val, GetIniFilePath().c_str());
         }
         WritePrivateProfileStringW(nullptr, nullptr, nullptr, GetIniFilePath().c_str());
-        Wh_SetIntValue(kThemeValueName, -1);
         LoadSettings();
         g_layoutDirty = true;
         TriggerNudge();
@@ -12995,17 +13019,12 @@ class Renderer {
             (state.system.micActive && settings.privacyDots && settings.privacyDotsMic) ||
             (state.system.cameraActive && settings.privacyDots && settings.privacyDotsCam);
 
-        auto ai = island_ai::AiUsageReader::GetCurrentMetrics();
         const bool timerActive = island_globals::g_focusTimer.GetState() != island_focus::FocusState::Idle;
-        metrics.hasAi = true;
-
         float total = IdleStripLayout::kPadX * 2.0f + metrics.clockWidth;
         if (timerActive) {
+            metrics.hasAi = true;
             std::wstring timerStr = L"\u23F3 " + island_globals::g_focusTimer.GetFormattedRemaining();
             metrics.aiWidth = MeasureTextWidthCached(WidestDigitForm(timerStr), fmt, idleClockWidthCache_) + 4.0f;
-            total += IdleStripLayout::kSlotGap * 2.0f + IdleStripLayout::kDividerWidth + metrics.aiWidth;
-        } else if (ai.hasSession && ai.totalTokens > 0) {
-            metrics.aiWidth = 58.0f * (settings.sizeScale > 0.0f ? settings.sizeScale : 1.0f);
             total += IdleStripLayout::kSlotGap * 2.0f + IdleStripLayout::kDividerWidth + metrics.aiWidth;
         } else {
             metrics.hasAi = false;
@@ -14204,7 +14223,7 @@ class Renderer {
         // Expanded Data Dashboards (Hardware Monitor, Overview, Calendar, Weather, Quick Controls, File Tray, Game Overlay)
         // command deep opaque obsidian backdrop (1.0 alpha) completely eliminating background text bleed-through.
         const bool isExpanded = (h >= 56.0f * settings.sizeScale);
-        const auto mat = island_layout::CalculateSurfaceMaterial(isExpanded, activePageId, settingsOpacity_);
+        const auto mat = island_layout::CalculateSurfaceMaterial(isExpanded, activePageId, settingsOpacity_, settings.pillBgColor.r, settings.pillBgColor.g, settings.pillBgColor.b);
 
         // Real Optical Liquid Glass (Backdrop Capture & Refraction) only active for translucent surfaces
         const island_performance::PowerStateInfo powerInfo = island_performance::ReadSystemPowerStatus();
@@ -16720,97 +16739,21 @@ class Renderer {
             }
         }
 
-        // 4. Dedicated AI Agent Usage & Rate Limits Card (from Dynamic Ledge)
-        const island_ai::AiUsageMetrics ai = island_ai::AiUsageReader::GetCurrentMetrics();
+        // 4. Dynamic Ledge Quick Actions Section: Focus Timers & Launchers
         const float cardMarginX = 16.0f * scale;
         const float cardW = (rect.right - rect.left) - cardMarginX * 2.0f;
-        const float cardH = 44.0f * scale;
-        const float cardY = chipY + chipH + 6.0f * scale;
-        const D2D1_RECT_F cardRect = D2D1::RectF(cx - cardW * 0.5f, cardY, cx + cardW * 0.5f, cardY + cardH);
-        g_overviewActions.aiCard = cardRect;
-
-        ComPtr<ID2D1SolidColorBrush> aiCardBg;
-        target_->CreateSolidColorBrush(D2D1::ColorF(0.08f, 0.10f, 0.14f, 0.88f), &aiCardBg);
-        ComPtr<ID2D1SolidColorBrush> aiCardBorder;
-        target_->CreateSolidColorBrush(WithAlpha(currentAccent_, 0.35f), &aiCardBorder);
-        if (aiCardBg) {
-            target_->FillRoundedRectangle(D2D1::RoundedRect(cardRect, 8.0f * scale, 8.0f * scale), aiCardBg.Get());
-        }
-        if (aiCardBorder) {
-            target_->DrawRoundedRectangle(D2D1::RoundedRect(cardRect, 8.0f * scale, 8.0f * scale), aiCardBorder.Get(), 0.75f * scale);
-        }
-
-        const float iconBoxSize = 16.0f * scale;
-        const D2D1_RECT_F iconBox = D2D1::RectF(cardRect.left + 8.0f * scale, cardRect.top + 5.0f * scale,
-                                               cardRect.left + 8.0f * scale + iconBoxSize, cardRect.top + 5.0f * scale + iconBoxSize);
-        if (accentBrush_ && iconFormat_) {
-            iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-            iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-            target_->DrawTextW(L"\uE946", 1, iconFormat_.Get(), iconBox, accentBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-            iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-            iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-        }
-
-        std::wstring titleStr = ai.provider + (ai.isActive ? L"  \u25CF Active" : L"  \u25CF Idle");
-        const D2D1_RECT_F titleRect = D2D1::RectF(iconBox.right + 6.0f * scale, cardRect.top + 5.0f * scale,
-                                                 cardRect.right - 75.0f * scale, cardRect.top + 20.0f * scale);
-        IDWriteTextFormat* boldFmt = boldTextFormat_ ? boldTextFormat_.Get() : textFormat_.Get();
-        if (boldFmt) {
-            textBrush_->SetOpacity(0.96f);
-            target_->DrawTextW(titleStr.c_str(), static_cast<UINT32>(titleStr.size()), boldFmt, titleRect, textBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        }
-
-        wchar_t quotaBuf[32] = {};
-        swprintf_s(quotaBuf, L"%.0f%% Free", ai.percentRemaining);
-        const D2D1_RECT_F quotaRect = D2D1::RectF(cardRect.right - 75.0f * scale, cardRect.top + 5.0f * scale,
-                                                 cardRect.right - 8.0f * scale, cardRect.top + 20.0f * scale);
-        IDWriteTextFormat* aiSmallFmt = smallTextFormat_ ? smallTextFormat_.Get() : textFormat_.Get();
-        if (aiSmallFmt && accentBrush_) {
-            target_->DrawTextW(quotaBuf, static_cast<UINT32>(wcslen(quotaBuf)), aiSmallFmt, quotaRect, accentBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
-        }
-
-        const float barLeft = cardRect.left + 8.0f * scale;
-        const float barRight = cardRect.right - 8.0f * scale;
-        const float barY = cardRect.top + 22.0f * scale;
-        const float barH = 3.0f * scale;
-        const D2D1_RECT_F barBgRect = D2D1::RectF(barLeft, barY, barRight, barY + barH);
-        ComPtr<ID2D1SolidColorBrush> barBg;
-        target_->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f), &barBg);
-        if (barBg) {
-            target_->FillRoundedRectangle(D2D1::RoundedRect(barBgRect, barH * 0.5f, barH * 0.5f), barBg.Get());
-        }
-        float usedFraction = 1.0f - (ai.percentRemaining / 100.0f);
-        usedFraction = Clamp(usedFraction, 0.04f, 1.0f);
-        const float fillW = (barRight - barLeft) * usedFraction;
-        const D2D1_RECT_F barFillRect = D2D1::RectF(barLeft, barY, barLeft + fillW, barY + barH);
-        if (accentBrush_) {
-            target_->FillRoundedRectangle(D2D1::RoundedRect(barFillRect, barH * 0.5f, barH * 0.5f), accentBrush_.Get());
-        }
-
-        wchar_t subBuf[128] = {};
-        if (ai.totalTokens >= 1000) {
-            swprintf_s(subBuf, L"%ls \u00B7 %.1fk tokens (Prompt: %.1fk \u00B7 Cache: %.1fk)",
-                       ai.model.c_str(), ai.totalTokens / 1000.0f, ai.inputTokens / 1000.0f, ai.cacheTokens / 1000.0f);
-        } else {
-            swprintf_s(subBuf, L"%ls \u00B7 %d tokens", ai.model.c_str(), ai.totalTokens);
-        }
-        const D2D1_RECT_F subRect = D2D1::RectF(barLeft, barY + barH + 2.0f * scale, barRight, cardRect.bottom - 2.0f * scale);
-        if (aiSmallFmt) {
-            mutedBrush_->SetOpacity(0.78f);
-            target_->DrawTextW(subBuf, static_cast<UINT32>(wcslen(subBuf)), aiSmallFmt, subRect, mutedBrush_.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        }
-
-        // 5. Dynamic Ledge Home Actions: 1-Click Quick Timers & Launchers
-        const float actY = cardRect.bottom + 5.0f * scale;
-        const float actH = 22.0f * scale;
-        const float actBtnRadius = 6.0f * scale;
+        const float actY = chipY + chipH + 16.0f * scale;
+        const float actH = 26.0f * scale;
+        const float actBtnRadius = 7.0f * scale;
 
         const bool timerRunning = island_globals::g_focusTimer.GetState() != island_focus::FocusState::Idle &&
                                   island_globals::g_focusTimer.GetState() != island_focus::FocusState::Paused;
 
-        const float halfW = (cardW - 10.0f * scale) * 0.5f;
+        const float halfW = (cardW - 12.0f * scale) * 0.5f;
 
-        float tX = cardRect.left;
+        float tX = cx - cardW * 0.5f;
+        IDWriteTextFormat* aiSmallFmt = smallTextFormat_ ? smallTextFormat_.Get() : textFormat_.Get();
+
         if (!timerRunning) {
             const float tBtnW = (halfW - 8.0f * scale) / 3.0f;
             g_overviewActions.timer5m = D2D1::RectF(tX, actY, tX + tBtnW, actY + actH);
@@ -16820,7 +16763,7 @@ class Renderer {
 
             auto drawBtn = [&](D2D1_RECT_F r, const wchar_t* txt, bool hovered) {
                 ComPtr<ID2D1SolidColorBrush> btnBg;
-                target_->CreateSolidColorBrush(hovered ? WithAlpha(currentAccent_, 0.25f) : D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.85f), &btnBg);
+                target_->CreateSolidColorBrush(hovered ? WithAlpha(currentAccent_, 0.28f) : D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.85f), &btnBg);
                 if (btnBg) target_->FillRoundedRectangle(D2D1::RoundedRect(r, actBtnRadius, actBtnRadius), btnBg.Get());
                 ID2D1SolidColorBrush* b = hovered ? (accentBrush_ ? accentBrush_.Get() : textBrush_.Get()) : textBrush_.Get();
                 if (aiSmallFmt) {
@@ -16836,7 +16779,7 @@ class Renderer {
             drawBtn(g_overviewActions.timer15m, L"15m", g_overviewActions.hovered == 2);
             drawBtn(g_overviewActions.timer25m, L"25m", g_overviewActions.hovered == 3);
         } else {
-            const float tBtnW = halfW * 0.65f;
+            const float tBtnW = halfW * 0.62f;
             g_overviewActions.timer5m = {};
             g_overviewActions.timer15m = {};
             g_overviewActions.timer25m = {};
@@ -16867,15 +16810,16 @@ class Renderer {
             }
         }
 
-        float sX = cardRect.left + halfW + 10.0f * scale;
-        const float sBtnW = (halfW - 8.0f * scale) / 3.0f;
+        float sX = cx - cardW * 0.5f + halfW + 12.0f * scale;
+        const float sBtnW = (halfW - 12.0f * scale) / 4.0f;
         g_overviewActions.shortcutTerm = D2D1::RectF(sX, actY, sX + sBtnW, actY + actH);
         g_overviewActions.shortcutBrowser = D2D1::RectF(sX + sBtnW + 4.0f * scale, actY, sX + sBtnW * 2.0f + 4.0f * scale, actY + actH);
-        g_overviewActions.shortcutFiles = D2D1::RectF(sX + (sBtnW + 4.0f * scale) * 2.0f, actY, sX + halfW, actY + actH);
+        g_overviewActions.shortcutFiles = D2D1::RectF(sX + (sBtnW + 4.0f * scale) * 2.0f, actY, sX + sBtnW * 3.0f + 8.0f * scale, actY + actH);
+        g_overviewActions.shortcutSettings = D2D1::RectF(sX + (sBtnW + 4.0f * scale) * 3.0f, actY, sX + halfW, actY + actH);
 
         auto drawLauncherBtn = [&](D2D1_RECT_F r, const wchar_t* txt, bool hovered) {
             ComPtr<ID2D1SolidColorBrush> btnBg;
-            target_->CreateSolidColorBrush(hovered ? WithAlpha(currentAccent_, 0.25f) : D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.85f), &btnBg);
+            target_->CreateSolidColorBrush(hovered ? WithAlpha(currentAccent_, 0.28f) : D2D1::ColorF(0.12f, 0.14f, 0.18f, 0.85f), &btnBg);
             if (btnBg) target_->FillRoundedRectangle(D2D1::RoundedRect(r, actBtnRadius, actBtnRadius), btnBg.Get());
             ID2D1SolidColorBrush* b = hovered ? (accentBrush_ ? accentBrush_.Get() : textBrush_.Get()) : textBrush_.Get();
             if (aiSmallFmt) {
@@ -16887,9 +16831,10 @@ class Renderer {
             }
         };
 
-        drawLauncherBtn(g_overviewActions.shortcutTerm, L">_ Term", g_overviewActions.hovered == 5);
-        drawLauncherBtn(g_overviewActions.shortcutBrowser, L"\U0001F310 Web", g_overviewActions.hovered == 6);
-        drawLauncherBtn(g_overviewActions.shortcutFiles, L"\U0001F4C1 Files", g_overviewActions.hovered == 7);
+        drawLauncherBtn(g_overviewActions.shortcutTerm, L">_", g_overviewActions.hovered == 5);
+        drawLauncherBtn(g_overviewActions.shortcutBrowser, L"\U0001F310", g_overviewActions.hovered == 6);
+        drawLauncherBtn(g_overviewActions.shortcutFiles, L"\U0001F4C1", g_overviewActions.hovered == 7);
+        drawLauncherBtn(g_overviewActions.shortcutSettings, L"\u2699\uFE0F", g_overviewActions.hovered == 8);
 
         textBrush_->SetOpacity(0.96f);
         mutedBrush_->SetOpacity(0.75f);
@@ -17037,37 +16982,10 @@ class Renderer {
                     }
                     slotX += (IdleStripLayout::kDividerWidth + IdleStripLayout::kSlotGap) * scale;
 
-                    const bool timerActive = island_globals::g_focusTimer.GetState() != island_focus::FocusState::Idle;
-                    if (timerActive) {
-                        std::wstring timerStr = L"\u23F3 " + island_globals::g_focusTimer.GetFormattedRemaining();
-                        const D2D1_RECT_F tRect = D2D1::RectF(slotX, rect.top, slotX + idleMetrics.aiWidth, rect.bottom);
-                        ID2D1SolidColorBrush* b = accentBrush_ ? accentBrush_.Get() : textBrush_.Get();
-                        target_->DrawTextW(timerStr.c_str(), static_cast<UINT32>(timerStr.size()), idleFmt, tRect, b, D2D1_DRAW_TEXT_OPTIONS_NONE);
-                    } else {
-                        auto ai = island_ai::AiUsageReader::GetCurrentMetrics();
-                        const wchar_t* aiSparkle = L"\uE946";
-                        const float iconSize = 14.0f * scale;
-                        const D2D1_RECT_F aiIconRect = D2D1::RectF(slotX, rect.top, slotX + iconSize, rect.bottom);
-                        ID2D1SolidColorBrush* sparkBrush = accentBrush_ ? accentBrush_.Get() : textBrush_.Get();
-                        if (iconFormat_) {
-                            iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                            iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                            target_->DrawTextW(aiSparkle, 1, iconFormat_.Get(), aiIconRect, sparkBrush, D2D1_DRAW_TEXT_OPTIONS_NONE);
-                            iconFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-                            iconFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-                        }
-                        const float textLeft = slotX + iconSize + 3.0f * scale;
-                        const D2D1_RECT_F aiTextRect = D2D1::RectF(textLeft, rect.top, slotX + idleMetrics.aiWidth, rect.bottom);
-                        wchar_t aiBuf[32] = {};
-                        if (ai.totalTokens >= 1000) {
-                            swprintf_s(aiBuf, L"%.0fk", ai.totalTokens / 1000.0f);
-                        } else if (ai.totalTokens > 0) {
-                            swprintf_s(aiBuf, L"%d", ai.totalTokens);
-                        } else {
-                            wcscpy_s(aiBuf, L"AI");
-                        }
-                        target_->DrawTextW(aiBuf, static_cast<UINT32>(wcslen(aiBuf)), idleFmt, aiTextRect, sparkBrush, D2D1_DRAW_TEXT_OPTIONS_NONE);
-                    }
+                    std::wstring timerStr = L"\u23F3 " + island_globals::g_focusTimer.GetFormattedRemaining();
+                    const D2D1_RECT_F tRect = D2D1::RectF(slotX, rect.top, slotX + idleMetrics.aiWidth, rect.bottom);
+                    ID2D1SolidColorBrush* b = accentBrush_ ? accentBrush_.Get() : textBrush_.Get();
+                    target_->DrawTextW(timerStr.c_str(), static_cast<UINT32>(timerStr.size()), idleFmt, tRect, b, D2D1_DRAW_TEXT_OPTIONS_NONE);
                     slotX += idleMetrics.aiWidth;
                 }
 
@@ -24975,11 +24893,7 @@ LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                             return 0;
                         }
                         case 8: {
-                            wchar_t userProfile[MAX_PATH] = {};
-                            if (GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH) > 0) {
-                                std::wstring agyDir = std::wstring(userProfile) + L"\\.gemini\\antigravity";
-                                ShellExecuteW(nullptr, L"open", agyDir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                            }
+                            settings_ui::ShowSettingsWindow(hwnd);
                             return 0;
                         }
                         default:

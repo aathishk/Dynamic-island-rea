@@ -397,15 +397,19 @@ struct SurfaceMaterialProperties {
 inline SurfaceMaterialProperties CalculateSurfaceMaterial(
     bool isExpanded,
     DashboardPageId activePageId,
-    float settingsPillOpacity
+    float settingsPillOpacity,
+    float pillBgR = 0.031f,
+    float pillBgG = 0.031f,
+    float pillBgB = 0.039f
 ) {
     SurfaceMaterialProperties p = {};
     p.alpha = island_alpha::CalculateSurfaceOpacity(isExpanded, activePageId, settingsPillOpacity);
+    p.r = pillBgR;
+    p.g = pillBgG;
+    p.b = pillBgB;
     if (!isExpanded || activePageId == DashboardPageId::Media) {
-        p.r = 0.04f; p.g = 0.04f; p.b = 0.06f;
         p.isOpaqueBackdrop = false;
     } else {
-        p.r = 0.04f; p.g = 0.05f; p.b = 0.07f;
         p.isOpaqueBackdrop = true;
     }
     return p;

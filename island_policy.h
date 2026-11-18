@@ -141,7 +141,16 @@ inline BluetoothDeviceCategory ClassifyDeviceByName(const std::wstring& nameLowe
         nameLower.find(L"huawei") != std::wstring::npos ||
         nameLower.find(L"honor") != std::wstring::npos ||
         nameLower.find(L"xperia") != std::wstring::npos ||
-        nameLower.find(L"android") != std::wstring::npos) {
+        nameLower.find(L"android") != std::wstring::npos ||
+        nameLower.find(L"samsung") != std::wstring::npos ||
+        nameLower.find(L"nothing") != std::wstring::npos ||
+        nameLower.find(L"iqoo") != std::wstring::npos ||
+        nameLower.find(L"zenfone") != std::wstring::npos ||
+        nameLower.find(L"sm-") != std::wstring::npos ||
+        nameLower.find(L"cph") != std::wstring::npos ||
+        nameLower.find(L"rmx") != std::wstring::npos ||
+        nameLower.find(L"tablet") != std::wstring::npos ||
+        nameLower.find(L"tab") != std::wstring::npos) {
         return BluetoothDeviceCategory::Phone;
     }
     return BluetoothDeviceCategory::Generic;
@@ -215,6 +224,24 @@ inline const PaletteDefinition* ResolveThemePalette(std::wstring_view id) {
     if (iequals(id, L"midnight-blue")) return &kAllThemePalettes[2]; // slate
     if (iequals(id, L"deep-purple")) return &kAllThemePalettes[6]; // plum
     return nullptr;
+}
+
+// Maps a preset id to its palette index, accepting legacy aliases via ResolveThemePalette.
+inline int ThemeIndexFromId(std::wstring_view id) {
+    auto iequals = [](std::wstring_view a, std::wstring_view b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (towlower(a[i]) != towlower(b[i])) return false;
+        }
+        return true;
+    };
+
+    if (iequals(id, L"custom")) return static_cast<int>(sizeof(kAllThemePalettes) / sizeof(kAllThemePalettes[0]));
+    const auto* pal = ResolveThemePalette(id);
+    if (pal) {
+        return static_cast<int>(pal - &kAllThemePalettes[0]);
+    }
+    return -1;
 }
 
 // ── Shared Accent Color Presets ──────────────────────────────────────────

@@ -172,8 +172,8 @@ enum CtrlId : int {
     // Page 1: Personalisation
     ID_COMBO_POS,
     ID_COMBO_SHAPE,
+    ID_COMBO_THEME,
     ID_COMBO_ACCENT,
-    ID_COMBO_THEME = ID_COMBO_ACCENT,
     ID_COMBO_ANIM,
     ID_COMBO_SCALE,
     ID_COMBO_OPACITY,
@@ -715,8 +715,8 @@ inline HWND hLblOverviewStatus = nullptr;
 // Page 1 controls
 inline HWND hComboPos = nullptr;
 inline HWND hComboShape = nullptr;
+inline HWND hComboTheme = nullptr;
 inline HWND hComboAccent = nullptr;
-inline HWND& hComboTheme = hComboAccent;
 inline HWND hComboAnim = nullptr;
 inline HWND hComboScale = nullptr;
 inline HWND hComboOpacity = nullptr;
@@ -863,6 +863,7 @@ inline void LoadValuesIntoUi() {
     // Page 1: Personalisation
     selectCombo(hComboPos, kPosOptions, ARRAYSIZE(kPosOptions), ReadIniString(L"Settings", L"Appearance.Position", L"top-center"));
     selectCombo(hComboShape, kShapeOptions, ARRAYSIZE(kShapeOptions), ReadIniString(L"Settings", L"Appearance.ShapeStyle", L"notch"));
+    selectCombo(hComboTheme, kThemeOptions, ARRAYSIZE(kThemeOptions), ReadIniString(L"Settings", L"Themes.ThemePreset", L"obsidian"));
     {
         std::wstring accentMode = ReadIniString(L"Settings", L"Themes.AccentColorMode", L"auto");
         std::wstring customHex = ReadIniString(L"Settings", L"Themes.CustomAccentHex", L"#4CC9F0");
@@ -894,7 +895,7 @@ inline void LoadValuesIntoUi() {
     SendMessageW(hChkBorder, BM_SETCHECK, borderOn ? BST_CHECKED : BST_UNCHECKED, 0);
 
     // Page 2: Behaviour & Gestures
-    SendMessageW(hChkHover, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.ExpandOnHover", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(hChkHover, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.ExpandOnHover", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkAutohideFs, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.AutoHideFullscreen", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkAutoContext, BM_SETCHECK, ReadIniInt(L"Settings", L"Context.AutoContextSwitching", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(hChkRememberLastPage, BM_SETCHECK, ReadIniInt(L"Settings", L"Behavior.RememberLastPage", 0) ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -953,6 +954,14 @@ inline void SaveValuesFromUi(HWND hwnd) {
     WriteIniString(L"Settings", L"Appearance.Position", getComboVal(hComboPos, kPosOptions, ARRAYSIZE(kPosOptions)));
     WriteIniString(L"Settings", L"Appearance.ShapeStyle", getComboVal(hComboShape, kShapeOptions, ARRAYSIZE(kShapeOptions)));
     {
+        const wchar_t* selectedTheme = getComboVal(hComboTheme, kThemeOptions, ARRAYSIZE(kThemeOptions));
+        WriteIniString(L"Settings", L"Themes.ThemePreset", selectedTheme);
+        const int tIdx = island_policy::ThemeIndexFromId(selectedTheme);
+        if (tIdx >= 0) {
+            WriteIniInt(L"Values", L"ColorThemeV2", tIdx);
+        }
+    }
+    {
         const wchar_t* selectedAccent = getComboVal(hComboAccent, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions));
         if (_wcsicmp(selectedAccent, L"auto") == 0) {
             WriteIniString(L"Settings", L"Themes.AccentColorMode", L"auto");
@@ -962,7 +971,6 @@ inline void SaveValuesFromUi(HWND hwnd) {
             WriteIniString(L"Settings", L"Themes.AccentColorMode", L"custom");
             WriteIniString(L"Settings", L"Themes.CustomAccentHex", selectedAccent);
         }
-        WriteIniString(L"Settings", L"Themes.ThemePreset", L"obsidian");
     }
     WriteIniString(L"Settings", L"Animations.AnimationStyle", getComboVal(hComboAnim, kAnimOptions, ARRAYSIZE(kAnimOptions)));
     WriteIniString(L"Settings", L"Appearance.SizeScale", getComboVal(hComboScale, kScaleOptions, ARRAYSIZE(kScaleOptions)));
@@ -1246,28 +1254,31 @@ inline LRESULT CALLBACK SettingsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                 L"• Native Windows rendering. Local settings and history. Optional online integrations for Weather, Lyrics and Quick Lookup.", 0);
 
             // ── PAGE 1: Personalisation ─────────────────────────────────────────
-            makeLabel(32, 55, 180, 20, L"Screen Position:", 1);
-            hComboPos = makeCombo(210, 52, 380, 240, ID_COMBO_POS, kPosOptions, ARRAYSIZE(kPosOptions), 1);
+            makeLabel(32, 45, 180, 20, L"Screen Position:", 1);
+            hComboPos = makeCombo(210, 42, 380, 240, ID_COMBO_POS, kPosOptions, ARRAYSIZE(kPosOptions), 1);
 
-            makeLabel(32, 95, 180, 20, L"Island Shape Style:", 1);
-            hComboShape = makeCombo(210, 92, 380, 240, ID_COMBO_SHAPE, kShapeOptions, ARRAYSIZE(kShapeOptions), 1);
+            makeLabel(32, 77, 180, 20, L"Island Shape Style:", 1);
+            hComboShape = makeCombo(210, 74, 380, 240, ID_COMBO_SHAPE, kShapeOptions, ARRAYSIZE(kShapeOptions), 1);
 
-            makeLabel(32, 135, 180, 20, L"Accent Color:", 1);
-            hComboAccent = makeCombo(210, 132, 380, 240, ID_COMBO_ACCENT, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions), 1);
+            makeLabel(32, 109, 180, 20, L"Theme Palette:", 1);
+            hComboTheme = makeCombo(210, 106, 380, 240, ID_COMBO_THEME, kThemeOptions, ARRAYSIZE(kThemeOptions), 1);
 
-            makeLabel(32, 175, 180, 20, L"Size Scale:", 1);
-            hComboScale = makeCombo(210, 172, 380, 240, ID_COMBO_SCALE, kScaleOptions, ARRAYSIZE(kScaleOptions), 1);
+            makeLabel(32, 141, 180, 20, L"Accent Color:", 1);
+            hComboAccent = makeCombo(210, 138, 380, 240, ID_COMBO_ACCENT, kAccentColorOptions, ARRAYSIZE(kAccentColorOptions), 1);
 
-            makeLabel(32, 215, 180, 20, L"Pill Opacity:", 1);
-            hComboOpacity = makeCombo(210, 212, 380, 240, ID_COMBO_OPACITY, kOpacityOptions, ARRAYSIZE(kOpacityOptions), 1);
+            makeLabel(32, 173, 180, 20, L"Size Scale:", 1);
+            hComboScale = makeCombo(210, 170, 380, 240, ID_COMBO_SCALE, kScaleOptions, ARRAYSIZE(kScaleOptions), 1);
 
-            makeLabel(32, 255, 180, 20, L"Animation Physics:", 1);
-            hComboAnim = makeCombo(210, 252, 380, 240, ID_COMBO_ANIM, kAnimOptions, ARRAYSIZE(kAnimOptions), 1);
+            makeLabel(32, 205, 180, 20, L"Pill Opacity:", 1);
+            hComboOpacity = makeCombo(210, 202, 380, 240, ID_COMBO_OPACITY, kOpacityOptions, ARRAYSIZE(kOpacityOptions), 1);
 
-            hChkRealGlass = makeCheck(32, 295, 540, 24, ID_CHK_REAL_GLASS, L"💎 Real Liquid Glass (Live Optical Backdrop Blur & Lens Refraction)", 1);
-            hChkBloom = makeCheck(32, 325, 540, 24, ID_CHK_BLOOM, L"🎵 Dynamic Album Art Bloom (Glass Tint washes with Music)", 1);
-            hChkShadow = makeCheck(32, 355, 540, 24, ID_CHK_SHADOW, L"🌑 Soft Curved Drop Shadow", 1);
-            hChkBorder = makeCheck(32, 385, 540, 24, ID_CHK_BORDER, L"✨ Specular Hairline Contour Rim", 1);
+            makeLabel(32, 237, 180, 20, L"Animation Physics:", 1);
+            hComboAnim = makeCombo(210, 234, 380, 240, ID_COMBO_ANIM, kAnimOptions, ARRAYSIZE(kAnimOptions), 1);
+
+            hChkRealGlass = makeCheck(32, 275, 540, 24, ID_CHK_REAL_GLASS, L"💎 Real Liquid Glass (Live Optical Backdrop Blur & Lens Refraction)", 1);
+            hChkBloom = makeCheck(32, 305, 540, 24, ID_CHK_BLOOM, L"🎵 Dynamic Album Art Bloom (Glass Tint washes with Music)", 1);
+            hChkShadow = makeCheck(32, 335, 540, 24, ID_CHK_SHADOW, L"🌑 Soft Curved Drop Shadow", 1);
+            hChkBorder = makeCheck(32, 365, 540, 24, ID_CHK_BORDER, L"✨ Specular Hairline Contour Rim", 1);
 
             // ── PAGE 2: Behaviour & Gestures ────────────────────────────────────
             hChkHover = makeCheck(32, 45, 540, 24, ID_CHK_HOVER, L"🖱️ Expand on Mouse Hover (vs Click to Expand)", 2);
